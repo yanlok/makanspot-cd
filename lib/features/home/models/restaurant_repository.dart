@@ -44,7 +44,12 @@ class RestaurantRepository {
     String? priceRange,
     double? maxDistance,
   }) async {
-    var builder = _supabase.from('restaurants').select('*, restaurant_images(image_url)');
+    // When filtering by category, inner-join the junction + categories tables so
+    // only restaurants linked to that category name are returned.
+    final selectColumns = category != null
+        ? '*, restaurant_images(image_url), restaurant_categories!inner(categories!inner(name))'
+        : '*, restaurant_images(image_url)';
+    var builder = _supabase.from('restaurants').select(selectColumns);
 
     if (query != null) {
       builder = builder.ilike('name', '%$query%');
@@ -52,6 +57,10 @@ class RestaurantRepository {
 
     if (priceRange != null) {
       builder = builder.eq('price_range', priceRange);
+    }
+
+    if (category != null) {
+      builder = builder.eq('restaurant_categories.categories.name', category);
     }
 
     final data = await builder.eq('is_approved', true);

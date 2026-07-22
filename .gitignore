@@ -54,3 +54,6 @@ npm-debug.log*
 
 # Local scratch / notes
 project_error.md
+
+# Dropped scraper datasets (keep the folder + its README, ignore the exports)
+/datasets/*.json
