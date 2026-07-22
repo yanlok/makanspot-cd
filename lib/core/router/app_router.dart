@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../features/home/presentation/home_screen.dart';
-import '../../features/discover/presentation/discover_screen.dart';
-import '../../features/community/presentation/community_feed_screen.dart';
-import '../../features/journey/presentation/journey_screen.dart';
-import '../../features/profile/presentation/profile_screen.dart';
-import '../../features/auth/presentation/login_screen.dart';
+import '../../features/home/views/home_screen.dart';
+import '../../features/discover/views/discover_screen.dart';
+import '../../features/community/views/community_feed_screen.dart';
+import '../../features/journey/views/journey_screen.dart';
+import '../../features/profile/views/profile_screen.dart';
+import '../../features/auth/views/login_screen.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellNavigatorKey = GlobalKey<NavigatorState>();

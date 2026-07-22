@@ -1,0 +1,11 @@
+CREATE POLICY "Categories are viewable by everyone." ON public.categories FOR SELECT USING (true);
+CREATE POLICY "Achievements are viewable by everyone." ON public.achievements FOR SELECT USING (true);
+CREATE POLICY "Restaurant categories are viewable by everyone." ON public.restaurant_categories FOR SELECT USING (true);
+CREATE POLICY "Restaurant images are viewable by everyone." ON public.restaurant_images FOR SELECT USING (true);
+CREATE POLICY "Restaurant menu is viewable by everyone." ON public.restaurant_menu FOR SELECT USING (true);
+CREATE POLICY "Reviews are viewable by everyone." ON public.reviews FOR SELECT USING (true);
+CREATE POLICY "Comments are viewable by everyone." ON public.comments FOR SELECT USING (true);
+CREATE POLICY "Likes are viewable by everyone." ON public.likes FOR SELECT USING (true);
+CREATE POLICY "Journeys are viewable by everyone." ON public.journeys FOR SELECT USING (true);
+CREATE POLICY "User achievements are viewable by everyone." ON public.user_achievements FOR SELECT USING (true);
+CREATE POLICY "Bookmarks are viewable by everyone." ON public.bookmarks FOR SELECT USING (true);

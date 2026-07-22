@@ -43,3 +43,14 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Node / npm (only used for the Supabase CLI wrapper)
+node_modules/
+package-lock.json
+npm-debug.log*
+
+# Supabase local CLI state
+/supabase/.temp/
+
+# Local scratch / notes
+project_error.md
