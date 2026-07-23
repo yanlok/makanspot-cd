@@ -6,6 +6,10 @@
 // from each caption (LLM), geocodes it (Google), then promotes qualifying rows
 // into public.restaurants with is_approved = false for admin review.
 //
+// Note: Google Places API has been removed from this pipeline due to cost.
+// Only Geocoding API is used (free tier covers ~42K requests/month).
+// Phone/rating/hours from Places are no longer populated.
+//
 // Row outcomes (status column):
 //   promoted -> a restaurant row was created (or matched an existing one)
 //   skipped  -> the LLM decided it is not a single identifiable restaurant
@@ -20,16 +24,11 @@ import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import {
   deriveCategories,
   extractVenue,
-  fetchImageBytes,
-  fetchPlaceDetails,
-  fetchPlacePhotoBytes,
   geocode,
   isHiddenGem,
   popularityScore,
   type VenueExtraction,
 } from "../_shared/enrich.ts";
-
-const PHOTO_BUCKET = "restaurant-photos";
 
 interface StagedRow {
   id: number;
@@ -106,42 +105,6 @@ async function linkCategories(
   }
 }
 
-/**
- * Get a permanent photo URL for a venue by re-hosting into Supabase Storage.
- * Prefers a Google Places photo; falls back to re-hosting the (still-valid)
- * scraped cover URL. Uses a deterministic path so re-runs overwrite rather than
- * orphan files. Returns the public URL, or null if no image could be obtained.
- */
-async function storePhoto(
-  supabase: SupabaseClient,
-  opts: {
-    photoReference: string | null;
-    coverUrl: string | null;
-    storagePath: string;
-  },
-): Promise<string | null> {
-  let img: { bytes: Uint8Array; contentType: string } | null = null;
-
-  if (opts.photoReference) img = await fetchPlacePhotoBytes(opts.photoReference);
-  if (!img && opts.coverUrl) img = await fetchImageBytes(opts.coverUrl);
-  if (!img) return null;
-
-  const ext = img.contentType.includes("png")
-    ? "png"
-    : img.contentType.includes("webp")
-    ? "webp"
-    : "jpg";
-  const path = `${opts.storagePath}.${ext}`;
-  const { error } = await supabase.storage.from(PHOTO_BUCKET).upload(
-    path,
-    img.bytes,
-    { contentType: img.contentType, upsert: true },
-  );
-  if (error) return null;
-  return supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path).data
-    ?.publicUrl ?? null;
-}
-
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -196,50 +159,6 @@ Deno.serve(async (req: Request) => {
         name: (r.extraction as { name?: string } | null)?.name ?? null,
       })),
     });
-  }
-
-  // Backfill mode: fetch Google Places data (phone, hours, rating, review count)
-  // for existing restaurants that are missing it (e.g. created while Places API
-  // daily quota was exhausted). Processes in batches, call repeatedly to drain.
-  if (body?.action === "backfill-places") {
-    const batchLimit = Math.min(Number(body?.limit ?? 25), 50);
-
-    const { data: restaurants } = await supabase
-      .from("restaurants")
-      .select("id, name, latitude, longitude, rating, review_count, phone_number, operating_hours")
-      .or("rating.eq.0,phone_number.is.null")
-      .limit(batchLimit);
-
-    if (!restaurants || restaurants.length === 0) {
-      return jsonResponse({ backfilled: 0, message: "All restaurants already have Places data." });
-    }
-
-    let backfilled = 0, skipped = 0;
-    for (const rest of restaurants) {
-      if (!rest.latitude || !rest.longitude || !rest.name) {
-        skipped++;
-        continue;
-      }
-      try {
-        const place = await fetchPlaceDetails(rest.name, rest.latitude, rest.longitude);
-        if (place) {
-          const patch: Record<string, unknown> = {};
-          if (place.phoneNumber) patch.phone_number = place.phoneNumber;
-          if (place.operatingHours) patch.operating_hours = place.operatingHours;
-          if (place.rating != null) patch.rating = place.rating;
-          if (place.reviewCount != null) patch.review_count = place.reviewCount;
-          if (Object.keys(patch).length > 0) {
-            const { error: updErr } = await supabase
-              .from("restaurants").update(patch).eq("id", rest.id);
-            if (!updErr) backfilled++;
-          }
-        }
-      } catch (_e) {
-        // individual fetch failure — skip and continue
-      }
-    }
-
-    return jsonResponse({ backfilled, skipped });
   }
 
   // Reprocess mode: delete restaurants previously promoted from scraped posts
@@ -379,11 +298,6 @@ Deno.serve(async (req: Request) => {
       if (match) {
         // Merge: aggregate engagement and keep the highest-play video as primary.
         const isNewTop = row.play_count > (match.top_play_count ?? 0);
-        // Places profile (phone/hours/rating/photo) is venue-level, so only
-        // fetch it when this video becomes the new top — not for every dup.
-        const place = isNewTop
-          ? await fetchPlaceDetails(venue.name, geo.latitude, geo.longitude)
-          : null;
         const patch: Record<string, unknown> = {
           popularity_score: (match.popularity_score ?? 0) + thisScore,
           is_trending: (match.is_trending ?? false) || thisTrending,
@@ -396,10 +310,6 @@ Deno.serve(async (req: Request) => {
           patch.post_url = row.web_video_url;
           patch.social_media_source = row.platform;
           if (venue.description) patch.description = venue.description;
-          if (place?.phoneNumber) patch.phone_number = place.phoneNumber;
-          if (place?.operatingHours) patch.operating_hours = place.operatingHours;
-          if (place?.rating != null) patch.rating = place.rating;
-          if (place?.reviewCount != null) patch.review_count = place.reviewCount;
         }
         const { error: updErr } = await supabase
           .from("restaurants").update(patch).eq("id", match.id);
@@ -412,24 +322,6 @@ Deno.serve(async (req: Request) => {
           });
           continue;
         }
-        // Only re-host a new photo when this becomes the top video, to avoid
-        // fetching Places photos for every duplicate. New photo becomes primary.
-        if (isNewTop) {
-          const photoUrl = await storePhoto(supabase, {
-            photoReference: place?.photoReference ?? null,
-            coverUrl: row.cover_url,
-            storagePath: `posts/${row.id}`,
-          });
-          if (photoUrl) {
-            await supabase.from("restaurant_images")
-              .update({ is_primary: false }).eq("restaurant_id", match.id);
-            await supabase.from("restaurant_images").insert({
-              restaurant_id: match.id,
-              image_url: photoUrl,
-              is_primary: true,
-            });
-          }
-        }
         await linkCategories(supabase, match.id, cats);
         merged++;
         await finish("promoted", {
@@ -440,9 +332,7 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
-      // No match -> insert a new restaurant (pending approval). Pull the Places
-      // profile (phone/hours/rating/photo) for the venue first.
-      const place = await fetchPlaceDetails(venue.name, geo.latitude, geo.longitude);
+      // No match -> insert a new restaurant (pending approval for admin review).
       const { data: inserted, error: insErr } = await supabase
         .from("restaurants")
         .insert({
@@ -457,10 +347,6 @@ Deno.serve(async (req: Request) => {
           popularity_score: thisScore,
           top_play_count: row.play_count,
           source_post_count: 1,
-          rating: place?.rating ?? 0,
-          review_count: place?.reviewCount ?? 0,
-          operating_hours: place?.operatingHours ?? null,
-          phone_number: place?.phoneNumber ?? null,
           is_hidden_gem: thisGem,
           is_trending: thisTrending,
           is_approved: false,
@@ -476,20 +362,6 @@ Deno.serve(async (req: Request) => {
           error: insErr?.message ?? "insert_failed",
         });
         continue;
-      }
-
-      // Re-host a permanent photo (Google Places first, cover URL fallback).
-      const photoUrl = await storePhoto(supabase, {
-        photoReference: place?.photoReference ?? null,
-        coverUrl: row.cover_url,
-        storagePath: `posts/${row.id}`,
-      });
-      if (photoUrl) {
-        await supabase.from("restaurant_images").insert({
-          restaurant_id: inserted.id,
-          image_url: photoUrl,
-          is_primary: true,
-        });
       }
       await linkCategories(supabase, inserted.id, cats);
 

@@ -5,14 +5,17 @@
 //
 //   1. Picks up a JSON dataset (drop it in the /datasets folder, or pass a path)
 //   2. Ingests it into the scraped_posts staging table (with a progress bar)
-//   3. Enriches + promotes rows into restaurants (LLM -> geocode -> Places photo
-//      -> Supabase Storage -> categories), looping until everything is done
+//   3. Enriches + promotes rows into restaurants (LLM -> geocode -> categories),
+//      looping until everything is done
 //
 // Usage (from the project root):
 //   node scripts/run_pipeline.mjs                 # newest .json in /datasets
 //   node scripts/run_pipeline.mjs "C:\path\file.json"
 //   node scripts/run_pipeline.mjs --enrich-only   # skip ingest, just process
 //   node scripts/run_pipeline.mjs --reprocess     # rebuild all restaurants first
+//
+// Note: Google Places API was removed from this pipeline due to cost.
+// Only Geocoding API is used. See docs/scraped-post-pipeline.md for details.
 //
 // Or just double-click run_pipeline.cmd in the project root.
 //
@@ -48,7 +51,6 @@ const datasetsDir = process.env.DATASETS_DIR ?? join(projectRoot, "datasets");
 const args = process.argv.slice(2);
 const enrichOnly = args.includes("--enrich-only");
 const doReprocess = args.includes("--reprocess");
-const doBackfillPlaces = args.includes("--backfill-places");
 const pathArg = args.find((a) => !a.startsWith("--"));
 
 // ---------------------------------------------------------------------------
@@ -144,7 +146,7 @@ async function ingest(filePath) {
 // Phase 2 — enrich + promote pending rows into restaurants
 // ---------------------------------------------------------------------------
 async function enrich() {
-  console.log(`\n[2/2] Enriching pending posts (LLM -> geocode -> photo -> DB)...`);
+  console.log(`\n[2/2] Enriching pending posts (LLM -> geocode -> DB)...`);
 
   const status = await postJson("enrich-scraped-posts", { action: "status" });
   const total = status?.counts?.pending ?? 0;
@@ -181,49 +183,11 @@ async function enrich() {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 3 — backfill Places data for existing restaurants
-// ---------------------------------------------------------------------------
-async function backfillPlaces() {
-  console.log(`\n[3/3] Backfilling Google Places data for existing restaurants...`);
-
-  let totals = { backfilled: 0, skipped: 0 };
-  let done = 0;
-  drawBar("Backfill", 0, 1); // indeterminate start
-
-  for (;;) {
-    const r = await postJson("enrich-scraped-posts", {
-      action: "backfill-places",
-      limit: 25,
-    });
-    const backfilled = r.backfilled ?? 0;
-    if (backfilled === 0) {
-      if (r.message) console.log(`\n      ${r.message}`);
-      break;
-    }
-    totals.backfilled += backfilled;
-    totals.skipped += (r.skipped ?? 0);
-    done += backfilled;
-    drawBar("Backfill", done, done + (r.skipped ?? 0));
-  }
-  endBar();
-  console.log(
-    `      restaurants updated: ${totals.backfilled}   skipped: ${totals.skipped}`,
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 async function main() {
   console.log("MakanSpot pipeline");
   console.log(`  target: ${baseUrl}`);
-
-  // Standalone backfill: just fill Places data, skip ingest + enrich
-  if (doBackfillPlaces && !doReprocess && !enrichOnly && !pathArg) {
-    await backfillPlaces();
-    console.log("\nDone.");
-    return;
-  }
 
   if (doReprocess) {
     console.log("\n[0]   Reprocess: deleting scraped-sourced restaurants + " +
@@ -249,11 +213,6 @@ async function main() {
   }
 
   await enrich();
-
-  // After enrichment, optionally backfill Places data for existing restaurants
-  if (doBackfillPlaces) {
-    await backfillPlaces();
-  }
 
   console.log("\nDone. New restaurants land as is_approved = false — approve them " +
     "in the admin dashboard.");

@@ -137,9 +137,6 @@ node scripts/run_pipeline.mjs --enrich-only
 
 # Rebuild all restaurants from scratch (reuses stored LLM extraction — no extra cost)
 node scripts/run_pipeline.mjs --reprocess
-
-# Backfill Google Places data for existing restaurants
-node scripts/run_pipeline.mjs --backfill-places
 ```
 
 ### Approve new restaurants
@@ -168,7 +165,6 @@ The pipeline merges posts about the same venue into one restaurant row:
 | Deploy a function | `supabase functions deploy <name> --no-verify-jwt` |
 | Set a secret | `supabase secrets set KEY=value` |
 | Run pipeline | `node scripts/run_pipeline.mjs` |
-| Backfill Places data | `node scripts/run_pipeline.mjs --backfill-places` |
 | Reprocess everything | `node scripts/run_pipeline.mjs --reprocess --enrich-only` |
 | Check enrichment status | `node -e "fetch('https://npmdrgpypkozdjtiplmf.functions.supabase.co/enrich-scraped-posts',{method:'POST',headers:{'Authorization':'Bearer sb_publishable_9qvkHzyVPR6SCHtRk9zjVQ_vMODyBCH','apikey':'sb_publishable_9qvkHzyVPR6SCHtRk9zjVQ_vMODyBCH','Content-Type':'application/json'},body:JSON.stringify({action:'status'})}).then(r=>r.json()).then(console.log)"` |
 
@@ -190,6 +186,4 @@ node scripts/run_pipeline.mjs --enrich-only
 node -e "fetch('https://npmdrgpypkozdjtiplmf.functions.supabase.co/enrich-scraped-posts',{method:'POST',headers:{'Authorization':'Bearer sb_publishable_9qvkHzyVPR6SCHtRk9zjVQ_vMODyBCH','apikey':'sb_publishable_9qvkHzyVPR6SCHtRk9zjVQ_vMODyBCH','Content-Type':'application/json'},body:JSON.stringify({action:'status',reset:true})}).then(r=>r.json()).then(console.log)"
 ```
 
-### Google Places API daily quota exceeded
 
-Run `--backfill-places` the next day — it backfills missing data without re-running LLM extraction.

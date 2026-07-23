@@ -1,9 +1,13 @@
 /// <reference path="./deno.d.ts" />
 // Enrichment helpers: turn a raw scraped caption into a structured restaurant.
 //
-// Two external calls, both configured via Edge Function secrets:
+// External calls configured via Edge Function secrets:
 //   OPENAI_API_KEY        -> LLM venue extraction from free-text captions
 //   GOOGLE_GEOCODING_KEY  -> resolve name/address into lat/long + clean address
+//
+// Note: Google Places API has been removed from this pipeline due to cost.
+// Only Geocoding API is used (free tier covers ~42K requests/month).
+// If Places data is needed in the future, it should be sourced differently.
 //
 // Both are defensive: if a key is missing or the call fails, we degrade
 // gracefully so the row can still fall back to the admin review queue.
@@ -313,130 +317,10 @@ export function deriveCategories(
 }
 
 // ---------------------------------------------------------------------------
-// Google Places photos (re-hosting source)
+// Generic image download (kept for potential future use, not Places-specific)
 // ---------------------------------------------------------------------------
 
-function placesKey(): string | undefined {
-  return Deno.env.get("GOOGLE_PLACES_KEY") ??
-    Deno.env.get("GOOGLE_GEOCODING_KEY");
-}
-
-/** Structured Google Places profile used to enrich a restaurant row. */
-export interface PlaceDetails {
-  photoReference: string | null;
-  phoneNumber: string | null;
-  rating: number | null; // 0..5
-  reviewCount: number | null;
-  operatingHours: { weekday_text?: string[]; periods?: unknown[] } | null;
-}
-
-/**
- * Look up a venue on Google Places (biased to its coordinates) and return its
- * photo reference plus profile fields (phone, rating, review count, opening
- * hours). Returns null when Places is unavailable; individual fields are null
- * when the place has no such data.
- */
-export async function fetchPlaceDetails(
-  name: string,
-  latitude: number,
-  longitude: number,
-): Promise<PlaceDetails | null> {
-  const apiKey = placesKey();
-  if (!apiKey) return null;
-  try {
-    // 1. Resolve the venue to a place_id (and grab a photo reference).
-    const findUrl = new URL(
-      "https://maps.googleapis.com/maps/api/place/findplacefromtext/json",
-    );
-    findUrl.searchParams.set("input", `${name} Malaysia`);
-    findUrl.searchParams.set("inputtype", "textquery");
-    findUrl.searchParams.set("fields", "place_id,photos");
-    findUrl.searchParams.set(
-      "locationbias",
-      `circle:2000@${latitude},${longitude}`,
-    );
-    findUrl.searchParams.set("key", apiKey);
-
-    const findResp = await fetch(findUrl.toString());
-    if (!findResp.ok) return null;
-    const findData = await findResp.json();
-    const candidate = findData?.candidates?.[0];
-    const photoReference: string | null =
-      typeof candidate?.photos?.[0]?.photo_reference === "string"
-        ? candidate.photos[0].photo_reference
-        : null;
-    const placeId: string | undefined = candidate?.place_id;
-
-    let phoneNumber: string | null = null;
-    let rating: number | null = null;
-    let reviewCount: number | null = null;
-    let operatingHours: PlaceDetails["operatingHours"] = null;
-
-    // 2. Fetch the profile fields via Place Details (needs the place_id).
-    if (placeId) {
-      const detUrl = new URL(
-        "https://maps.googleapis.com/maps/api/place/details/json",
-      );
-      detUrl.searchParams.set("place_id", placeId);
-      detUrl.searchParams.set(
-        "fields",
-        "formatted_phone_number,international_phone_number,rating,user_ratings_total,opening_hours",
-      );
-      detUrl.searchParams.set("key", apiKey);
-
-      const detResp = await fetch(detUrl.toString());
-      if (detResp.ok) {
-        const res = (await detResp.json())?.result;
-        if (res) {
-          phoneNumber = res.formatted_phone_number ??
-            res.international_phone_number ?? null;
-          rating = typeof res.rating === "number" ? res.rating : null;
-          reviewCount = typeof res.user_ratings_total === "number"
-            ? res.user_ratings_total
-            : null;
-          if (res.opening_hours) {
-            operatingHours = {
-              weekday_text: res.opening_hours.weekday_text,
-              periods: res.opening_hours.periods,
-            };
-          }
-        }
-      }
-    }
-
-    return { photoReference, phoneNumber, rating, reviewCount, operatingHours };
-  } catch (_e) {
-    return null;
-  }
-}
-
-/** Download the actual photo bytes for a Places photo reference. */
-export async function fetchPlacePhotoBytes(
-  photoReference: string,
-  maxWidth = 1024,
-): Promise<{ bytes: Uint8Array; contentType: string } | null> {
-  const apiKey = placesKey();
-  if (!apiKey) return null;
-  try {
-    const url = new URL("https://maps.googleapis.com/maps/api/place/photo");
-    url.searchParams.set("maxwidth", String(maxWidth));
-    url.searchParams.set("photo_reference", photoReference);
-    url.searchParams.set("key", apiKey);
-
-    // The endpoint 302-redirects to the actual image; fetch follows it.
-    const resp = await fetch(url.toString());
-    if (!resp.ok) return null;
-    const contentType = resp.headers.get("content-type") ?? "image/jpeg";
-    if (!contentType.startsWith("image/")) return null;
-    const bytes = new Uint8Array(await resp.arrayBuffer());
-    if (bytes.length === 0) return null;
-    return { bytes, contentType };
-  } catch (_e) {
-    return null;
-  }
-}
-
-/** Download arbitrary image bytes from a URL (e.g. a still-valid cover URL). */
+/** Download arbitrary image bytes from a URL. */
 export async function fetchImageBytes(
   imageUrl: string,
 ): Promise<{ bytes: Uint8Array; contentType: string } | null> {
