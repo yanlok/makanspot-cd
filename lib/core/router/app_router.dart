@@ -1,96 +1,225 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../features/home/views/home_screen.dart';
-import '../../features/discover/views/discover_screen.dart';
-import '../../features/community/views/community_feed_screen.dart';
-import '../../features/journey/views/journey_screen.dart';
-import '../../features/profile/views/profile_screen.dart';
-import '../../features/auth/views/login_screen.dart';
 
-final _rootNavigatorKey = GlobalKey<NavigatorState>();
-final _shellNavigatorKey = GlobalKey<NavigatorState>();
+import 'package:makanspot/core/router/not_migrated_screen.dart';
+import 'package:makanspot/features/auth/views/forgot_password_screen.dart';
+import 'package:makanspot/features/auth/views/login_screen.dart';
+import 'package:makanspot/features/auth/views/register_screen.dart';
+import 'package:makanspot/features/auth/views/reset_password_screen.dart';
+import 'package:makanspot/features/community/views/community_screen.dart';
+import 'package:makanspot/features/community/views/my_posts_screen.dart';
+import 'package:makanspot/features/community/views/post_details_screen.dart';
+import 'package:makanspot/features/community/views/review_editor_screen.dart';
+import 'package:makanspot/features/discover/controllers/discover_state.dart';
+import 'package:makanspot/features/discover/views/discover_screen.dart';
+import 'package:makanspot/features/discover/views/restaurant_details_screen.dart';
+import 'package:makanspot/features/home/views/home_screen.dart';
+import 'package:makanspot/features/journey/views/achievements_screen.dart';
+import 'package:makanspot/features/journey/views/exploration_map_screen.dart';
+import 'package:makanspot/features/journey/views/journey_screen.dart';
+import 'package:makanspot/features/journey/views/visit_history_screen.dart';
+import 'package:makanspot/features/profile/views/edit_profile_screen.dart';
+import 'package:makanspot/features/profile/views/profile_screen.dart';
+import 'package:makanspot/shared/widgets/makan_bottom_navigation.dart';
+import 'package:makanspot/shared/widgets/mobile_app_frame.dart';
 
-final appRouterProvider = Provider<GoRouter>((Ref ref) {
+abstract final class AppRoutes {
+  static const home = '/';
+  static const discover = '/discover';
+  static const community = '/community';
+  static const journey = '/journey';
+  static const profile = '/profile';
+  static const login = '/login';
+  static const register = '/register';
+  static const forgotPassword = '/forgot-password';
+  static const resetPassword = '/reset-password';
+}
+
+GoRouter createAppRouter({String? initialLocation}) {
   return GoRouter(
-    initialLocation: '/',
-    navigatorKey: _rootNavigatorKey,
+    initialLocation: initialLocation,
     routes: [
       ShellRoute(
-        navigatorKey: _shellNavigatorKey,
         builder: (context, state, child) {
-          return MainShell(child: child);
+          return _CustomerShell(path: state.uri.path, child: child);
         },
         routes: [
           GoRoute(
-            path: '/',
+            path: AppRoutes.home,
             builder: (context, state) => const HomeScreen(),
           ),
           GoRoute(
-            path: '/discover',
-            builder: (context, state) => const DiscoverScreen(),
+            path: AppRoutes.discover,
+            builder: (context, state) {
+              return DiscoverScreen(
+                arguments: DiscoverArguments(
+                  query: state.uri.queryParameters['q'] ?? '',
+                  filter: state.uri.queryParameters['filter'] ?? '',
+                  section: state.uri.queryParameters['section'] ?? '',
+                ),
+              );
+            },
           ),
           GoRoute(
-            path: '/community',
-            builder: (context, state) => const CommunityFeedScreen(),
+            path: '/restaurant/:id',
+            builder: (context, state) {
+              return RestaurantDetailsScreen(
+                restaurantId: state.pathParameters['id']!,
+              );
+            },
           ),
           GoRoute(
-            path: '/journey',
+            path: AppRoutes.community,
+            builder: (context, state) => const CommunityScreen(),
+          ),
+          GoRoute(
+            path: '/review/create',
+            builder: (context, state) => CreateReviewScreen(
+              restaurantId: state.uri.queryParameters['restaurant'],
+            ),
+          ),
+          GoRoute(
+            path: '/post/:id/edit',
+            builder: (context, state) =>
+                EditPostScreen(postId: state.pathParameters['id']!),
+          ),
+          GoRoute(
+            path: '/post/:id',
+            builder: (context, state) =>
+                PostDetailsScreen(postId: state.pathParameters['id']!),
+          ),
+          GoRoute(
+            path: '/my-posts',
+            builder: (context, state) => const MyPostsScreen(),
+          ),
+          GoRoute(
+            path: AppRoutes.journey,
             builder: (context, state) => const JourneyScreen(),
           ),
           GoRoute(
-            path: '/profile',
+            path: '/visit-history',
+            builder: (context, state) => const VisitHistoryScreen(),
+          ),
+          GoRoute(
+            path: '/exploration-map',
+            builder: (context, state) => const ExplorationMapScreen(),
+          ),
+          GoRoute(
+            path: '/achievements',
+            builder: (context, state) => const AchievementsScreen(),
+          ),
+          GoRoute(
+            path: AppRoutes.profile,
             builder: (context, state) => const ProfileScreen(),
+          ),
+          GoRoute(
+            path: '/profile/edit',
+            builder: (context, state) => const EditProfileScreen(),
           ),
         ],
       ),
       GoRoute(
-        path: '/login',
+        path: AppRoutes.login,
         builder: (context, state) => const LoginScreen(),
       ),
+      GoRoute(
+        path: AppRoutes.register,
+        builder: (context, state) => const RegisterScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.forgotPassword,
+        builder: (context, state) => const ForgotPasswordScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.resetPassword,
+        builder: (context, state) {
+          return ResetPasswordScreen(token: state.uri.queryParameters['token']);
+        },
+      ),
+      ..._standalonePlaceholderRoutes,
     ],
+    errorBuilder: (context, state) {
+      return const _StandalonePlaceholder(title: 'Page not found');
+    },
   );
-});
+}
 
-class MainShell extends StatelessWidget {
+final _standalonePlaceholderRoutes = <GoRoute>[
+  _standalone('/admin/login', 'Admin Login'),
+  _standalone('/admin', 'Admin Dashboard'),
+  _standalone('/admin/users', 'User Management'),
+  _standalone('/admin/users/:id', 'User Details'),
+  _standalone('/admin/restaurants', 'Restaurant Management'),
+  _standalone('/admin/restaurants/new', 'Add Restaurant'),
+  _standalone('/admin/restaurants/:id', 'Restaurant Details'),
+  _standalone('/admin/moderation', 'Content Moderation'),
+  _standalone('/admin/moderation/:id', 'Moderation Details'),
+];
+
+GoRoute _standalone(String path, String title) {
+  return GoRoute(
+    path: path,
+    builder: (context, state) => _StandalonePlaceholder(title: title),
+  );
+}
+
+class _CustomerShell extends StatelessWidget {
+  const _CustomerShell({required this.path, required this.child});
+
+  final String path;
   final Widget child;
-
-  const MainShell({super.key, required this.child});
 
   @override
   Widget build(BuildContext context) {
-    final location = GoRouterState.of(context).uri.path;
-
-    return Scaffold(
-      body: child,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _getSelectedIndex(location),
+    return MobileAppFrame(
+      bottomNavigationBar: MakanBottomNavigation(
+        currentIndex: _selectedIndex(path),
         onDestinationSelected: (index) {
-          switch (index) {
-            case 0: context.go('/'); break;
-            case 1: context.go('/discover'); break;
-            case 2: context.go('/community'); break;
-            case 3: context.go('/journey'); break;
-            case 4: context.go('/profile'); break;
-          }
+          const destinations = [
+            AppRoutes.home,
+            AppRoutes.discover,
+            AppRoutes.community,
+            AppRoutes.journey,
+            AppRoutes.profile,
+          ];
+          context.go(destinations[index]);
         },
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.explore_outlined), selectedIcon: Icon(Icons.explore), label: 'Discover'),
-          NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: 'Community'),
-          NavigationDestination(icon: Icon(Icons.map_outlined), selectedIcon: Icon(Icons.map), label: 'Journey'),
-          NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Profile'),
-        ],
       ),
+      child: child,
     );
   }
 
-  int _getSelectedIndex(String location) {
-    if (location == '/') return 0;
-    if (location.startsWith('/discover')) return 1;
-    if (location.startsWith('/community')) return 2;
-    if (location.startsWith('/journey')) return 3;
-    if (location.startsWith('/profile')) return 4;
+  int _selectedIndex(String location) {
+    if (location.startsWith('/discover') ||
+        location.startsWith('/restaurant')) {
+      return 1;
+    }
+    if (location.startsWith('/community') ||
+        location.startsWith('/review') ||
+        location.startsWith('/post') ||
+        location.startsWith('/my-posts')) {
+      return 2;
+    }
+    if (location.startsWith('/journey') ||
+        location.startsWith('/visit-history') ||
+        location.startsWith('/exploration-map') ||
+        location.startsWith('/achievements')) {
+      return 3;
+    }
+    if (location.startsWith('/profile')) {
+      return 4;
+    }
     return 0;
+  }
+}
+
+class _StandalonePlaceholder extends StatelessWidget {
+  const _StandalonePlaceholder({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(body: NotMigratedScreen(title: title));
   }
 }

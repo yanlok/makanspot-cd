@@ -1,0 +1,122 @@
+import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+
+import 'package:makanspot/core/theme/app_theme.dart';
+
+import 'home_filter_chips.dart';
+import 'makan_search_bar.dart';
+
+class HomeHeader extends StatelessWidget {
+  const HomeHeader({
+    required this.greeting,
+    required this.firstName,
+    required this.location,
+    required this.profileAsset,
+    required this.onSearch,
+    required this.onFilter,
+    required this.onProfile,
+    super.key,
+  });
+
+  final String greeting;
+  final String firstName;
+  final String location;
+  final String profileAsset;
+  final ValueChanged<String> onSearch;
+  final ValueChanged<String> onFilter;
+  final VoidCallback onProfile;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        border: Border(bottom: BorderSide(color: AppColors.secondary)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$greeting,',
+                        style: const TextStyle(
+                          color: AppColors.mutedForeground,
+                          fontSize: 14,
+                        ),
+                      ),
+                      Text(
+                        '$firstName 👋',
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          const Icon(
+                            LucideIcons.mapPin,
+                            size: 12,
+                            color: AppColors.primary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            location,
+                            style: const TextStyle(
+                              color: AppColors.mutedForeground,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Semantics(
+                  button: true,
+                  label: 'Open profile',
+                  child: InkWell(
+                    onTap: onProfile,
+                    customBorder: const CircleBorder(),
+                    child: Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: AppColors.secondary,
+                          width: 2,
+                        ),
+                        image: DecorationImage(
+                          image: AssetImage(profileAsset),
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Makan Apa Hari Ini?',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 12),
+            MakanSearchBar(onSubmitted: onSearch),
+            const SizedBox(height: 12),
+            HomeFilterChips(onSelected: onFilter),
+          ],
+        ),
+      ),
+    );
+  }
+}

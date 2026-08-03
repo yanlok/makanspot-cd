@@ -1,21 +1,78 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import '../models/restaurant_repository.dart';
-import '../models/recommendation_service.dart';
-import '../../../shared/models/restaurant_model.dart';
 
-final restaurantRepositoryProvider = Provider<RestaurantRepository>((Ref ref) {
-  return RestaurantRepository(Supabase.instance.client);
+import '../models/fixture_home_repository.dart';
+import '../models/home_repository.dart';
+import 'home_state.dart';
+
+typedef Now = DateTime Function();
+
+final homeRepositoryProvider = Provider<HomeRepository>((ref) {
+  return const FixtureHomeRepository();
 });
 
-final recommendationServiceProvider = Provider<RecommendationService>((Ref ref) {
-  return RecommendationService(ref.watch(restaurantRepositoryProvider));
-});
+final homeControllerProvider =
+    StateNotifierProvider.autoDispose<HomeController, HomeState>((ref) {
+      final controller = HomeController(ref.watch(homeRepositoryProvider));
+      controller.load();
+      return controller;
+    });
 
-final trendingRestaurantsProvider = FutureProvider<List<RestaurantModel>>((Ref ref) async {
-  return ref.watch(restaurantRepositoryProvider).getTrendingRestaurants();
-});
+class HomeController extends StateNotifier<HomeState> {
+  HomeController(HomeRepository repository, {Now? now})
+    : _repository = repository,
+      _now = now ?? DateTime.now,
+      super(HomeState.loading(greeting: _greetingFor((now ?? DateTime.now)())));
 
-final hiddenGemsProvider = FutureProvider<List<RestaurantModel>>((Ref ref) async {
-  return ref.watch(restaurantRepositoryProvider).getHiddenGems();
-});
+  final HomeRepository _repository;
+  final Now _now;
+
+  Future<void> load() async {
+    state = HomeState.loading(greeting: _greetingFor(_now()));
+    try {
+      final feed = await _repository.loadHome();
+      state = HomeState(
+        status: feed.isEmpty ? HomeStatus.empty : HomeStatus.content,
+        greeting: _greetingFor(_now()),
+        feed: feed,
+        bookmarkedIds: state.bookmarkedIds,
+      );
+    } on Object {
+      state = HomeState(
+        status: HomeStatus.error,
+        greeting: _greetingFor(_now()),
+        bookmarkedIds: state.bookmarkedIds,
+        errorMessage: 'We could not load nearby makan spots.',
+      );
+    }
+  }
+
+  Uri? searchDestination(String rawQuery) {
+    final query = rawQuery.trim();
+    if (query.isEmpty) {
+      return null;
+    }
+    return Uri(path: '/discover', queryParameters: {'q': query});
+  }
+
+  Uri filterDestination(String filter) {
+    return Uri(path: '/discover', queryParameters: {'filter': filter});
+  }
+
+  void toggleBookmark(String restaurantId) {
+    final bookmarkedIds = Set<String>.of(state.bookmarkedIds);
+    if (!bookmarkedIds.add(restaurantId)) {
+      bookmarkedIds.remove(restaurantId);
+    }
+    state = state.copyWith(bookmarkedIds: Set.unmodifiable(bookmarkedIds));
+  }
+
+  static String _greetingFor(DateTime dateTime) {
+    if (dateTime.hour < 12) {
+      return 'Selamat Pagi';
+    }
+    if (dateTime.hour < 18) {
+      return 'Selamat Petang';
+    }
+    return 'Selamat Malam';
+  }
+}

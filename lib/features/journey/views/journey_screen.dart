@@ -1,110 +1,311 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/theme/app_theme.dart';
+import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+
+import 'package:makanspot/core/theme/app_theme.dart';
+
 import '../controllers/journey_controller.dart';
-import '../../../../shared/widgets/async_widget.dart';
+import '../models/journey_models.dart';
+import 'widgets/journey_widgets.dart';
 
 class JourneyScreen extends ConsumerWidget {
   const JourneyScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final statsAsync = ref.watch(userStatsProvider);
-    final leaderboardAsync = ref.watch(leaderboardProvider);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Discovery Journey', style: TextStyle(fontWeight: FontWeight.bold)),
-      ),
-      body: RefreshIndicator(
-        onRefresh: () async {
-          ref.refresh(userStatsProvider);
-          ref.refresh(leaderboardProvider);
-        },
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AsyncWidget(
-                value: statsAsync,
-                builder: (stats) => _buildStatGrid(context, stats),
-              ),
-              const SizedBox(height: 32),
-              Text('Leaderboard', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              AsyncWidget(
-                value: leaderboardAsync,
-                builder: (leaderboard) => _buildLeaderboardList(leaderboard),
-              ),
-            ],
-          ),
+    final state = ref.watch(journeyControllerProvider);
+    final controller = ref.read(journeyControllerProvider.notifier);
+    if (state.status == JourneyStatus.loading) {
+      return const SafeArea(child: Center(child: CircularProgressIndicator()));
+    }
+    if (state.status == JourneyStatus.error) {
+      return SafeArea(
+        child: JourneyErrorState(
+          message: state.errorMessage!,
+          onRetry: controller.load,
         ),
-      ),
-    );
-  }
-
-  Widget _buildStatGrid(BuildContext context, Map<String, dynamic> stats) {
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 16,
-      mainAxisSpacing: 16,
-      childAspectRatio: 1.5,
-      children: [
-        _buildStatCard(context, 'Restaurants', stats['restaurants_visited'].toString(), Icons.restaurant, Colors.orange),
-        _buildStatCard(context, 'Cities', stats['cities_explored'].toString(), Icons.location_city, Colors.blue),
-        _buildStatCard(context, 'Reviews', stats['reviews_written'].toString(), Icons.rate_review, Colors.green),
-        _buildStatCard(context, 'Distance', '${stats['distance_travelled']}km', Icons.directions_walk, Colors.purple),
-      ],
-    );
-  }
-
-  Widget _buildStatCard(BuildContext context, String label, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
+      );
+    }
+    return SafeArea(
+      bottom: false,
+      child: ListView(
+        key: const Key('journey-scroll'),
         children: [
-          Icon(icon, color: color),
-          const Spacer(),
-          Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          Text(label, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+          _JourneyHero(data: state.data!, onBack: context.pop),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+            child: _JourneyContent(data: state.data!),
+          ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildLeaderboardList(List<Map<String, dynamic>> leaderboard) {
-    return ListView.separated(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: leaderboard.length,
-      separatorBuilder: (_, _) => const Divider(),
-      itemBuilder: (context, index) {
-        final user = leaderboard[index];
-        return ListTile(
-          leading: CircleAvatar(
-            backgroundColor: index < 3 ? AppTheme.primaryColor : AppTheme.secondaryColor,
-            child: Text('${index + 1}', 
-                 style: TextStyle(
-                   color: index < 3 ? Colors.white : AppTheme.primaryColor, 
-                   fontWeight: FontWeight.bold
-                 )),
+class _JourneyHero extends StatelessWidget {
+  const _JourneyHero({required this.data, required this.onBack});
+
+  final JourneyData data;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: AppColors.primary,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 8, 16, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            IconButton(
+              tooltip: 'Back',
+              onPressed: onBack,
+              color: AppColors.surface,
+              icon: const Icon(LucideIcons.chevronLeft),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: [
+                  ClipOval(
+                    child: Image.asset(
+                      data.user.profileAsset,
+                      width: 56,
+                      height: 56,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          data.user.username,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(color: AppColors.surface),
+                        ),
+                        Text(
+                          data.user.profileTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: AppColors.surface.withValues(alpha: 0.8),
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.surface.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(AppRadii.card),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Community Score',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: AppColors.surface.withValues(
+                                  alpha: 0.75,
+                                ),
+                              ),
+                        ),
+                        Text(
+                          '${data.user.communityScore}',
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(
+                                color: AppColors.surface,
+                                fontSize: 30,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: const BoxDecoration(
+                      color: AppColors.accent,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(LucideIcons.trendingUp),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _JourneyContent extends StatelessWidget {
+  const _JourneyContent({required this.data});
+
+  final JourneyData data;
+
+  @override
+  Widget build(BuildContext context) {
+    final earned = data.achievementProgress
+        .where((item) => item.earned)
+        .take(3)
+        .toList(growable: false);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Exploration Overview',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: 12),
+        GridView.count(
+          crossAxisCount: 2,
+          childAspectRatio: 1,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          children: [
+            JourneyStatCard(
+              icon: LucideIcons.utensils,
+              value: data.visits.length,
+              label: 'Restaurants Visited',
+            ),
+            JourneyStatCard(
+              icon: LucideIcons.penLine,
+              value: data.reviewCount,
+              label: 'Reviews Submitted',
+            ),
+            JourneyStatCard(
+              icon: LucideIcons.compass,
+              value: data.cuisineCount,
+              label: 'Cuisines Explored',
+            ),
+            JourneyStatCard(
+              icon: LucideIcons.star,
+              value: data.totalLikes,
+              label: 'Total Likes Received',
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        _ProgressToTitle(score: data.user.communityScore),
+        const SizedBox(height: 24),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Recent Achievements',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            TextButton(
+              onPressed: () => context.push('/achievements'),
+              child: const Text('View All'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        for (final item in earned) ...[
+          AchievementProgressCard(progress: item),
+          const SizedBox(height: 10),
+        ],
+        const SizedBox(height: 14),
+        JourneyMenuTile(
+          icon: LucideIcons.calendar,
+          label: 'Visit History',
+          onTap: () => context.push('/visit-history'),
+        ),
+        const SizedBox(height: 8),
+        JourneyMenuTile(
+          icon: LucideIcons.mapPin,
+          label: 'Exploration Map',
+          onTap: () => context.push('/exploration-map'),
+        ),
+        const SizedBox(height: 8),
+        JourneyMenuTile(
+          icon: LucideIcons.award,
+          label: 'View All Progress',
+          onTap: () => context.push('/achievements'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProgressToTitle extends StatelessWidget {
+  const _ProgressToTitle({required this.score});
+
+  final int score;
+
+  @override
+  Widget build(BuildContext context) {
+    const target = 300;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.secondary),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Progress to',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.mutedForeground,
+                      ),
+                    ),
+                    Text(
+                      'Makan Sifu',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '$score/$target pts',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.mutedForeground,
+                ),
+              ),
+            ],
           ),
-          title: Text(user['username'], style: const TextStyle(fontWeight: FontWeight.bold)),
-          subtitle: const Text('Food Explorer • Level 3'),
-          trailing: Text('${user['community_score']} pts', 
-                  style: const TextStyle(color: AppTheme.primaryColor, fontWeight: FontWeight.bold)),
-        );
-      },
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: score / target,
+              minHeight: 8,
+              backgroundColor: AppColors.secondary,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

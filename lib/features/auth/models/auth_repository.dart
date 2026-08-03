@@ -1,58 +1,22 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../shared/models/user_model.dart';
+abstract interface class AuthRepository {
+  Future<void> login({required String email, required String password});
 
-class AuthRepository {
-  final SupabaseClient _supabase;
+  Future<void> register({required String email, required String password});
 
-  AuthRepository(this._supabase);
+  Future<void> verifyOtp({required String email, required String code});
 
-  Stream<AuthState> get authStateChanges => _supabase.auth.onAuthStateChange;
+  Future<void> resendOtp(String email);
 
-  User? get currentUser => _supabase.auth.currentUser;
+  Future<void> requestPasswordReset(String email);
 
-  Future<AuthResponse> signUp({
-    required String email,
-    required String password,
-    required String username,
-  }) async {
-    final response = await _supabase.auth.signUp(
-      email: email,
-      password: password,
-      data: {'username': username},
-    );
+  Future<void> resetPassword({
+    required String token,
+    required String newPassword,
+  });
+}
 
-    // Create user profile in public.users table
-    if (response.user != null) {
-      await _supabase.from('users').insert({
-        'id': response.user!.id,
-        'username': username,
-        'email': email,
-      });
-    }
+class AuthFailure implements Exception {
+  const AuthFailure(this.message);
 
-    return response;
-  }
-
-  Future<AuthResponse> signIn({
-    required String email,
-    required String password,
-  }) async {
-    return await _supabase.auth.signInWithPassword(
-      email: email,
-      password: password,
-    );
-  }
-
-  Future<void> signOut() async {
-    await _supabase.auth.signOut();
-  }
-
-  Future<UserModel?> getUserProfile(String id) async {
-    final data = await _supabase
-        .from('users')
-        .select()
-        .eq('id', id)
-        .single();
-    return UserModel.fromJson(data);
-  }
+  final String message;
 }

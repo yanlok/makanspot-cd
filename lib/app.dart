@@ -1,22 +1,36 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'core/theme/app_theme.dart';
-import 'core/router/app_router.dart';
+import 'package:go_router/go_router.dart';
 
-class MakanSpotApp extends ConsumerWidget {
-  const MakanSpotApp({super.key});
+import 'core/router/app_router.dart';
+import 'core/theme/app_theme.dart';
+
+class MakanSpotApp extends StatefulWidget {
+  const MakanSpotApp({this.router, super.key});
+
+  final GoRouter? router;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final router = ref.watch(appRouterProvider);
+  State<MakanSpotApp> createState() => _MakanSpotAppState();
+}
 
+class _MakanSpotAppState extends State<MakanSpotApp> {
+  late final GoRouter _router = widget.router ?? createAppRouter();
+
+  @override
+  void dispose() {
+    if (widget.router == null) {
+      _router.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'MakanSpot',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.system,
-      routerConfig: router,
+      title: 'MakanSpot',
+      theme: AppTheme.light,
+      routerConfig: _router,
     );
   }
 }

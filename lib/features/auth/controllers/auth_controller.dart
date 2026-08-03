@@ -1,69 +1,132 @@
-﻿import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../models/auth_repository.dart';
-import '../../../shared/models/user_model.dart';
+import '../models/fixture_auth_repository.dart';
+import 'auth_state.dart';
 
-final authRepositoryProvider = Provider<AuthRepository>((Ref ref) {
-  return AuthRepository(Supabase.instance.client);
+final authRepositoryProvider = Provider<AuthRepository>((ref) {
+  return const FixtureAuthRepository();
 });
 
-final authStateChangesProvider = StreamProvider<AuthState>((Ref ref) {
-  return ref.watch(authRepositoryProvider).authStateChanges;
-});
+final authControllerProvider =
+    StateNotifierProvider.autoDispose<AuthController, AuthState>((ref) {
+      return AuthController(ref.watch(authRepositoryProvider));
+    });
 
-final currentUserProvider = Provider<User?>((Ref ref) {
-  return ref.watch(authRepositoryProvider).currentUser;
-});
+class AuthController extends StateNotifier<AuthState> {
+  AuthController(this._repository) : super(const AuthState());
 
-// Login state
-class LoginState {
-  final bool isLoading;
-  final String? error;
-  final bool isSuccess;
-
-  const LoginState({this.isLoading = false, this.error, this.isSuccess = false});
-
-  LoginState copyWith({bool? isLoading, String? error, bool? isSuccess}) {
-    return LoginState(
-      isLoading: isLoading ?? this.isLoading,
-      error: error,
-      isSuccess: isSuccess ?? this.isSuccess,
-    );
-  }
-}
-
-class LoginController extends StateNotifier<LoginState> {
   final AuthRepository _repository;
 
-  LoginController(this._repository) : super(const LoginState());
+  Future<bool> login(String rawEmail, String password) async {
+    final email = rawEmail.trim();
+    if (email.isEmpty || password.isEmpty) {
+      _showError('Enter your email and password.');
+      return false;
+    }
+    return _run(() => _repository.login(email: email, password: password));
+  }
 
-  Future<void> login(String email, String password) async {
-    state = state.copyWith(isLoading: true, error: null);
+  Future<bool> register({
+    required String rawEmail,
+    required String password,
+    required String confirmPassword,
+  }) async {
+    final email = rawEmail.trim();
+    if (email.isEmpty || password.isEmpty || confirmPassword.isEmpty) {
+      _showError('Complete all fields.');
+      return false;
+    }
+    if (password != confirmPassword) {
+      _showError('Passwords do not match');
+      return false;
+    }
+    final succeeded = await _run(
+      () => _repository.register(email: email, password: password),
+    );
+    if (succeeded) {
+      state = state.copyWith(
+        status: AuthStatus.idle,
+        registrationEmail: email,
+        awaitingOtp: true,
+      );
+    }
+    return succeeded;
+  }
+
+  Future<bool> verifyOtp(String code) async {
+    final email = state.registrationEmail;
+    if (email == null || code.length != 6) {
+      _showError('Enter the 6-digit verification code.');
+      return false;
+    }
+    return _run(() => _repository.verifyOtp(email: email, code: code));
+  }
+
+  Future<void> resendOtp() async {
+    final email = state.registrationEmail;
+    if (email == null) {
+      return;
+    }
     try {
-      await _repository.signIn(email: email, password: password);
-      state = state.copyWith(isLoading: false, isSuccess: true);
-    } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
+      await _repository.resendOtp(email);
+      state = state.copyWith(
+        status: AuthStatus.idle,
+        resendConfirmation: 'Check your email for the new code.',
+      );
+    } on Object {
+      _showError('Failed to resend code');
     }
   }
 
-  void reset() {
-    state = const LoginState();
+  Future<void> requestPasswordReset(String rawEmail) async {
+    final email = rawEmail.trim();
+    if (email.isEmpty) {
+      _showError('Enter your email address.');
+      return;
+    }
+    state = state.copyWith(status: AuthStatus.loading);
+    try {
+      await _repository.requestPasswordReset(email);
+    } on Object {
+      // Account discovery is intentionally prevented by showing one result.
+    }
+    state = state.copyWith(status: AuthStatus.success, passwordResetSent: true);
+  }
+
+  Future<bool> resetPassword({
+    required String token,
+    required String password,
+    required String confirmPassword,
+  }) async {
+    if (password.isEmpty || confirmPassword.isEmpty) {
+      _showError('Complete all fields.');
+      return false;
+    }
+    if (password != confirmPassword) {
+      _showError('Passwords do not match');
+      return false;
+    }
+    return _run(
+      () => _repository.resetPassword(token: token, newPassword: password),
+    );
+  }
+
+  Future<bool> _run(Future<void> Function() action) async {
+    state = state.copyWith(status: AuthStatus.loading);
+    try {
+      await action();
+      state = state.copyWith(status: AuthStatus.success);
+      return true;
+    } on AuthFailure catch (failure) {
+      _showError(failure.message);
+    } on Object {
+      _showError('Something went wrong. Please try again.');
+    }
+    return false;
+  }
+
+  void _showError(String message) {
+    state = state.copyWith(status: AuthStatus.error, errorMessage: message);
   }
 }
-
-final loginControllerProvider = StateNotifierProvider<LoginController, LoginState>((Ref ref) {
-  return LoginController(ref.watch(authRepositoryProvider));
-});
-
-final signOutProvider = Provider<void Function()>((Ref ref) {
-  final repo = ref.watch(authRepositoryProvider);
-  return () => repo.signOut();
-});
-
-// User profile provider (used by profile feature too)
-final userProfileProvider = FutureProvider<UserModel?>((Ref ref) async {
-  final user = ref.watch(currentUserProvider);
-  if (user == null) return null;
-  return ref.watch(authRepositoryProvider).getUserProfile(user.id);
-});

@@ -1,262 +1,188 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/theme/app_theme.dart';
-import '../../../shared/models/restaurant_model.dart';
+import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+
+import 'package:makanspot/core/theme/app_theme.dart';
+
 import '../controllers/home_controller.dart';
-import '../../../../shared/widgets/async_widget.dart';
+import '../controllers/home_state.dart';
+import '../models/home_feed.dart';
+import 'widgets/home_header.dart';
+import 'widgets/home_section_skeleton.dart';
+import 'widgets/restaurant_section.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final trendingAsync = ref.watch(trendingRestaurantsProvider);
-    final hiddenGemsAsync = ref.watch(hiddenGemsProvider);
+    final state = ref.watch(homeControllerProvider);
+    final controller = ref.read(homeControllerProvider.notifier);
 
-    return Scaffold(
-      body: CustomScrollView(
+    return SafeArea(
+      bottom: false,
+      child: CustomScrollView(
+        key: const Key('home-scroll-view'),
         slivers: [
-          SliverAppBar(
-            floating: true,
-            expandedHeight: 120,
-            flexibleSpace: FlexibleSpaceBar(
-              title: const Text(
-                'MakanSpot',
-                style: TextStyle(
-                  color: AppTheme.primaryColor,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              centerTitle: false,
-              titlePadding: const EdgeInsets.only(left: 20, bottom: 16),
-            ),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.notifications_none),
-                onPressed: () {},
-              ),
-              const SizedBox(width: 8),
-            ],
-          ),
           SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(20.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildSectionHeader(context, 'Smart Food Planner', () {}),
-                  const SizedBox(height: 16),
-                  _buildPlannerCard(context),
-                  const SizedBox(height: 32),
-                  _buildSectionHeader(context, 'Trending Near You', () {}),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    height: 280,
-                    child: AsyncWidget(
-                      value: trendingAsync,
-                      builder: (restaurants) => ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: restaurants.length,
-                        separatorBuilder: (_, _) => const SizedBox(width: 16),
-                        itemBuilder: (context, index) => _buildRestaurantCard(context, restaurants[index]),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                  _buildSectionHeader(context, 'Hidden Gems', () {}),
-                  const SizedBox(height: 16),
-                  AsyncWidget(
-                    value: hiddenGemsAsync,
-                    builder: (restaurants) => Column(
-                      children: restaurants.map((r) => _buildRestaurantListItem(context, r)).toList(),
-                    ),
-                  ),
-                ],
-              ),
+            child: HomeHeader(
+              greeting: state.greeting,
+              firstName: state.feed?.firstName ?? 'Yih',
+              location: state.feed?.location ?? 'Kuala Lumpur',
+              profileAsset:
+                  state.feed?.profileAsset ?? 'assets/images/default_icon.jpg',
+              onSearch: (query) {
+                final destination = controller.searchDestination(query);
+                if (destination != null) {
+                  context.go(destination.toString());
+                }
+              },
+              onFilter: (filter) {
+                context.go(controller.filterDestination(filter).toString());
+              },
+              onProfile: () => context.go('/profile'),
             ),
           ),
+          const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.large)),
+          SliverToBoxAdapter(child: _HomeBody(state: state)),
         ],
       ),
     );
   }
+}
 
-  Widget _buildSectionHeader(BuildContext context, String title, VoidCallback onSeeAll) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+class _HomeBody extends ConsumerWidget {
+  const _HomeBody({required this.state});
+
+  final HomeState state;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return switch (state.status) {
+      HomeStatus.loading => const Column(
+        children: [
+          HomeSectionSkeleton(),
+          HomeSectionSkeleton(),
+          HomeSectionSkeleton(),
+          HomeSectionSkeleton(),
+        ],
+      ),
+      HomeStatus.empty => const _HomeMessage(
+        icon: LucideIcons.utensilsCrossed,
+        title: 'No makan spots yet',
+        message: 'New recommendations will appear here soon.',
+      ),
+      HomeStatus.error => _HomeMessage(
+        icon: LucideIcons.wifiOff,
+        title: 'Could not load Home',
+        message: state.errorMessage ?? 'Please try again.',
+        actionLabel: 'Try Again',
+        onAction: ref.read(homeControllerProvider.notifier).load,
+      ),
+      HomeStatus.content => _HomeSections(
+        feed: state.feed!,
+        bookmarkedIds: state.bookmarkedIds,
+      ),
+    };
+  }
+}
+
+class _HomeSections extends ConsumerWidget {
+  const _HomeSections({required this.feed, required this.bookmarkedIds});
+
+  final HomeFeed feed;
+  final Set<String> bookmarkedIds;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final controller = ref.read(homeControllerProvider.notifier);
+    void viewSection(String section) {
+      context.go(
+        Uri(
+          path: '/discover',
+          queryParameters: {'section': section},
+        ).toString(),
+      );
+    }
+
+    void openRestaurant(String restaurantId) {
+      context.go('/restaurant/$restaurantId');
+    }
+
+    return Column(
       children: [
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
+        RestaurantSection(
+          title: 'Recommended for You',
+          restaurants: feed.recommended,
+          bookmarkedIds: bookmarkedIds,
+          onViewAll: () => viewSection('recommended'),
+          onBookmark: controller.toggleBookmark,
+          onOpen: openRestaurant,
         ),
-        TextButton(
-          onPressed: onSeeAll,
-          child: const Text('See All'),
+        RestaurantSection(
+          title: 'Hidden Gems Sekitar Anda',
+          restaurants: feed.hiddenGems,
+          bookmarkedIds: bookmarkedIds,
+          onViewAll: () => viewSection('hidden_gems'),
+          onBookmark: controller.toggleBookmark,
+          onOpen: openRestaurant,
+        ),
+        RestaurantSection(
+          title: 'Sedap Dekat Sini',
+          restaurants: feed.nearby,
+          bookmarkedIds: bookmarkedIds,
+          onViewAll: () => viewSection('nearby'),
+          onBookmark: controller.toggleBookmark,
+          onOpen: openRestaurant,
+        ),
+        RestaurantSection(
+          title: 'Newest Listings',
+          restaurants: feed.newest,
+          bookmarkedIds: bookmarkedIds,
+          onViewAll: () => viewSection('newest'),
+          onBookmark: controller.toggleBookmark,
+          onOpen: openRestaurant,
         ),
       ],
     );
   }
+}
 
-  Widget _buildPlannerCard(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppTheme.primaryColor,
-        borderRadius: BorderRadius.circular(20),
-        image: DecorationImage(
-          image: const NetworkImage('https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&q=80&w=1000'),
-          fit: BoxFit.cover,
-          colorFilter: ColorFilter.mode(
-            Colors.black.withValues(alpha: 0.4),
-            BlendMode.darken,
-          ),
-        ),
-      ),
+class _HomeMessage extends StatelessWidget {
+  const _HomeMessage({
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.xLarge),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Hungry? Let us plan your next meal!',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
+          Icon(icon, size: 44, color: AppColors.primary),
+          const SizedBox(height: AppSpacing.medium),
+          Text(title, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: AppSpacing.small),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.mutedForeground),
           ),
-          const SizedBox(height: 8),
-          const Text(
-            'Get personalized recommendations based on your location and budget.',
-            style: TextStyle(color: Colors.white70),
-          ),
-          const SizedBox(height: 20),
-          ElevatedButton(
-            onPressed: () {},
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: AppTheme.primaryColor,
-              minimumSize: const Size(120, 44),
-            ),
-            child: const Text('Start Planning'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRestaurantCard(BuildContext context, RestaurantModel restaurant) {
-    return Container(
-      width: 200,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-            child: Image.network(
-              restaurant.imageUrls?.isNotEmpty == true 
-                  ? restaurant.imageUrls!.first 
-                  : 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&q=80&w=500',
-              height: 150,
-              width: double.infinity,
-              fit: BoxFit.cover,
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  restaurant.name,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    const Icon(Icons.star, color: Colors.amber, size: 16),
-                    Text(' ${restaurant.rating} (${restaurant.reviewCount})'),
-                    const Spacer(),
-                    Text(restaurant.priceRange, style: TextStyle(color: Colors.grey[600])),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${restaurant.address.split(',').first} • 2.5km',
-                  style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRestaurantListItem(BuildContext context, RestaurantModel restaurant) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey[200]!),
-      ),
-      child: Row(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Image.network(
-              restaurant.imageUrls?.isNotEmpty == true 
-                  ? restaurant.imageUrls!.first 
-                  : 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&q=80&w=200',
-              width: 80,
-              height: 80,
-              fit: BoxFit.cover,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  restaurant.name,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  restaurant.isHiddenGem ? 'Hidden Gem • Authentic Heritage' : 'Local Gem',
-                  style: TextStyle(color: AppTheme.primaryColor, fontSize: 12, fontWeight: FontWeight.w500),
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Icon(Icons.location_on_outlined, size: 14, color: Colors.grey[600]),
-                    Text(' ${restaurant.address.split(',').first} • 0.8km', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.favorite_border),
-            onPressed: () {},
-          ),
+          if (actionLabel != null && onAction != null) ...[
+            const SizedBox(height: AppSpacing.medium),
+            FilledButton(onPressed: onAction, child: Text(actionLabel!)),
+          ],
         ],
       ),
     );
