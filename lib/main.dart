@@ -5,5 +5,11 @@ import 'app.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  if (SupabaseConfig.isConfigured) {
+    await Supabase.initialize(
+      url: SupabaseConfig.supabaseUrl,
+      publishableKey: SupabaseConfig.supabaseAnonKey,
+    );
+  }
   runApp(const ProviderScope(child: MakanSpotApp()));
 }
