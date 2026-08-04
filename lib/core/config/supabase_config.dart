@@ -13,7 +13,6 @@ class SupabaseConfig {
 
   static const String supabaseUrl = 'https://npmdrgpypkozdjtiplmf.supabase.co';
 
-  // TODO: Paste your Supabase anon public key here.
   static const String supabaseAnonKey =
       'sb_publishable_9qvkHzyVPR6SCHtRk9zjVQ_vMODyBCH';
 
