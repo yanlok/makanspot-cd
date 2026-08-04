@@ -2,6 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:makanspot/core/router/not_migrated_screen.dart';
+import 'package:makanspot/features/admin/views/admin_dashboard_screen.dart';
+import 'package:makanspot/features/admin/views/admin_login_screen.dart';
+import 'package:makanspot/features/admin/views/admin_shell.dart';
+import 'package:makanspot/features/admin/views/moderation_details_screen.dart';
+import 'package:makanspot/features/admin/views/moderation_screen.dart';
+import 'package:makanspot/features/admin/views/restaurant_details_screen.dart'
+    as admin;
+import 'package:makanspot/features/admin/views/restaurant_management_screen.dart';
+import 'package:makanspot/features/admin/views/user_details_screen.dart';
+import 'package:makanspot/features/admin/views/user_management_screen.dart';
 import 'package:makanspot/features/auth/views/forgot_password_screen.dart';
 import 'package:makanspot/features/auth/views/login_screen.dart';
 import 'package:makanspot/features/auth/views/register_screen.dart';
@@ -33,9 +43,15 @@ abstract final class AppRoutes {
   static const register = '/register';
   static const forgotPassword = '/forgot-password';
   static const resetPassword = '/reset-password';
+  static const adminLogin = '/admin/login';
+  static const adminDashboard = '/admin';
+  static const adminUsers = '/admin/users';
+  static const adminRestaurants = '/admin/restaurants';
+  static const adminNewRestaurant = '/admin/restaurants/new';
+  static const adminModeration = '/admin/moderation';
 }
 
-GoRouter createAppRouter({String? initialLocation}) {
+GoRouter createAppRouter({String? initialLocation = AppRoutes.login}) {
   return GoRouter(
     initialLocation: initialLocation,
     routes: [
@@ -136,30 +152,58 @@ GoRouter createAppRouter({String? initialLocation}) {
           return ResetPasswordScreen(token: state.uri.queryParameters['token']);
         },
       ),
-      ..._standalonePlaceholderRoutes,
+      GoRoute(
+        path: AppRoutes.adminLogin,
+        builder: (context, state) => const AdminLoginScreen(),
+      ),
+      ShellRoute(
+        builder: (context, state, child) {
+          return AdminShell(path: state.uri.path, child: child);
+        },
+        routes: [
+          GoRoute(
+            path: AppRoutes.adminDashboard,
+            builder: (context, state) => const AdminDashboardScreen(),
+          ),
+          GoRoute(
+            path: AppRoutes.adminUsers,
+            builder: (context, state) => const UserManagementScreen(),
+          ),
+          GoRoute(
+            path: '/admin/users/:id',
+            builder: (context, state) =>
+                UserDetailsScreen(userId: state.pathParameters['id']!),
+          ),
+          GoRoute(
+            path: AppRoutes.adminRestaurants,
+            builder: (context, state) => const RestaurantManagementScreen(),
+          ),
+          GoRoute(
+            path: AppRoutes.adminNewRestaurant,
+            builder: (context, state) =>
+                const admin.RestaurantDetailsScreen(restaurantId: 'new'),
+          ),
+          GoRoute(
+            path: '/admin/restaurants/:id',
+            builder: (context, state) => admin.RestaurantDetailsScreen(
+              restaurantId: state.pathParameters['id']!,
+            ),
+          ),
+          GoRoute(
+            path: AppRoutes.adminModeration,
+            builder: (context, state) => const ContentModerationScreen(),
+          ),
+          GoRoute(
+            path: '/admin/moderation/:id',
+            builder: (context, state) =>
+                ModerationDetailsScreen(reportId: state.pathParameters['id']!),
+          ),
+        ],
+      ),
     ],
     errorBuilder: (context, state) {
       return const _StandalonePlaceholder(title: 'Page not found');
     },
-  );
-}
-
-final _standalonePlaceholderRoutes = <GoRoute>[
-  _standalone('/admin/login', 'Admin Login'),
-  _standalone('/admin', 'Admin Dashboard'),
-  _standalone('/admin/users', 'User Management'),
-  _standalone('/admin/users/:id', 'User Details'),
-  _standalone('/admin/restaurants', 'Restaurant Management'),
-  _standalone('/admin/restaurants/new', 'Add Restaurant'),
-  _standalone('/admin/restaurants/:id', 'Restaurant Details'),
-  _standalone('/admin/moderation', 'Content Moderation'),
-  _standalone('/admin/moderation/:id', 'Moderation Details'),
-];
-
-GoRoute _standalone(String path, String title) {
-  return GoRoute(
-    path: path,
-    builder: (context, state) => _StandalonePlaceholder(title: title),
   );
 }
 

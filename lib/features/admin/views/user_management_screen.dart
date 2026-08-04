@@ -1,0 +1,226 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+
+import 'package:makanspot/core/theme/app_theme.dart';
+
+import '../controllers/user_management_controller.dart';
+import '../models/admin_models.dart';
+import 'widgets/admin_empty_state.dart';
+import 'widgets/admin_filter_dropdown.dart';
+import 'widgets/admin_page_header.dart';
+import 'widgets/admin_search_field.dart';
+import 'widgets/admin_skeletons.dart';
+import 'widgets/admin_status_badge.dart';
+import 'widgets/admin_user_avatar.dart';
+
+class UserManagementScreen extends ConsumerWidget {
+  const UserManagementScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(userManagementControllerProvider);
+    final controller = ref.read(userManagementControllerProvider.notifier);
+    return SafeArea(
+      bottom: false,
+      child: ListView(
+        key: const Key('user-management-scroll'),
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+        children: [
+          const AdminPageHeader(
+            title: 'User Management',
+            subtitle: 'Manage user accounts and statuses',
+          ),
+          const SizedBox(height: 20),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: AdminSearchField(
+                  hint: 'Search users...',
+                  value: state.searchQuery,
+                  onChanged: controller.updateSearch,
+                  fieldKey: const Key('admin-user-search'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              AdminFilterDropdown<UserStatusFilter>(
+                value: state.statusFilter,
+                options: const [
+                  ('All statuses', UserStatusFilter.all),
+                  ('Active', UserStatusFilter.active),
+                  ('Deactivated', UserStatusFilter.deactivated),
+                ],
+                onChanged: controller.selectStatusFilter,
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          if (state.status == UserManagementStatus.error)
+            _UserManagementError(onRetry: controller.load)
+          else if (state.status == UserManagementStatus.loading)
+            const AdminListSkeleton(count: 5, cardHeight: 112)
+          else if (state.status == UserManagementStatus.empty)
+            const AdminEmptyState(
+              icon: LucideIcons.users,
+              title: 'No Users Found',
+              message: 'No users match your search criteria.',
+            )
+          else
+            for (final user in state.users) ...[
+              _UserCard(user: user),
+              const SizedBox(height: 12),
+            ],
+        ],
+      ),
+    );
+  }
+}
+
+class _UserManagementError extends StatelessWidget {
+  const _UserManagementError({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 48),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              LucideIcons.triangleAlert,
+              size: 44,
+              color: AppColors.mutedForeground,
+            ),
+            const SizedBox(height: 12),
+            const Text('We could not load user accounts right now.'),
+            const SizedBox(height: 16),
+            FilledButton(onPressed: onRetry, child: const Text('Try Again')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _UserCard extends StatelessWidget {
+  const _UserCard({required this.user});
+
+  final AdminUser user;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      key: Key('admin-user-${user.id}'),
+      onTap: () => context.go('/admin/users/${user.id}'),
+      borderRadius: BorderRadius.circular(AppRadii.card),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadii.card),
+          border: Border.all(color: AppColors.secondary),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AdminUserAvatar(
+              initial: user.initial,
+              imageUrl: user.profilePictureUrl,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          user.username,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.foreground,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      AdminStatusBadge(label: _statusLabel(user.accountStatus)),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    user.email,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.mutedForeground,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.only(top: 12),
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        top: BorderSide(color: AppColors.secondary),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text.rich(
+                            TextSpan(
+                              text: 'Community score ',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: AppColors.mutedForeground),
+                              children: [
+                                TextSpan(
+                                  text: '${user.communityScore}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.foreground,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        Text(
+                          'Manage',
+                          style: const TextStyle(
+                            fontFamily: 'Poppins',
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                        const Icon(
+                          LucideIcons.chevronRight,
+                          size: 16,
+                          color: AppColors.primary,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _statusLabel(AdminAccountStatus status) {
+    return status == AdminAccountStatus.active ? 'Active' : 'Deactivated';
+  }
+}

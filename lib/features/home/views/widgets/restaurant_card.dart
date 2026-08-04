@@ -145,7 +145,13 @@ class _RestaurantMetadata extends StatelessWidget {
         if (restaurant.rating case final rating?) ...[
           const Icon(LucideIcons.star, size: 14, color: AppColors.accent),
           const SizedBox(width: 2),
-          Text(rating.toStringAsFixed(1)),
+          Flexible(
+            child: Text(
+              rating.toStringAsFixed(1),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
           const SizedBox(width: 12),
         ],
         if (restaurant.distanceKm case final distance?) ...[
@@ -155,12 +161,22 @@ class _RestaurantMetadata extends StatelessWidget {
             color: AppColors.secondaryForeground,
           ),
           const SizedBox(width: 2),
-          Text('${distance.toStringAsFixed(distance % 1 == 0 ? 0 : 1)}km'),
+          Flexible(
+            child: Text(
+              '${distance.toStringAsFixed(distance % 1 == 0 ? 0 : 1)}km',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
         const Spacer(),
-        Text(
-          restaurant.budget,
-          style: const TextStyle(fontWeight: FontWeight.w500),
+        Flexible(
+          child: Text(
+            restaurant.budget,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w500),
+          ),
         ),
       ],
     );

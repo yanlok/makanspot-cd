@@ -5,18 +5,18 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:makanspot/shared/widgets/demo_mode_switcher.dart';
 
-import '../controllers/auth_controller.dart';
-import 'widgets/auth_controls.dart';
-import 'widgets/auth_layout.dart';
+import '../../auth/views/widgets/auth_controls.dart';
+import '../../auth/views/widgets/auth_layout.dart';
+import '../controllers/admin_auth_controller.dart';
 
-class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({super.key});
+class AdminLoginScreen extends ConsumerStatefulWidget {
+  const AdminLoginScreen({super.key});
 
   @override
-  ConsumerState<LoginScreen> createState() => _LoginScreenState();
+  ConsumerState<AdminLoginScreen> createState() => _AdminLoginScreenState();
 }
 
-class _LoginScreenState extends ConsumerState<LoginScreen> {
+class _AdminLoginScreenState extends ConsumerState<AdminLoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
@@ -29,34 +29,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Future<void> _submit() async {
     final succeeded = await ref
-        .read(authControllerProvider.notifier)
+        .read(adminAuthControllerProvider.notifier)
         .login(_emailController.text, _passwordController.text);
     if (succeeded && mounted) {
-      context.go('/');
+      context.go('/admin');
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(authControllerProvider);
+    final state = ref.watch(adminAuthControllerProvider);
     return Stack(
       children: [
         AuthLayout(
           icon: LucideIcons.logIn,
-          title: 'Welcome back',
-          subtitle: 'Log in to your MakanSpot account',
-          footer: Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
-            alignment: WrapAlignment.center,
-            children: [
-              const Text("Don't have an account? "),
-              AuthLinkButton(
-                label: 'Create one',
-                buttonKey: const Key('create-account-link'),
-                onPressed: () => context.go('/register'),
-              ),
-            ],
-          ),
+          title: 'Admin login',
+          subtitle: 'Sign in to the MakanSpot admin console',
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -66,7 +54,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 hint: 'you@example.com',
                 icon: LucideIcons.mail,
                 controller: _emailController,
-                fieldKey: const Key('login-email'),
+                fieldKey: const Key('admin-login-email'),
                 keyboardType: TextInputType.emailAddress,
                 textInputAction: TextInputAction.next,
                 autofocus: true,
@@ -77,24 +65,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 hint: '••••••••',
                 icon: LucideIcons.lock,
                 controller: _passwordController,
-                fieldKey: const Key('login-password'),
+                fieldKey: const Key('admin-login-password'),
                 obscureText: true,
                 textInputAction: TextInputAction.done,
-                trailing: AuthLinkButton(
-                  label: 'Forgot password?',
-                  fontSize: 12,
-                  buttonKey: const Key('forgot-password-link'),
-                  onPressed: () => context.go('/forgot-password'),
-                ),
                 onSubmitted: (_) => _submit(),
               ),
               const SizedBox(height: 16),
               AuthSubmitButton(
-                label: 'Log in',
+                label: 'Log in as admin',
                 loadingLabel: 'Signing in...',
                 isLoading: state.isLoading,
                 onPressed: _submit,
-                buttonKey: const Key('login-submit'),
+                buttonKey: const Key('admin-login-submit'),
               ),
             ],
           ),
