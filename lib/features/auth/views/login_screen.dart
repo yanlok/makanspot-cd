@@ -70,6 +70,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 keyboardType: TextInputType.emailAddress,
                 textInputAction: TextInputAction.next,
                 autofocus: true,
+                errorText: state.emailError,
               ),
               const SizedBox(height: 16),
               AuthTextField(
@@ -87,6 +88,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   onPressed: () => context.go('/forgot-password'),
                 ),
                 onSubmitted: (_) => _submit(),
+                errorText: state.passwordError,
               ),
               const SizedBox(height: 16),
               AuthSubmitButton(

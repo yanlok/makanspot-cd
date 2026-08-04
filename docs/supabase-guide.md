@@ -170,6 +170,33 @@ The pipeline merges posts about the same venue into one restaurant row:
 
 ---
 
+## Connecting the Flutter app
+
+The app talks to Supabase through `supabase_flutter`. Credentials are **not**
+committed — provide them at build/run time with `--dart-define`, or edit the
+constants in `lib/core/config/supabase_config.dart`:
+
+```bash
+flutter run \
+  --dart-define=SUPABASE_URL=https://npmdrgpypkozdjtiplmf.supabase.co \
+  --dart-define=SUPABASE_ANON_KEY=<anon-key>
+```
+
+The anon key lives in the Supabase Dashboard under **Project Settings → API**.
+
+Notes:
+
+- Without the defines the app falls back to the in-memory fixture repository,
+  so it still runs before the backend is configured.
+- Registration uses Supabase Auth with email confirmation (default). The OTP
+  screen verifies the emailed code; the signup trigger in migration
+  `20260804000012_user_profile_on_signup.sql` creates the matching
+  `public.users` profile automatically.
+- Enable email confirmation: **Authentication → Providers → Email → Confirm
+  email**.
+
+---
+
 ## Troubleshooting
 
 ### "Cannot find module 'Deno'" in VS Code

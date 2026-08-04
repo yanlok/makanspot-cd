@@ -1,11 +1,17 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:makanspot/core/config/supabase_config.dart';
+
 import '../models/auth_repository.dart';
 import '../models/fixture_auth_repository.dart';
+import '../models/supabase_auth_repository.dart';
 import 'auth_state.dart';
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
-  return const FixtureAuthRepository();
+  if (SupabaseConfig.isConfigured) {
+    return SupabaseAuthRepository();
+  }
+  return FixtureAuthRepository();
 });
 
 final authControllerProvider =
@@ -18,31 +24,50 @@ class AuthController extends StateNotifier<AuthState> {
 
   final AuthRepository _repository;
 
-  Future<bool> login(String rawEmail, String password) async {
+  Future<bool> login(String rawEmail, String rawPassword) async {
     final email = rawEmail.trim();
-    if (email.isEmpty || password.isEmpty) {
-      _showError('Enter your email and password.');
+    final emailError = _validateEmail(email);
+    final passwordError = _validatePassword(rawPassword);
+    state = state.copyWith(
+      emailError: emailError,
+      passwordError: passwordError,
+      errorMessage: null,
+    );
+    if (emailError != null || passwordError != null) {
       return false;
     }
-    return _run(() => _repository.login(email: email, password: password));
+    return _run(() => _repository.login(email: email, password: rawPassword));
   }
 
   Future<bool> register({
     required String rawEmail,
-    required String password,
+    required String rawPassword,
     required String confirmPassword,
   }) async {
     final email = rawEmail.trim();
-    if (email.isEmpty || password.isEmpty || confirmPassword.isEmpty) {
-      _showError('Complete all fields.');
-      return false;
+    final emailError = _validateEmail(email);
+    final passwordError = _validatePassword(rawPassword);
+    final String? confirmPasswordError;
+    if (confirmPassword.isEmpty) {
+      confirmPasswordError = 'Confirm your password.';
+    } else if (rawPassword != confirmPassword) {
+      confirmPasswordError = 'Passwords do not match.';
+    } else {
+      confirmPasswordError = null;
     }
-    if (password != confirmPassword) {
-      _showError('Passwords do not match');
+    state = state.copyWith(
+      emailError: emailError,
+      passwordError: passwordError,
+      confirmPasswordError: confirmPasswordError,
+      errorMessage: null,
+    );
+    if (emailError != null ||
+        passwordError != null ||
+        confirmPasswordError != null) {
       return false;
     }
     final succeeded = await _run(
-      () => _repository.register(email: email, password: password),
+      () => _repository.register(email: email, password: rawPassword),
     );
     if (succeeded) {
       state = state.copyWith(
@@ -52,6 +77,27 @@ class AuthController extends StateNotifier<AuthState> {
       );
     }
     return succeeded;
+  }
+
+  String? _validateEmail(String email) {
+    if (email.isEmpty) {
+      return 'Email is required.';
+    }
+    final emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+    if (!emailPattern.hasMatch(email)) {
+      return 'Enter a valid email address.';
+    }
+    return null;
+  }
+
+  String? _validatePassword(String password) {
+    if (password.isEmpty) {
+      return 'Password is required.';
+    }
+    if (password.length < 6) {
+      return 'Password must be at least 6 characters.';
+    }
+    return null;
   }
 
   Future<bool> verifyOtp(String code) async {
@@ -116,7 +162,12 @@ class AuthController extends StateNotifier<AuthState> {
     state = state.copyWith(status: AuthStatus.loading);
     try {
       await action();
-      state = state.copyWith(status: AuthStatus.success);
+      state = state.copyWith(
+        status: AuthStatus.success,
+        emailError: null,
+        passwordError: null,
+        confirmPasswordError: null,
+      );
       return true;
     } on AuthFailure catch (failure) {
       _showError(failure.message);

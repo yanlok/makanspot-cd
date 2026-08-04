@@ -65,6 +65,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             keyboardType: TextInputType.emailAddress,
             textInputAction: TextInputAction.next,
             autofocus: true,
+            errorText: state.emailError,
           ),
           const SizedBox(height: 16),
           AuthTextField(
@@ -75,6 +76,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             fieldKey: const Key('register-password'),
             obscureText: true,
             textInputAction: TextInputAction.next,
+            errorText: state.passwordError,
           ),
           const SizedBox(height: 16),
           AuthTextField(
@@ -86,6 +88,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             obscureText: true,
             textInputAction: TextInputAction.done,
             onSubmitted: (_) => _submitRegistration(),
+            errorText: state.confirmPasswordError,
           ),
           const SizedBox(height: 16),
           AuthSubmitButton(
@@ -167,7 +170,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         .read(authControllerProvider.notifier)
         .register(
           rawEmail: _emailController.text,
-          password: _passwordController.text,
+          rawPassword: _passwordController.text,
           confirmPassword: _confirmController.text,
         );
   }
