@@ -10,7 +10,7 @@ class SupabaseAuthRepository implements AuthRepository {
   @override
   Future<void> login({required String email, required String password}) async {
     try {
-      await supabase.auth.signInWithPassword(email: email, password: password);
+      await Supabase.instance.client.auth.signInWithPassword(email: email, password: password);
     } on AuthException catch (error) {
       throw AuthFailure(authErrorMessage(error));
     }
@@ -24,7 +24,7 @@ class SupabaseAuthRepository implements AuthRepository {
     try {
       // With email confirmation enabled (Supabase default) this returns a user
       // whose email is unconfirmed; the OTP screen then calls [verifyOtp].
-      await supabase.auth.signUp(email: email, password: password);
+      await Supabase.instance.client.auth.signUp(email: email, password: password);
     } on AuthException catch (error) {
       throw AuthFailure(authErrorMessage(error));
     }
@@ -33,7 +33,7 @@ class SupabaseAuthRepository implements AuthRepository {
   @override
   Future<void> verifyOtp({required String email, required String code}) async {
     try {
-      await supabase.auth.verifyOTP(
+      await Supabase.instance.client.auth.verifyOTP(
         type: OtpType.email,
         token: code,
         email: email,
@@ -46,7 +46,7 @@ class SupabaseAuthRepository implements AuthRepository {
   @override
   Future<void> resendOtp(String email) async {
     try {
-      await supabase.auth.resend(type: OtpType.email, email: email);
+      await Supabase.instance.client.auth.resend(type: OtpType.email, email: email);
     } on AuthException catch (error) {
       throw AuthFailure(authErrorMessage(error));
     }
@@ -55,7 +55,7 @@ class SupabaseAuthRepository implements AuthRepository {
   @override
   Future<void> requestPasswordReset(String email) async {
     try {
-      await supabase.auth.resetPasswordForEmail(email);
+      await Supabase.instance.client.auth.resetPasswordForEmail(email);
     } on AuthException catch (error) {
       throw AuthFailure(authErrorMessage(error));
     }
@@ -69,7 +69,7 @@ class SupabaseAuthRepository implements AuthRepository {
     try {
       // The reset email link authenticates the session; updating the password
       // is then done against the current (confirmed) user.
-      await supabase.auth.updateUser(UserAttributes(password: newPassword));
+      await Supabase.instance.client.auth.updateUser(UserAttributes(password: newPassword));
     } on AuthException catch (error) {
       throw AuthFailure(authErrorMessage(error));
     }
