@@ -91,6 +91,28 @@ class CommunityPostCard extends StatelessWidget {
               icon: const Icon(LucideIcons.utensils, size: 16),
               label: Text(post.restaurantName),
             ),
+            if (post.rating > 0)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                child: Row(
+                  children: [
+                    for (var star = 1; star <= 5; star++)
+                      Icon(
+                        LucideIcons.star,
+                        size: 16,
+                        color: star <= post.rating
+                            ? const Color(0xFFF5A623)
+                            : AppColors.secondary,
+                        fill: star <= post.rating ? 1 : 0,
+                      ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${post.rating}.0',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                  ],
+                ),
+              ),
             InkWell(
               key: Key('open-post-${post.id}'),
               onTap: onOpen,
@@ -112,11 +134,26 @@ class CommunityPostCard extends StatelessWidget {
                 child: SizedBox(
                   height: 224,
                   width: double.infinity,
-                  child: MakanNetworkImage(
-                    url: post.mediaUrls.first,
-                    semanticLabel: 'Review photo for ${post.restaurantName}',
-                    fallbackKey: Key('post-image-fallback-${post.id}'),
-                  ),
+                  child: _isVideo(post.mediaUrls.first)
+                      ? Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Container(color: AppColors.foreground),
+                            const Center(
+                              child: Icon(
+                                LucideIcons.play,
+                                size: 44,
+                                color: AppColors.surface,
+                              ),
+                            ),
+                          ],
+                        )
+                      : MakanNetworkImage(
+                          url: post.mediaUrls.first,
+                          semanticLabel:
+                              'Review photo for ${post.restaurantName}',
+                          fallbackKey: Key('post-image-fallback-${post.id}'),
+                        ),
                 ),
               ),
             Padding(
@@ -159,4 +196,12 @@ class CommunityPostCard extends StatelessWidget {
       ),
     );
   }
+}
+
+bool _isVideo(String url) {
+  final path = Uri.tryParse(url)?.path.toLowerCase() ?? url.toLowerCase();
+  return path.endsWith('.mp4') ||
+      path.endsWith('.mov') ||
+      path.endsWith('.m4v') ||
+      path.endsWith('.webm');
 }
