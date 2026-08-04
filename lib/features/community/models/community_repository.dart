@@ -12,13 +12,15 @@ abstract interface class CommunityRepository {
   Future<CommunityPost> createPost({
     required CommunityRestaurant restaurant,
     required String reviewText,
-    required List<String> mediaUrls,
+    required int rating,
+    required List<ReviewMedia> media,
   });
 
   Future<CommunityPost?> updatePost({
     required String id,
     required String reviewText,
-    required List<String> mediaUrls,
+    required int rating,
+    required List<ReviewMedia> media,
   });
 
   Future<void> archivePost(String id);

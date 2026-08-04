@@ -2,9 +2,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/auth_repository.dart';
 import '../models/fixture_auth_repository.dart';
+import '../models/supabase_auth_repository.dart';
+import 'package:makanspot/core/config/supabase_config.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 import 'auth_state.dart';
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
+  if (SupabaseConfig.isConfigured) {
+    return SupabaseAuthRepository(Supabase.instance.client);
+  }
   return const FixtureAuthRepository();
 });
 
