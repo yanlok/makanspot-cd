@@ -23,6 +23,7 @@ class CommunityPost {
     required this.restaurantName,
     required this.restaurantImage,
     required this.reviewText,
+    required this.rating,
     required this.mediaUrls,
     required this.likes,
     required this.isLiked,
@@ -39,6 +40,7 @@ class CommunityPost {
   final String restaurantName;
   final String restaurantImage;
   final String reviewText;
+  final int rating;
   final List<String> mediaUrls;
   final int likes;
   final bool isLiked;
@@ -47,6 +49,7 @@ class CommunityPost {
 
   CommunityPost copyWith({
     String? reviewText,
+    int? rating,
     List<String>? mediaUrls,
     int? likes,
     bool? isLiked,
@@ -62,6 +65,7 @@ class CommunityPost {
       restaurantName: restaurantName,
       restaurantImage: restaurantImage,
       reviewText: reviewText ?? this.reviewText,
+      rating: rating ?? this.rating,
       mediaUrls: mediaUrls ?? this.mediaUrls,
       likes: likes ?? this.likes,
       isLiked: isLiked ?? this.isLiked,
@@ -69,6 +73,20 @@ class CommunityPost {
       createdAt: createdAt,
     );
   }
+}
+
+enum ReviewMediaType { image, video }
+
+class ReviewMedia {
+  const ReviewMedia({
+    required this.path,
+    required this.type,
+    this.isLocal = false,
+  });
+
+  final String path;
+  final ReviewMediaType type;
+  final bool isLocal;
 }
 
 class CommunityComment {

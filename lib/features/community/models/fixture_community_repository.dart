@@ -48,7 +48,8 @@ class FixtureCommunityRepository implements CommunityRepository {
   Future<CommunityPost> createPost({
     required CommunityRestaurant restaurant,
     required String reviewText,
-    required List<String> mediaUrls,
+    required int rating,
+    required List<ReviewMedia> media,
   }) async {
     final post = CommunityPost(
       id: 'post-new-${_nextPost++}',
@@ -60,7 +61,8 @@ class FixtureCommunityRepository implements CommunityRepository {
       restaurantName: restaurant.name,
       restaurantImage: restaurant.imageUrl,
       reviewText: reviewText,
-      mediaUrls: List.unmodifiable(mediaUrls),
+      rating: rating,
+      mediaUrls: List.unmodifiable(media.map((item) => item.path)),
       likes: 0,
       isLiked: false,
       status: 'active',
@@ -74,7 +76,8 @@ class FixtureCommunityRepository implements CommunityRepository {
   Future<CommunityPost?> updatePost({
     required String id,
     required String reviewText,
-    required List<String> mediaUrls,
+    required int rating,
+    required List<ReviewMedia> media,
   }) async {
     final index = _posts.indexWhere((post) => post.id == id);
     if (index < 0) {
@@ -82,7 +85,8 @@ class FixtureCommunityRepository implements CommunityRepository {
     }
     _posts[index] = _posts[index].copyWith(
       reviewText: reviewText,
-      mediaUrls: List.unmodifiable(mediaUrls),
+      rating: rating,
+      mediaUrls: List.unmodifiable(media.map((item) => item.path)),
     );
     return _posts[index];
   }
@@ -166,6 +170,7 @@ final _seedPosts = <CommunityPost>[
     reviewText:
         'Guaranteed vouchers for everyone! Message me privately and send '
         'your phone number to claim your free meal now.',
+    rating: 1,
     mediaUrls: [],
     likes: 2,
     isLiked: false,
@@ -187,6 +192,7 @@ final _seedPosts = <CommunityPost>[
         'The sambal has a lovely slow heat, the rice is fragrant with coconut, '
         'and the ayam goreng stays beautifully crunchy. The queue moves '
         'quickly, so do not let it scare you away.',
+    rating: 5,
     mediaUrls: [_image('photo-1563379926898-05f4575a45d8')],
     likes: 128,
     isLiked: false,
@@ -208,6 +214,7 @@ final _seedPosts = <CommunityPost>[
         'Perfect comfort food for a rainy KL afternoon. The noodles are '
         'springy, the minced beef is deeply savoury, and the broth tastes like '
         'it has been simmering all morning.',
+    rating: 4,
     mediaUrls: [_image('photo-1569718212165-3a8278d5f624')],
     likes: 86,
     isLiked: true,
@@ -224,6 +231,7 @@ final _seedPosts = <CommunityPost>[
     restaurantName: 'Soong Kee Beef Noodles',
     restaurantImage: _image('photo-1569718212165-3a8278d5f624'),
     reviewText: 'A comforting bowl that deserves another visit.',
+    rating: 4,
     mediaUrls: [],
     likes: 12,
     isLiked: false,

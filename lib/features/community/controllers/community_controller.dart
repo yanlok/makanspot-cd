@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/community_models.dart';
 import '../models/community_repository.dart';
 import '../models/fixture_community_repository.dart';
+import '../models/supabase_community_repository.dart';
+import 'package:makanspot/core/config/supabase_config.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 enum CommunityStatus { loading, content, empty, error }
 
@@ -37,6 +40,9 @@ class CommunityState {
 }
 
 final communityRepositoryProvider = Provider<CommunityRepository>((ref) {
+  if (SupabaseConfig.isConfigured) {
+    return SupabaseCommunityRepository(Supabase.instance.client);
+  }
   return FixtureCommunityRepository();
 });
 

@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../models/community_models.dart';
 import '../models/community_repository.dart';
@@ -29,7 +30,8 @@ class ReviewEditorState {
     this.restaurants = const [],
     this.selectedRestaurant,
     this.reviewText = '',
-    this.mediaUrls = const [],
+    this.rating = 0,
+    this.media = const [],
     this.savedPostId,
     this.errorMessage,
   });
@@ -40,12 +42,13 @@ class ReviewEditorState {
   final List<CommunityRestaurant> restaurants;
   final CommunityRestaurant? selectedRestaurant;
   final String reviewText;
-  final List<String> mediaUrls;
+  final int rating;
+  final List<ReviewMedia> media;
   final String? savedPostId;
   final String? errorMessage;
 
   bool get canSubmit =>
-      selectedRestaurant != null && reviewText.trim().isNotEmpty;
+      selectedRestaurant != null && rating > 0 && reviewText.trim().isNotEmpty;
 
   ReviewEditorState copyWith({
     ReviewEditorStatus? status,
@@ -53,9 +56,11 @@ class ReviewEditorState {
     CommunityRestaurant? selectedRestaurant,
     bool clearRestaurant = false,
     String? reviewText,
-    List<String>? mediaUrls,
+    int? rating,
+    List<ReviewMedia>? media,
     String? savedPostId,
     String? errorMessage,
+    bool clearError = false,
   }) {
     return ReviewEditorState(
       status: status ?? this.status,
@@ -64,9 +69,10 @@ class ReviewEditorState {
           ? null
           : selectedRestaurant ?? this.selectedRestaurant,
       reviewText: reviewText ?? this.reviewText,
-      mediaUrls: mediaUrls ?? this.mediaUrls,
+      rating: rating ?? this.rating,
+      media: media ?? this.media,
       savedPostId: savedPostId ?? this.savedPostId,
-      errorMessage: errorMessage ?? this.errorMessage,
+      errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
     );
   }
 }
@@ -108,7 +114,12 @@ class ReviewEditorController extends StateNotifier<ReviewEditorState> {
           restaurants: restaurants,
           selectedRestaurant: selected,
           reviewText: details.post.reviewText,
-          mediaUrls: details.post.mediaUrls,
+          rating: details.post.rating,
+          media: details.post.mediaUrls
+              .map(
+                (url) => ReviewMedia(path: url, type: _mediaTypeFromPath(url)),
+              )
+              .toList(growable: false),
         );
         return;
       }
@@ -120,16 +131,16 @@ class ReviewEditorController extends StateNotifier<ReviewEditorState> {
         restaurants: restaurants,
         selectedRestaurant: selected,
       );
-    } on Object {
-      state = const ReviewEditorState(
+    } on Object catch (error) {
+      state = ReviewEditorState(
         status: ReviewEditorStatus.error,
-        errorMessage: 'We could not prepare the review form right now.',
+        errorMessage: 'Could not load restaurants. ${error.toString()}',
       );
     }
   }
 
   void selectRestaurant(CommunityRestaurant restaurant) {
-    state = state.copyWith(selectedRestaurant: restaurant);
+    state = state.copyWith(selectedRestaurant: restaurant, clearError: true);
   }
 
   void clearRestaurant() {
@@ -137,23 +148,60 @@ class ReviewEditorController extends StateNotifier<ReviewEditorState> {
   }
 
   void updateReview(String value) {
-    state = state.copyWith(reviewText: value);
+    state = state.copyWith(reviewText: value, clearError: true);
   }
 
-  void addFixturePhoto() {
-    if (state.mediaUrls.isNotEmpty) {
+  void updateRating(int value) {
+    state = state.copyWith(rating: value, clearError: true);
+  }
+
+  Future<void> pickImages() async {
+    if (state.media.length >= 5) {
       return;
     }
+    final files = await ImagePicker().pickMultiImage(
+      imageQuality: 85,
+      limit: 5 - state.media.length,
+    );
+    if (files.isEmpty) return;
     state = state.copyWith(
-      mediaUrls: [state.selectedRestaurant?.imageUrl ?? ''],
+      media: [
+        ...state.media,
+        ...files.map(
+          (file) => ReviewMedia(
+            path: file.path,
+            type: ReviewMediaType.image,
+            isLocal: true,
+          ),
+        ),
+      ],
     );
   }
 
-  void removePhoto(int index) {
+  Future<void> pickVideo() async {
+    if (state.media.length >= 5) return;
+    final file = await ImagePicker().pickVideo(
+      source: ImageSource.gallery,
+      maxDuration: const Duration(minutes: 2),
+    );
+    if (file == null) return;
     state = state.copyWith(
-      mediaUrls: List.unmodifiable([
-        for (var i = 0; i < state.mediaUrls.length; i++)
-          if (i != index) state.mediaUrls[i],
+      media: [
+        ...state.media,
+        ReviewMedia(
+          path: file.path,
+          type: ReviewMediaType.video,
+          isLocal: true,
+        ),
+      ],
+    );
+  }
+
+  void removeMedia(int index) {
+    state = state.copyWith(
+      media: List.unmodifiable([
+        for (var i = 0; i < state.media.length; i++)
+          if (i != index) state.media[i],
       ]),
     );
   }
@@ -162,7 +210,10 @@ class ReviewEditorController extends StateNotifier<ReviewEditorState> {
     if (!state.canSubmit || state.status == ReviewEditorStatus.submitting) {
       return;
     }
-    state = state.copyWith(status: ReviewEditorStatus.submitting);
+    state = state.copyWith(
+      status: ReviewEditorStatus.submitting,
+      clearError: true,
+    );
     try {
       final id = arguments.postId;
       final CommunityPost? saved;
@@ -170,24 +221,59 @@ class ReviewEditorController extends StateNotifier<ReviewEditorState> {
         saved = await _repository.createPost(
           restaurant: state.selectedRestaurant!,
           reviewText: state.reviewText.trim(),
-          mediaUrls: state.mediaUrls,
+          rating: state.rating,
+          media: state.media,
         );
       } else {
         saved = await _repository.updatePost(
           id: id,
           reviewText: state.reviewText.trim(),
-          mediaUrls: state.mediaUrls,
+          rating: state.rating,
+          media: state.media,
         );
       }
       state = state.copyWith(
         status: ReviewEditorStatus.success,
         savedPostId: saved?.id,
       );
-    } on Object {
+    } on Object catch (error) {
       state = state.copyWith(
-        status: ReviewEditorStatus.error,
-        errorMessage: 'We could not save your review right now.',
+        // Keep the completed form on screen so a publish failure never looks
+        // like an editor loading failure and the user's work is not lost.
+        status: ReviewEditorStatus.ready,
+        errorMessage: _publishErrorMessage(error),
       );
     }
   }
+}
+
+String _publishErrorMessage(Object error) {
+  final details = error.toString();
+  if (details.contains('rating') &&
+      (details.contains('column') || details.contains('schema cache'))) {
+    return 'The database is missing the community review update. Apply '
+        'Supabase migration 20260804000012, then try again.';
+  }
+  if (details.contains('row-level security') ||
+      details.contains('JWT') ||
+      details.contains('AuthException')) {
+    return 'Your account is not authorised to publish. Sign out, sign in '
+        'again, and retry.';
+  }
+  if (details.contains('community-media') ||
+      details.contains('Bucket not found')) {
+    return 'The community media storage bucket is not configured. Apply '
+        'Supabase migration 20260804000012, then try again.';
+  }
+  return 'Could not publish your review. $details';
+}
+
+ReviewMediaType _mediaTypeFromPath(String path) {
+  final clean = path.split('?').first.toLowerCase();
+  return clean.endsWith('.mp4') ||
+          clean.endsWith('.mov') ||
+          clean.endsWith('.m4v') ||
+          clean.endsWith('.webm')
+      ? ReviewMediaType.video
+      : ReviewMediaType.image;
 }
