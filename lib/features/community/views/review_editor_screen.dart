@@ -122,6 +122,10 @@ class _ReviewEditorScreenState extends ConsumerState<ReviewEditorScreen> {
           key: const Key('review-editor-scroll'),
           padding: const EdgeInsets.all(16),
           children: [
+            if (state.errorMessage != null) ...[
+              _PublishError(message: state.errorMessage!),
+              const SizedBox(height: 16),
+            ],
             Text('Restaurant', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 8),
             if (state.selectedRestaurant != null)
@@ -238,6 +242,49 @@ class _ReviewEditorScreenState extends ConsumerState<ReviewEditorScreen> {
       shape: WidgetStatePropertyAll(
         RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppRadii.control),
+        ),
+      ),
+    );
+  }
+}
+
+class _PublishError extends StatelessWidget {
+  const _PublishError({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        key: const Key('publish-review-error'),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.destructive.withValues(alpha: 0.08),
+          border: Border.all(
+            color: AppColors.destructive.withValues(alpha: 0.35),
+          ),
+          borderRadius: BorderRadius.circular(AppRadii.control),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(
+              LucideIcons.triangleAlert,
+              size: 19,
+              color: AppColors.destructive,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: AppColors.destructive),
+              ),
+            ),
+          ],
         ),
       ),
     );

@@ -60,6 +60,7 @@ class ReviewEditorState {
     List<ReviewMedia>? media,
     String? savedPostId,
     String? errorMessage,
+    bool clearError = false,
   }) {
     return ReviewEditorState(
       status: status ?? this.status,
@@ -71,7 +72,7 @@ class ReviewEditorState {
       rating: rating ?? this.rating,
       media: media ?? this.media,
       savedPostId: savedPostId ?? this.savedPostId,
-      errorMessage: errorMessage ?? this.errorMessage,
+      errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
     );
   }
 }
@@ -139,7 +140,7 @@ class ReviewEditorController extends StateNotifier<ReviewEditorState> {
   }
 
   void selectRestaurant(CommunityRestaurant restaurant) {
-    state = state.copyWith(selectedRestaurant: restaurant);
+    state = state.copyWith(selectedRestaurant: restaurant, clearError: true);
   }
 
   void clearRestaurant() {
@@ -147,11 +148,11 @@ class ReviewEditorController extends StateNotifier<ReviewEditorState> {
   }
 
   void updateReview(String value) {
-    state = state.copyWith(reviewText: value);
+    state = state.copyWith(reviewText: value, clearError: true);
   }
 
   void updateRating(int value) {
-    state = state.copyWith(rating: value);
+    state = state.copyWith(rating: value, clearError: true);
   }
 
   Future<void> pickImages() async {
@@ -209,7 +210,10 @@ class ReviewEditorController extends StateNotifier<ReviewEditorState> {
     if (!state.canSubmit || state.status == ReviewEditorStatus.submitting) {
       return;
     }
-    state = state.copyWith(status: ReviewEditorStatus.submitting);
+    state = state.copyWith(
+      status: ReviewEditorStatus.submitting,
+      clearError: true,
+    );
     try {
       final id = arguments.postId;
       final CommunityPost? saved;
@@ -232,13 +236,36 @@ class ReviewEditorController extends StateNotifier<ReviewEditorState> {
         status: ReviewEditorStatus.success,
         savedPostId: saved?.id,
       );
-    } on Object {
+    } on Object catch (error) {
       state = state.copyWith(
-        status: ReviewEditorStatus.error,
-        errorMessage: 'We could not save your review right now.',
+        // Keep the completed form on screen so a publish failure never looks
+        // like an editor loading failure and the user's work is not lost.
+        status: ReviewEditorStatus.ready,
+        errorMessage: _publishErrorMessage(error),
       );
     }
   }
+}
+
+String _publishErrorMessage(Object error) {
+  final details = error.toString();
+  if (details.contains('rating') &&
+      (details.contains('column') || details.contains('schema cache'))) {
+    return 'The database is missing the community review update. Apply '
+        'Supabase migration 20260804000012, then try again.';
+  }
+  if (details.contains('row-level security') ||
+      details.contains('JWT') ||
+      details.contains('AuthException')) {
+    return 'Your account is not authorised to publish. Sign out, sign in '
+        'again, and retry.';
+  }
+  if (details.contains('community-media') ||
+      details.contains('Bucket not found')) {
+    return 'The community media storage bucket is not configured. Apply '
+        'Supabase migration 20260804000012, then try again.';
+  }
+  return 'Could not publish your review. $details';
 }
 
 ReviewMediaType _mediaTypeFromPath(String path) {
