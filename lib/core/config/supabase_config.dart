@@ -14,7 +14,7 @@ class SupabaseConfig {
   static const String supabaseUrl = 'https://npmdrgpypkozdjtiplmf.supabase.co';
 
   static const String supabaseAnonKey =
-      'sb_publishable_9qvkHzyVPR6SCHtRk9zjVQ_vMODyBCH';
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5wbWRyZ3B5cGtvemRqdGlwbG1mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ2Njg3NDAsImV4cCI6MjEwMDI0NDc0MH0.2-73aK_GKwNBPsW4bzlMp98yT6PXo83fxQBv4J3_ZmE';
 
   static bool get isConfigured =>
       supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty;
