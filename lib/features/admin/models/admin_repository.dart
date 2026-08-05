@@ -1,10 +1,17 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'package:makanspot/core/config/supabase_config.dart';
 
 import 'admin_models.dart';
 import 'fixture_admin_repository.dart';
+import 'supabase_admin_repository.dart';
 
 /// Shared override point for the administrator console data source.
 final adminRepositoryProvider = Provider<AdminRepository>((ref) {
+  if (SupabaseConfig.isConfigured) {
+    return SupabaseAdminRepository(Supabase.instance.client);
+  }
   return FixtureAdminRepository();
 });
 
@@ -38,15 +45,18 @@ abstract interface class AdminRepository {
 
   Future<void> deleteRestaurant(String id);
 
-  Future<List<ModerationReport>> loadReports();
+  /// Returns all reported content grouped by post or comment.
+  Future<List<ReportedContentGroup>> loadReportedContentGroups();
 
-  Future<ModerationReport?> loadReport(String id);
+  /// Returns a single reported content group by its content ID.
+  Future<ReportedContentGroup?> loadReportedContentGroup(String contentId);
 
-  Future<ReportedContent?> loadReportedContent(ModerationReport report);
+  /// Returns the full content (post or comment) for a reported content group.
+  Future<ReportedContent?> loadReportedContent(ReportedContentGroup group);
 
-  Future<ModerationReport?> resolveReport({
-    required String id,
-    required ReportStatus status,
-    String? removalReason,
-  });
+  /// Hides the content from public view (soft-delete via is_hidden).
+  Future<void> removeContent(String contentId);
+
+  /// Soft-deletes all reports for the given content (content stays visible).
+  Future<void> dismissReports(String contentId);
 }

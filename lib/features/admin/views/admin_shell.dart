@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:makanspot/core/theme/app_theme.dart';
-import 'package:makanspot/shared/widgets/demo_mode_switcher.dart';
 
 import '../controllers/admin_auth_controller.dart';
 import 'admin_login_screen.dart';
@@ -41,11 +40,14 @@ class AdminShell extends ConsumerWidget {
               ],
             ),
             child: Scaffold(
-              body: Column(
-                children: [
-                  _AdminHeader(onLogout: () => _confirmLogout(context, ref)),
-                  Expanded(child: child),
-                ],
+              body: SafeArea(
+                bottom: false,
+                child: Column(
+                  children: [
+                    _AdminHeader(onLogout: () => _confirmLogout(context, ref)),
+                    Expanded(child: child),
+                  ],
+                ),
               ),
               bottomNavigationBar: _AdminNavigation(
                 currentPath: path,
@@ -132,10 +134,6 @@ class _AdminHeader extends StatelessWidget {
                 ),
               ],
             ),
-          ),
-          const DemoModeSwitcher(
-            compact: true,
-            keyPrefix: 'admin-header-switch',
           ),
           IconButton(
             key: const Key('admin-logout'),

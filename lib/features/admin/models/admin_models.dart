@@ -3,8 +3,6 @@ library;
 
 enum AdminAccountStatus { active, deactivated }
 
-enum ReportStatus { pending, removed, dismissed }
-
 enum ReportContentType { post, comment }
 
 class AdminUser {
@@ -27,9 +25,7 @@ class AdminUser {
   final AdminAccountStatus accountStatus;
 
   String get initial {
-    if (username.isEmpty) {
-      return 'U';
-    }
+    if (username.isEmpty) return 'U';
     return username.substring(0, 1).toUpperCase();
   }
 
@@ -86,14 +82,11 @@ class AdminRestaurant {
 
   String get ratingDisplay {
     final value = rating;
-    if (value == null) {
-      return '—';
-    }
+    if (value == null) return '—';
     return value.toStringAsFixed(1);
   }
 }
 
-/// Editable restaurant values captured by the restaurant form.
 class AdminRestaurantDraft {
   const AdminRestaurantDraft({
     required this.name,
@@ -126,56 +119,64 @@ class AdminRestaurantDraft {
   final double? longitude;
 }
 
+/// An individual report submitted by a single user.
 class ModerationReport {
   const ModerationReport({
     required this.id,
-    required this.contentType,
-    required this.contentId,
-    required this.contentPreview,
-    required this.contentOwner,
     required this.reporterName,
     required this.reason,
-    required this.status,
-    required this.reportCount,
     required this.createdDate,
     this.additionalInfo,
-    this.removalReason,
   });
 
   final String id;
-  final ReportContentType contentType;
-  final String contentId;
-  final String contentPreview;
-  final String contentOwner;
   final String reporterName;
   final String reason;
-  final ReportStatus status;
-  final int reportCount;
   final DateTime createdDate;
   final String? additionalInfo;
-  final String? removalReason;
+}
 
-  bool get isResolved =>
-      status == ReportStatus.removed || status == ReportStatus.dismissed;
+/// A piece of content (post or comment) that has one or more reports.
+///
+/// [isRemoved] is derived from the content's `is_hidden` flag.
+/// The overall status is: pending (has reports, visible) or removed (hidden).
+class ReportedContentGroup {
+  const ReportedContentGroup({
+    required this.contentId,
+    required this.contentType,
+    required this.contentPreview,
+    required this.contentOwner,
+    required this.isRemoved,
+    required this.reports,
+  });
 
-  ModerationReport copyWith({ReportStatus? status, String? removalReason}) {
-    return ModerationReport(
-      id: id,
-      contentType: contentType,
+  final String contentId;
+  final ReportContentType contentType;
+  final String contentPreview;
+  final String contentOwner;
+  final bool isRemoved;
+  final List<ModerationReport> reports;
+
+  int get reportCount => reports.length;
+
+  bool get isPending => !isRemoved;
+
+  ReportedContentGroup copyWith({
+    bool? isRemoved,
+    List<ModerationReport>? reports,
+  }) {
+    return ReportedContentGroup(
       contentId: contentId,
+      contentType: contentType,
       contentPreview: contentPreview,
       contentOwner: contentOwner,
-      reporterName: reporterName,
-      reason: reason,
-      status: status ?? this.status,
-      reportCount: reportCount,
-      createdDate: createdDate,
-      additionalInfo: additionalInfo,
-      removalReason: removalReason ?? this.removalReason,
+      isRemoved: isRemoved ?? this.isRemoved,
+      reports: reports ?? this.reports,
     );
   }
 }
 
+/// The full content (post or comment) displayed in the moderation details.
 class ReportedContent {
   const ReportedContent({
     required this.username,
@@ -205,5 +206,5 @@ class AdminDashboardData {
   final int postCount;
   final int commentCount;
   final int pendingReportCount;
-  final List<ModerationReport> recentReports;
+  final List<ReportedContentGroup> recentReports;
 }
