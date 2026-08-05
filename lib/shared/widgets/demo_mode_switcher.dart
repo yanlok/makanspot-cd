@@ -8,9 +8,9 @@ import 'package:makanspot/core/theme/app_theme.dart';
 import 'package:makanspot/features/admin/controllers/admin_auth_controller.dart';
 
 /// TEMPORARY prototype navigation aid: two small pills that jump between the
-/// customer app and the admin console. The Admin pill opens the dashboard
-/// directly (demo session), the User pill returns to the customer home.
-/// Remove once the app has a real entry flow.
+/// customer app and the admin console. The Admin pill opens the admin login
+/// (which signs in with the admin account), the User pill returns to the
+/// customer home. Remove once the app has a real entry flow.
 class DemoModeSwitcher extends ConsumerWidget {
   const DemoModeSwitcher({
     this.compact = false,
@@ -52,12 +52,12 @@ class DemoModeSwitcher extends ConsumerWidget {
             _ModePill(
               key: Key('$keyPrefix-admin'),
               label: 'Admin',
-              tooltip: 'Go to the admin console',
+              tooltip: 'Go to the admin login',
               icon: LucideIcons.shield,
               compact: compact,
               onTap: () {
-                auth.enterDemoSession();
-                context.go(AppRoutes.adminDashboard);
+                auth.exitDemoSession();
+                context.go(AppRoutes.adminLogin);
               },
             ),
           ],

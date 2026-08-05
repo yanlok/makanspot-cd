@@ -5,16 +5,16 @@ import '../models/admin_repository.dart';
 
 enum ModerationStatus { loading, content, error }
 
-enum ReportStatusFilter { all, pending, removed, dismissed }
+enum ReportFilter { all, pending, removed }
 
 enum ReportTab { post, comment }
 
 class ModerationState {
   const ModerationState({
     required this.status,
-    this.reports = const [],
+    this.groups = const [],
     this.searchQuery = '',
-    this.statusFilter = ReportStatusFilter.all,
+    this.filter = ReportFilter.all,
     this.tab = ReportTab.post,
     this.errorMessage,
   });
@@ -22,57 +22,54 @@ class ModerationState {
   const ModerationState.loading() : this(status: ModerationStatus.loading);
 
   final ModerationStatus status;
-  final List<ModerationReport> reports;
+  final List<ReportedContentGroup> groups;
   final String searchQuery;
-  final ReportStatusFilter statusFilter;
+  final ReportFilter filter;
   final ReportTab tab;
   final String? errorMessage;
 
-  List<ModerationReport> get filteredPosts {
-    return _filteredFor(ReportContentType.post);
-  }
+  List<ReportedContentGroup> get filteredPosts =>
+      _filteredFor(ReportContentType.post);
 
-  List<ModerationReport> get filteredComments {
-    return _filteredFor(ReportContentType.comment);
-  }
+  List<ReportedContentGroup> get filteredComments =>
+      _filteredFor(ReportContentType.comment);
 
-  List<ModerationReport> _filteredFor(ReportContentType contentType) {
+  List<ReportedContentGroup> _filteredFor(ReportContentType contentType) {
     final query = searchQuery.trim().toLowerCase();
-    return reports
-        .where((report) {
-          if (report.contentType != contentType) {
-            return false;
-          }
+    return groups
+        .where((group) {
+          if (group.contentType != contentType) return false;
+
           final matchesSearch =
               query.isEmpty ||
-              report.contentPreview.toLowerCase().contains(query) ||
-              report.contentOwner.toLowerCase().contains(query) ||
-              report.reason.toLowerCase().contains(query);
-          final matchesStatus = switch (statusFilter) {
-            ReportStatusFilter.all => true,
-            ReportStatusFilter.pending => report.status == ReportStatus.pending,
-            ReportStatusFilter.removed => report.status == ReportStatus.removed,
-            ReportStatusFilter.dismissed =>
-              report.status == ReportStatus.dismissed,
+              group.contentPreview.toLowerCase().contains(query) ||
+              group.contentOwner.toLowerCase().contains(query) ||
+              group.reports.any((r) => r.reason.toLowerCase().contains(query));
+
+          final matchesFilter = switch (filter) {
+            ReportFilter.all => true,
+            ReportFilter.pending => group.isPending,
+            ReportFilter.removed => group.isRemoved,
           };
-          return matchesSearch && matchesStatus;
+
+          return matchesSearch && matchesFilter;
         })
         .toList(growable: false);
   }
 
   ModerationState copyWith({
     ModerationStatus? status,
-    List<ModerationReport>? reports,
+    List<ReportedContentGroup>? groups,
     String? searchQuery,
-    ReportStatusFilter? statusFilter,
+    ReportFilter? filter,
     ReportTab? tab,
     String? errorMessage,
   }) {
     return ModerationState(
       status: status ?? this.status,
-      reports: reports ?? this.reports,
+      groups: groups ?? this.groups,
       searchQuery: searchQuery ?? this.searchQuery,
-      statusFilter: statusFilter ?? this.statusFilter,
+      filter: filter ?? this.filter,
       tab: tab ?? this.tab,
       errorMessage: errorMessage,
     );
@@ -101,7 +98,9 @@ class ModerationController extends StateNotifier<ModerationState> {
     try {
       state = ModerationState(
         status: ModerationStatus.content,
-        reports: List.unmodifiable(await _repository.loadReports()),
+        groups: List.unmodifiable(
+          await _repository.loadReportedContentGroups(),
+        ),
       );
     } on Object {
       state = const ModerationState(
@@ -115,8 +114,8 @@ class ModerationController extends StateNotifier<ModerationState> {
     state = state.copyWith(searchQuery: value);
   }
 
-  void selectStatusFilter(ReportStatusFilter filter) {
-    state = state.copyWith(statusFilter: filter);
+  void selectFilter(ReportFilter filter) {
+    state = state.copyWith(filter: filter);
   }
 
   void selectTab(ReportTab tab) {
