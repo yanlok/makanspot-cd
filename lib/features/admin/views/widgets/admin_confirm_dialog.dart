@@ -14,6 +14,7 @@ Future<bool?> showAdminConfirmDialog(
 }) {
   return showModalBottomSheet<bool>(
     context: context,
+    useRootNavigator: true,
     backgroundColor: Colors.transparent,
     barrierColor: AppColors.foreground.withValues(alpha: 0.4),
     builder: (context) {

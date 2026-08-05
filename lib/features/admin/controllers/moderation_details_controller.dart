@@ -8,9 +8,8 @@ enum ModerationDetailsStatus { loading, content, notFound, error }
 class ModerationDetailsState {
   const ModerationDetailsState({
     required this.status,
-    this.report,
+    this.group,
     this.content,
-    this.removalReason = '',
     this.isActing = false,
     this.errorMessage,
   });
@@ -19,25 +18,22 @@ class ModerationDetailsState {
     : this(status: ModerationDetailsStatus.loading);
 
   final ModerationDetailsStatus status;
-  final ModerationReport? report;
+  final ReportedContentGroup? group;
   final ReportedContent? content;
-  final String removalReason;
   final bool isActing;
   final String? errorMessage;
 
   ModerationDetailsState copyWith({
     ModerationDetailsStatus? status,
-    ModerationReport? report,
+    ReportedContentGroup? group,
     ReportedContent? content,
-    String? removalReason,
     bool? isActing,
     String? errorMessage,
   }) {
     return ModerationDetailsState(
       status: status ?? this.status,
-      report: report ?? this.report,
+      group: group ?? this.group,
       content: content ?? this.content,
-      removalReason: removalReason ?? this.removalReason,
       isActing: isActing ?? this.isActing,
       errorMessage: errorMessage,
     );
@@ -47,11 +43,11 @@ class ModerationDetailsState {
 final moderationDetailsControllerProvider = StateNotifierProvider.autoDispose
     .family<ModerationDetailsController, ModerationDetailsState, String>((
       ref,
-      id,
+      contentId,
     ) {
       final controller = ModerationDetailsController(
         ref.watch(adminRepositoryProvider),
-        id,
+        contentId,
       );
       controller.load();
       return controller;
@@ -59,26 +55,26 @@ final moderationDetailsControllerProvider = StateNotifierProvider.autoDispose
 
 class ModerationDetailsController
     extends StateNotifier<ModerationDetailsState> {
-  ModerationDetailsController(this._repository, this._reportId)
+  ModerationDetailsController(this._repository, this._contentId)
     : super(const ModerationDetailsState.loading());
 
   final AdminRepository _repository;
-  final String _reportId;
+  final String _contentId;
 
   Future<void> load() async {
     state = const ModerationDetailsState.loading();
     try {
-      final report = await _repository.loadReport(_reportId);
-      if (report == null) {
+      final group = await _repository.loadReportedContentGroup(_contentId);
+      if (group == null) {
         state = const ModerationDetailsState(
           status: ModerationDetailsStatus.notFound,
         );
         return;
       }
-      final content = await _repository.loadReportedContent(report);
+      final content = await _repository.loadReportedContent(group);
       state = ModerationDetailsState(
         status: ModerationDetailsStatus.content,
-        report: report,
+        group: group,
         content: content,
       );
     } on Object {
@@ -89,59 +85,40 @@ class ModerationDetailsController
     }
   }
 
-  void updateRemovalReason(String value) {
-    state = state.copyWith(removalReason: value);
-  }
-
-  /// Resolves the report by removing the content. Returns a user-facing
-  /// failure message, or null when the removal succeeded.
+  /// Hides the content from public view. Returns a user-facing failure
+  /// message, or null when the removal succeeded.
   Future<String?> removeContent() async {
-    final report = state.report;
-    if (report == null) {
-      return null;
-    }
-    if (state.removalReason.trim().isEmpty) {
-      return 'Removal reason required';
-    }
-    return _resolve(ReportStatus.removed, report);
-  }
-
-  Future<String?> dismiss() async {
-    final report = state.report;
-    if (report == null) {
-      return null;
-    }
-    return _resolve(ReportStatus.dismissed, report);
-  }
-
-  Future<String?> _resolve(ReportStatus status, ModerationReport report) async {
     state = state.copyWith(isActing: true);
     try {
-      final updated = await _repository.resolveReport(
-        id: report.id,
-        status: status,
-        removalReason: status == ReportStatus.removed
-            ? state.removalReason.trim()
-            : null,
-      );
-      state = ModerationDetailsState(
-        status: state.status,
-        report: updated,
-        content:
-            status == ReportStatus.removed &&
-                report.contentType == ReportContentType.comment
-            ? null
-            : state.content,
-        removalReason: '',
+      await _repository.removeContent(_contentId);
+      state = state.copyWith(
         isActing: false,
+        group: state.group?.copyWith(isRemoved: true),
       );
       return null;
     } on Object {
       state = state.copyWith(
         isActing: false,
-        errorMessage: status == ReportStatus.removed
-            ? 'Could not remove content.'
-            : 'Could not dismiss report.',
+        errorMessage: 'Could not remove content.',
+      );
+      return state.errorMessage;
+    }
+  }
+
+  /// Deletes all reports for this content (content stays visible).
+  Future<String?> dismiss() async {
+    state = state.copyWith(isActing: true);
+    try {
+      await _repository.dismissReports(_contentId);
+      state = state.copyWith(
+        isActing: false,
+        group: state.group?.copyWith(reports: const []),
+      );
+      return null;
+    } on Object {
+      state = state.copyWith(
+        isActing: false,
+        errorMessage: 'Could not dismiss reports.',
       );
       return state.errorMessage;
     }

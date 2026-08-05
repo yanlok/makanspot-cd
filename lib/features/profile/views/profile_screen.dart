@@ -53,6 +53,8 @@ class ProfileScreen extends ConsumerWidget {
           _ProfileHero(data: data, onBack: context.pop),
           const SizedBox(height: 16),
           _ProgressCard(score: data.profile.communityScore),
+          const SizedBox(height: 18),
+          _AccountSummarySection(state: state, controller: controller),
           if (data.earnedBadges.isNotEmpty) _BadgeSection(data: data),
           _ProfileMenu(onLogout: () => _confirmLogout(context)),
         ],
@@ -158,6 +160,19 @@ class _ProfileHero extends StatelessWidget {
                     ).textTheme.labelMedium?.copyWith(color: AppColors.surface),
                   ),
                 ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _ProfileLabelChip(
+                      label: 'Role: ${_labelize(profile.role)}',
+                    ),
+                    const SizedBox(width: 8),
+                    _ProfileLabelChip(
+                      label: 'Status: ${_labelize(profile.accountStatus)}',
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 18),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -173,6 +188,29 @@ class _ProfileHero extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ProfileLabelChip extends StatelessWidget {
+  const _ProfileLabelChip({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withValues(alpha: 0.24),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(
+          context,
+        ).textTheme.labelMedium?.copyWith(color: AppColors.surface),
       ),
     );
   }
@@ -322,6 +360,355 @@ class _BadgeSection extends StatelessWidget {
       ),
     );
   }
+}
+
+class _AccountSummarySection extends StatelessWidget {
+  const _AccountSummarySection({required this.state, required this.controller});
+
+  final ProfileState state;
+  final ProfileController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Registered Accounts', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 4),
+          Text(
+            'Search and filter by name, email, role, and status.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: AppColors.mutedForeground,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('profile-account-search'),
+            onChanged: controller.updateAccountSearch,
+            decoration: const InputDecoration(
+              prefixIcon: Icon(LucideIcons.search),
+              hintText: 'Search name or email',
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<AccountRoleFilter>(
+                  key: const Key('profile-account-role-filter'),
+                  value: state.roleFilter,
+                  items: const [
+                    DropdownMenuItem(
+                      value: AccountRoleFilter.all,
+                      child: Text('All roles'),
+                    ),
+                    DropdownMenuItem(
+                      value: AccountRoleFilter.user,
+                      child: Text('User'),
+                    ),
+                    DropdownMenuItem(
+                      value: AccountRoleFilter.admin,
+                      child: Text('Admin'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      controller.selectRoleFilter(value);
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: DropdownButtonFormField<AccountStatusFilter>(
+                  key: const Key('profile-account-status-filter'),
+                  value: state.statusFilter,
+                  items: const [
+                    DropdownMenuItem(
+                      value: AccountStatusFilter.all,
+                      child: Text('All statuses'),
+                    ),
+                    DropdownMenuItem(
+                      value: AccountStatusFilter.active,
+                      child: Text('Active'),
+                    ),
+                    DropdownMenuItem(
+                      value: AccountStatusFilter.pending,
+                      child: Text('Pending'),
+                    ),
+                    DropdownMenuItem(
+                      value: AccountStatusFilter.deactivated,
+                      child: Text('Deactivated'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      controller.selectStatusFilter(value);
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _AccountSummaryContent(state: state, controller: controller),
+        ],
+      ),
+    );
+  }
+}
+
+class _AccountSummaryContent extends StatelessWidget {
+  const _AccountSummaryContent({required this.state, required this.controller});
+
+  final ProfileState state;
+  final ProfileController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    if (state.accountListStatus == AccountListStatus.loading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (state.accountListStatus == AccountListStatus.error) {
+      return _AccountSummaryState(
+        icon: LucideIcons.triangleAlert,
+        title: 'Unable to Load Accounts',
+        message:
+            state.accountErrorMessage ??
+            'Something went wrong while retrieving account summaries.',
+        actionLabel: 'Retry',
+        onAction: controller.reloadAccountSummaries,
+      );
+    }
+    if (state.accountListStatus == AccountListStatus.empty) {
+      return const _AccountSummaryState(
+        icon: LucideIcons.users,
+        title: 'No Accounts Yet',
+        message: 'No registered accounts are available right now.',
+      );
+    }
+    if (state.accountListStatus == AccountListStatus.noResults) {
+      return _AccountSummaryState(
+        icon: LucideIcons.searchX,
+        title: 'No Results',
+        message: 'No accounts matched your current search and filters.',
+        actionLabel: state.hasAccountFilters ? 'Clear Filters' : null,
+        onAction: state.hasAccountFilters ? controller.clearAccountFilters : null,
+      );
+    }
+    return Column(
+      children: [
+        for (final account in state.accountSummaries) ...[
+          _AccountSummaryCard(account: account),
+          const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+}
+
+class _AccountSummaryState extends StatelessWidget {
+  const _AccountSummaryState({
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.secondary),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: AppColors.mutedForeground),
+          const SizedBox(height: 8),
+          Text(title, style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 4),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: AppColors.mutedForeground,
+            ),
+          ),
+          if (actionLabel != null && onAction != null) ...[
+            const SizedBox(height: 10),
+            FilledButton(onPressed: onAction, child: Text(actionLabel!)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _AccountSummaryCard extends StatelessWidget {
+  const _AccountSummaryCard({required this.account});
+
+  final DemoRegisteredAccount account;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: Key('profile-account-${account.id}'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.secondary),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipOval(
+            child: Image.asset(
+              account.photoUrl,
+              width: 44,
+              height: 44,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => Container(
+                width: 44,
+                height: 44,
+                alignment: Alignment.center,
+                color: AppColors.secondary,
+                child: Text(
+                  account.initial,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        account.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    _StatusBadge(label: _labelize(account.status)),
+                  ],
+                ),
+                Text(
+                  account.email,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.mutedForeground,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  account.bio,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: _RoleBadge(label: _labelize(account.role)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RoleBadge extends StatelessWidget {
+  const _RoleBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.secondary,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+          color: AppColors.secondaryForeground,
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = label.toLowerCase();
+    Color background = AppColors.secondary;
+    Color foreground = AppColors.mutedForeground;
+    if (normalized == 'active') {
+      background = AppColors.success.withValues(alpha: 0.15);
+      foreground = AppColors.success;
+    } else if (normalized == 'pending') {
+      background = AppColors.accent.withValues(alpha: 0.15);
+      foreground = AppColors.foreground;
+    } else if (normalized == 'deactivated') {
+      background = AppColors.destructive.withValues(alpha: 0.15);
+      foreground = AppColors.destructive;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+          color: foreground,
+        ),
+      ),
+    );
+  }
+}
+
+String _labelize(String value) {
+  if (value.isEmpty) {
+    return value;
+  }
+  return value[0].toUpperCase() + value.substring(1).toLowerCase();
 }
 
 class _ProfileMenu extends StatelessWidget {

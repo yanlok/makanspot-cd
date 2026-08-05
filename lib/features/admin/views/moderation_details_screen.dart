@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:makanspot/core/theme/app_theme.dart';
 
+import '../controllers/moderation_controller.dart';
 import '../controllers/moderation_details_controller.dart';
 import '../models/admin_models.dart';
 import 'widgets/admin_confirm_dialog.dart';
@@ -13,9 +14,9 @@ import 'widgets/admin_skeletons.dart';
 import 'widgets/admin_status_badge.dart';
 
 class ModerationDetailsScreen extends ConsumerStatefulWidget {
-  const ModerationDetailsScreen({required this.reportId, super.key});
+  const ModerationDetailsScreen({required this.contentId, super.key});
 
-  final String reportId;
+  final String contentId;
 
   @override
   ConsumerState<ModerationDetailsScreen> createState() =>
@@ -24,52 +25,40 @@ class ModerationDetailsScreen extends ConsumerStatefulWidget {
 
 class _ModerationDetailsScreenState
     extends ConsumerState<ModerationDetailsScreen> {
-  final _reasonController = TextEditingController();
-
-  @override
-  void dispose() {
-    _reasonController.dispose();
-    super.dispose();
-  }
-
   Future<void> _removeContent() async {
     final error = await ref
-        .read(moderationDetailsControllerProvider(widget.reportId).notifier)
+        .read(moderationDetailsControllerProvider(widget.contentId).notifier)
         .removeContent();
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     if (error != null) {
       messenger.showSnackBar(SnackBar(content: Text(error)));
       return;
     }
     messenger.showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Content Removed — The content has been removed from public view.',
-        ),
-      ),
+      const SnackBar(content: Text('Remove content successfully.')),
     );
+    // Refresh the moderation list so the report no longer shows as pending.
+    ref.invalidate(moderationControllerProvider);
+    if (mounted) context.go('/admin/moderation');
   }
 
   Future<void> _dismiss() async {
     final error = await ref
-        .read(moderationDetailsControllerProvider(widget.reportId).notifier)
+        .read(moderationDetailsControllerProvider(widget.contentId).notifier)
         .dismiss();
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     if (error != null) {
       messenger.showSnackBar(SnackBar(content: Text(error)));
       return;
     }
     messenger.showSnackBar(
-      const SnackBar(
-        content: Text('Report Dismissed — The report has been dismissed.'),
-      ),
+      const SnackBar(content: Text('Dismiss reports successfully.')),
     );
+    // Refresh the moderation list so the dismissed report disappears.
+    ref.invalidate(moderationControllerProvider);
+    if (mounted) context.go('/admin/moderation');
   }
 
   Future<void> _confirmRemove() async {
@@ -77,52 +66,48 @@ class _ModerationDetailsScreenState
       context,
       title: 'Remove Content?',
       message:
-          'This will remove the content from public view and mark this '
-          'report as resolved.',
+          'This will hide the content from public view. The content owner '
+          'will not be able to see it.',
       confirmLabel: 'Remove Content',
       destructive: true,
     );
-    if ((confirmed ?? false) && mounted) {
-      await _removeContent();
-    }
+    if ((confirmed ?? false) && mounted) await _removeContent();
   }
 
   Future<void> _confirmDismiss() async {
     final confirmed = await showAdminConfirmDialog(
       context,
-      title: 'Dismiss Report?',
+      title: 'Dismiss Reports?',
       message:
-          'This will dismiss the report as invalid. No action will be taken '
-          'against the content.',
+          'This will clear all reports for this content. The content will '
+          'remain visible.',
       confirmLabel: 'Dismiss',
     );
-    if ((confirmed ?? false) && mounted) {
-      await _dismiss();
-    }
+    if ((confirmed ?? false) && mounted) await _dismiss();
   }
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(
-      moderationDetailsControllerProvider(widget.reportId),
+      moderationDetailsControllerProvider(widget.contentId),
     );
-    final controller = ref.read(
-      moderationDetailsControllerProvider(widget.reportId).notifier,
-    );
-    if (_reasonController.text != state.removalReason) {
-      _reasonController.text = state.removalReason;
-    }
-    final report = state.report;
+    final group = state.group;
     return SafeArea(
       bottom: false,
       child: ListView(
         key: const Key('moderation-details-scroll'),
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
-          AdminBackButton(label: 'Back to Moderation', onPressed: context.pop),
+          Transform.translate(
+            offset: const Offset(-80, 0),
+            child: AdminBackButton(
+              label: 'Back to Moderation',
+              onPressed: () => context.go('/admin/moderation'),
+            ),
+          ),
           const SizedBox(height: 16),
           if (state.status == ModerationDetailsStatus.loading)
-            const _ModerationDetailsSkeleton()
+            const _Skeleton()
           else if (state.status == ModerationDetailsStatus.notFound)
             const Text(
               'Report not found.',
@@ -131,17 +116,15 @@ class _ModerationDetailsScreenState
           else if (state.status == ModerationDetailsStatus.error)
             Text(state.errorMessage!, textAlign: TextAlign.center)
           else ...[
-            _ReportHeader(report: report!),
+            _ReportHeader(group: group!),
             const SizedBox(height: 16),
-            _ReportedContentCard(content: state.content),
+            _ContentCard(content: state.content),
             const SizedBox(height: 16),
-            _ReportDetailsCard(report: report),
-            if (!report.isResolved) ...[
+            _ReportsListCard(reports: group.reports),
+            if (group.isPending) ...[
               const SizedBox(height: 16),
-              _ModerationActionCard(
-                reasonController: _reasonController,
+              _ActionCard(
                 isActing: state.isActing,
-                onReasonChanged: controller.updateRemovalReason,
                 onRemove: _confirmRemove,
                 onDismiss: _confirmDismiss,
               ),
@@ -154,9 +137,9 @@ class _ModerationDetailsScreenState
 }
 
 class _ReportHeader extends StatelessWidget {
-  const _ReportHeader({required this.report});
+  const _ReportHeader({required this.group});
 
-  final ModerationReport report;
+  final ReportedContentGroup group;
 
   @override
   Widget build(BuildContext context) {
@@ -185,7 +168,7 @@ class _ReportHeader extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               Text(
-                report.contentType == ReportContentType.post
+                group.contentType == ReportContentType.post
                     ? 'Reported Post'
                     : 'Reported Comment',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -196,33 +179,26 @@ class _ReportHeader extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        AdminStatusBadge(label: _statusLabel(report.status)),
+        AdminStatusBadge(label: group.isRemoved ? 'Removed' : 'Pending'),
       ],
     );
   }
-
-  static String _statusLabel(ReportStatus status) {
-    return switch (status) {
-      ReportStatus.pending => 'Pending',
-      ReportStatus.removed => 'Removed',
-      ReportStatus.dismissed => 'Dismissed',
-    };
-  }
 }
 
-class _ReportedContentCard extends StatelessWidget {
-  const _ReportedContentCard({required this.content});
+class _ContentCard extends StatelessWidget {
+  const _ContentCard({required this.content});
 
   final ReportedContent? content;
 
   @override
   Widget build(BuildContext context) {
-    return _AdminCard(
+    return _Card(
       title: 'Reported Content',
       child: content == null
-          ? _MutedPanel(
+          ? _Muted(
               text:
-                  'Content is no longer available. It may have been already removed.',
+                  'Content is no longer available. It may have been '
+                  'already removed.',
             )
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -266,7 +242,7 @@ class _ReportedContentCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 12),
-                _MutedPanel(text: content!.text),
+                _Muted(text: content!.text),
                 if (content!.mediaUrls.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Row(
@@ -302,30 +278,24 @@ class _ReportedContentCard extends StatelessWidget {
   }
 }
 
-class _ReportDetailsCard extends StatelessWidget {
-  const _ReportDetailsCard({required this.report});
+class _ReportsListCard extends StatelessWidget {
+  const _ReportsListCard({required this.reports});
 
-  final ModerationReport report;
+  final List<ModerationReport> reports;
 
   @override
   Widget build(BuildContext context) {
-    return _AdminCard(
-      title: 'Report Details',
+    return _Card(
+      title: 'Reports (${reports.length})',
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _DetailRow(label: 'Reason', value: report.reason),
-          const SizedBox(height: 16),
-          _DetailRow(label: 'Report Count', value: '${report.reportCount}'),
-          if (report.additionalInfo != null &&
-              report.additionalInfo!.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            _DetailRow(label: 'Additional Info', value: report.additionalInfo!),
-          ],
-          if (report.removalReason != null &&
-              report.removalReason!.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            _DetailRow(label: 'Removal Reason', value: report.removalReason!),
+          for (var i = 0; i < reports.length; i++) ...[
+            if (i > 0) ...[
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+            ],
+            _ReportRow(report: reports[i]),
           ],
         ],
       ),
@@ -333,84 +303,110 @@ class _ReportDetailsCard extends StatelessWidget {
   }
 }
 
-class _DetailRow extends StatelessWidget {
-  const _DetailRow({required this.label, required this.value});
+class _ReportRow extends StatelessWidget {
+  const _ReportRow({required this.report});
 
-  final String label;
-  final String value;
+  final ModerationReport report;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: AppColors.mutedForeground),
+        Row(
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Center(
+                child: Text(
+                  report.reporterName.isNotEmpty
+                      ? report.reporterName[0].toUpperCase()
+                      : '?',
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    report.reporterName.isEmpty
+                        ? 'Anonymous'
+                        : report.reporterName,
+                    style: const TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.foreground,
+                    ),
+                  ),
+                  Text(
+                    _formatDate(report.createdDate),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.mutedForeground,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 2),
-        Text(value, style: Theme.of(context).textTheme.bodyMedium),
+        const SizedBox(height: 8),
+        Text(
+          report.reason.isEmpty ? 'Not provided' : report.reason,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        if (report.additionalInfo != null &&
+            report.additionalInfo!.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(
+            report.additionalInfo!,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: AppColors.mutedForeground),
+          ),
+        ],
       ],
     );
   }
+
+  static String _formatDate(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')}';
+  }
 }
 
-class _ModerationActionCard extends StatelessWidget {
-  const _ModerationActionCard({
-    required this.reasonController,
+class _ActionCard extends StatelessWidget {
+  const _ActionCard({
     required this.isActing,
-    required this.onReasonChanged,
     required this.onRemove,
     required this.onDismiss,
   });
 
-  final TextEditingController reasonController;
   final bool isActing;
-  final ValueChanged<String> onReasonChanged;
   final VoidCallback onRemove;
   final VoidCallback onDismiss;
 
   @override
   Widget build(BuildContext context) {
-    return _AdminCard(
+    return _Card(
       title: 'Moderation Action',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const AdminFieldLabel('Removal Reason (required for removal)'),
-          const SizedBox(height: 8),
-          TextField(
-            key: const Key('admin-removal-reason'),
-            controller: reasonController,
-            onChanged: onReasonChanged,
-            minLines: 3,
-            maxLines: 4,
-            decoration: InputDecoration(
-              hintText: 'Explain why this content is being removed...',
-              filled: true,
-              fillColor: AppColors.surface,
-              hintStyle: const TextStyle(color: AppColors.mutedForeground),
-              contentPadding: const EdgeInsets.all(14),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppRadii.control),
-                borderSide: const BorderSide(color: AppColors.secondary),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppRadii.control),
-                borderSide: const BorderSide(color: AppColors.secondary),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppRadii.control),
-                borderSide: const BorderSide(
-                  color: AppColors.primary,
-                  width: 2,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
           AdminOutlineButton(
             label: 'Remove Content',
             icon: LucideIcons.trash2,
@@ -421,7 +417,7 @@ class _ModerationActionCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           AdminOutlineButton(
-            label: 'Dismiss Report',
+            label: 'Dismiss Reports',
             icon: LucideIcons.checkCircle,
             buttonKey: const Key('admin-moderation-dismiss'),
             onPressed: isActing ? null : onDismiss,
@@ -432,8 +428,8 @@ class _ModerationActionCard extends StatelessWidget {
   }
 }
 
-class _AdminCard extends StatelessWidget {
-  const _AdminCard({required this.title, required this.child});
+class _Card extends StatelessWidget {
+  const _Card({required this.title, required this.child});
 
   final String title;
   final Widget child;
@@ -467,8 +463,8 @@ class _AdminCard extends StatelessWidget {
   }
 }
 
-class _MutedPanel extends StatelessWidget {
-  const _MutedPanel({required this.text});
+class _Muted extends StatelessWidget {
+  const _Muted({required this.text});
 
   final String text;
 
@@ -491,8 +487,8 @@ class _MutedPanel extends StatelessWidget {
   }
 }
 
-class _ModerationDetailsSkeleton extends StatelessWidget {
-  const _ModerationDetailsSkeleton();
+class _Skeleton extends StatelessWidget {
+  const _Skeleton();
 
   @override
   Widget build(BuildContext context) {

@@ -45,15 +45,14 @@ class ContentModerationScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              AdminFilterDropdown<ReportStatusFilter>(
-                value: state.statusFilter,
+              AdminFilterDropdown<ReportFilter>(
+                value: state.filter,
                 options: const [
-                  ('All statuses', ReportStatusFilter.all),
-                  ('Pending', ReportStatusFilter.pending),
-                  ('Removed', ReportStatusFilter.removed),
-                  ('Dismissed', ReportStatusFilter.dismissed),
+                  ('All', ReportFilter.all),
+                  ('Pending', ReportFilter.pending),
+                  ('Removed', ReportFilter.removed),
                 ],
-                onChanged: controller.selectStatusFilter,
+                onChanged: controller.selectFilter,
               ),
             ],
           ),
@@ -75,13 +74,13 @@ class ContentModerationScreen extends ConsumerWidget {
             state.tab == ReportTab.post
                 ? _ReportList(
                     key: const Key('admin-post-reports'),
-                    reports: state.filteredPosts,
-                    emptyMessage: 'No post reports found.',
+                    groups: state.filteredPosts,
+                    emptyMessage: 'No reported posts found.',
                   )
                 : _ReportList(
                     key: const Key('admin-comment-reports'),
-                    reports: state.filteredComments,
-                    emptyMessage: 'No comment reports found.',
+                    groups: state.filteredComments,
+                    emptyMessage: 'No reported comments found.',
                   ),
         ],
       ),
@@ -120,17 +119,17 @@ class _ModerationError extends StatelessWidget {
 
 class _ReportList extends StatelessWidget {
   const _ReportList({
-    required this.reports,
+    required this.groups,
     required this.emptyMessage,
     super.key,
   });
 
-  final List<ModerationReport> reports;
+  final List<ReportedContentGroup> groups;
   final String emptyMessage;
 
   @override
   Widget build(BuildContext context) {
-    if (reports.isEmpty) {
+    if (groups.isEmpty) {
       return AdminEmptyState(
         icon: LucideIcons.flag,
         title: 'No Reports',
@@ -139,8 +138,8 @@ class _ReportList extends StatelessWidget {
     }
     return Column(
       children: [
-        for (final report in reports) ...[
-          _ReportCard(report: report),
+        for (final group in groups) ...[
+          _ReportCard(group: group),
           const SizedBox(height: 12),
         ],
       ],
@@ -149,15 +148,15 @@ class _ReportList extends StatelessWidget {
 }
 
 class _ReportCard extends StatelessWidget {
-  const _ReportCard({required this.report});
+  const _ReportCard({required this.group});
 
-  final ModerationReport report;
+  final ReportedContentGroup group;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      key: Key('admin-report-${report.id}'),
-      onTap: () => context.go('/admin/moderation/${report.id}'),
+      key: Key('admin-report-${group.contentId}'),
+      onTap: () => context.go('/admin/moderation/${group.contentId}'),
       borderRadius: BorderRadius.circular(AppRadii.card),
       child: Container(
         padding: const EdgeInsets.all(16),
@@ -177,9 +176,9 @@ class _ReportCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        report.contentPreview.isEmpty
+                        group.contentPreview.isEmpty
                             ? 'Content unavailable'
-                            : report.contentPreview,
+                            : group.contentPreview,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -188,9 +187,9 @@ class _ReportCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        report.contentOwner.isEmpty
+                        group.contentOwner.isEmpty
                             ? 'By Unknown user'
-                            : 'By ${report.contentOwner}',
+                            : 'By ${group.contentOwner}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -201,7 +200,9 @@ class _ReportCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                AdminStatusBadge(label: _statusLabel(report.status)),
+                AdminStatusBadge(
+                  label: group.isRemoved ? 'Removed' : 'Pending',
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -218,15 +219,15 @@ class _ReportCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Reason',
+                          'Top Reason',
                           style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(color: AppColors.mutedForeground),
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          report.reason.isEmpty
+                          group.reports.first.reason.isEmpty
                               ? 'Not provided'
-                              : report.reason,
+                              : group.reports.first.reason,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -248,7 +249,7 @@ class _ReportCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          '${report.reportCount}',
+                          '${group.reportCount}',
                           style: const TextStyle(
                             fontFamily: 'Poppins',
                             fontWeight: FontWeight.w600,
@@ -289,13 +290,5 @@ class _ReportCard extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  static String _statusLabel(ReportStatus status) {
-    return switch (status) {
-      ReportStatus.pending => 'Pending',
-      ReportStatus.removed => 'Removed',
-      ReportStatus.dismissed => 'Dismissed',
-    };
   }
 }

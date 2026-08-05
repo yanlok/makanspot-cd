@@ -321,8 +321,8 @@ class _RecentModeration extends StatelessWidget {
               ),
             )
           else
-            for (final report in data!.recentReports) ...[
-              _RecentReportRow(report: report),
+            for (final group in data!.recentReports) ...[
+              _RecentReportRow(group: group),
               const SizedBox(height: 8),
             ],
         ],
@@ -332,15 +332,15 @@ class _RecentModeration extends StatelessWidget {
 }
 
 class _RecentReportRow extends StatelessWidget {
-  const _RecentReportRow({required this.report});
+  const _RecentReportRow({required this.group});
 
-  final ModerationReport report;
+  final ReportedContentGroup group;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      key: Key('admin-recent-report-${report.id}'),
-      onTap: () => context.go('/admin/moderation/${report.id}'),
+      key: Key('admin-recent-report-${group.contentId}'),
+      onTap: () => context.go('/admin/moderation/${group.contentId}'),
       borderRadius: BorderRadius.circular(AppRadii.control),
       child: Container(
         padding: const EdgeInsets.all(12),
@@ -370,12 +370,12 @@ class _RecentReportRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    (report.contentType == ReportContentType.post
+                    (group.contentType == ReportContentType.post
                             ? 'Reported Post'
                             : 'Reported Comment') +
-                        (report.contentOwner.isEmpty
+                        (group.contentOwner.isEmpty
                             ? ''
-                            : ' · ${report.contentOwner}'),
+                            : ' · ${group.contentOwner}'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -386,7 +386,7 @@ class _RecentReportRow extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    report.reason,
+                    group.reports.first.reason,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
