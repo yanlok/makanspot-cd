@@ -1,8 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'package:makanspot/core/config/supabase_config.dart';
 
 import '../models/fixture_journey_repository.dart';
 import '../models/journey_models.dart';
 import '../models/journey_repository.dart';
+import '../models/supabase_journey_repository.dart';
 
 enum JourneyStatus { loading, content, error }
 
@@ -62,9 +66,35 @@ class JourneyState {
       errorMessage: errorMessage ?? this.errorMessage,
     );
   }
+
+  /// Locations whose coordinates can be placed on the map.
+  List<JourneyLocation> get locationsWithCoords {
+    return data?.locations
+            .where(
+              (location) => location.latitude != 0 || location.longitude != 0,
+            )
+            .toList(growable: false) ??
+        const [];
+  }
+
+  /// Locations without usable coordinates, shown as a list below the map.
+  List<JourneyLocation> get locationsWithoutCoords {
+    return data?.locations
+            .where(
+              (location) => location.latitude == 0 && location.longitude == 0,
+            )
+            .toList(growable: false) ??
+        const [];
+  }
+
+  /// Whether at least one visit can be drawn on the interactive map.
+  bool get mapAvailable => locationsWithCoords.isNotEmpty;
 }
 
 final journeyRepositoryProvider = Provider<JourneyRepository>((ref) {
+  if (SupabaseConfig.isConfigured) {
+    return SupabaseJourneyRepository(Supabase.instance.client);
+  }
   return const FixtureJourneyRepository();
 });
 
@@ -110,9 +140,13 @@ class JourneyController extends StateNotifier<JourneyState> {
   }
 
   Uri mapsDestination(JourneyLocation location) {
+    final hasCoords = location.latitude != 0 || location.longitude != 0;
+    final query = hasCoords
+        ? '${location.latitude},${location.longitude}'
+        : location.name;
     return Uri.https('www.google.com', '/maps/search/', {
       'api': '1',
-      'query': '${location.latitude},${location.longitude}',
+      'query': query,
     });
   }
 }
