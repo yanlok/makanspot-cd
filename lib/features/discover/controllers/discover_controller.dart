@@ -165,4 +165,8 @@ class DiscoverController extends StateNotifier<DiscoverState> {
     }
     return Set.unmodifiable(result);
   }
+
+  void test(){
+    print('hi there');
+  }
 }
