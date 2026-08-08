@@ -40,14 +40,22 @@ class ModerationDetailsState {
   }
 }
 
+/// Family key: the reported content ID plus its type (post or comment).
+typedef ModerationDetailsArgs = ({
+  String contentId,
+  ReportContentType contentType,
+});
+
 final moderationDetailsControllerProvider = StateNotifierProvider.autoDispose
-    .family<ModerationDetailsController, ModerationDetailsState, String>((
-      ref,
-      contentId,
-    ) {
+    .family<
+      ModerationDetailsController,
+      ModerationDetailsState,
+      ModerationDetailsArgs
+    >((ref, args) {
       final controller = ModerationDetailsController(
         ref.watch(adminRepositoryProvider),
-        contentId,
+        args.contentId,
+        args.contentType,
       );
       controller.load();
       return controller;
@@ -55,16 +63,23 @@ final moderationDetailsControllerProvider = StateNotifierProvider.autoDispose
 
 class ModerationDetailsController
     extends StateNotifier<ModerationDetailsState> {
-  ModerationDetailsController(this._repository, this._contentId)
-    : super(const ModerationDetailsState.loading());
+  ModerationDetailsController(
+    this._repository,
+    this._contentId,
+    this._contentType,
+  ) : super(const ModerationDetailsState.loading());
 
   final AdminRepository _repository;
   final String _contentId;
+  final ReportContentType _contentType;
 
   Future<void> load() async {
     state = const ModerationDetailsState.loading();
     try {
-      final group = await _repository.loadReportedContentGroup(_contentId);
+      final group = await _repository.loadReportedContentGroup(
+        _contentId,
+        _contentType,
+      );
       if (group == null) {
         state = const ModerationDetailsState(
           status: ModerationDetailsStatus.notFound,
@@ -90,7 +105,7 @@ class ModerationDetailsController
   Future<String?> removeContent() async {
     state = state.copyWith(isActing: true);
     try {
-      await _repository.removeContent(_contentId);
+      await _repository.removeContent(_contentId, _contentType);
       state = state.copyWith(
         isActing: false,
         group: state.group?.copyWith(isRemoved: true),
@@ -109,7 +124,7 @@ class ModerationDetailsController
   Future<String?> dismiss() async {
     state = state.copyWith(isActing: true);
     try {
-      await _repository.dismissReports(_contentId);
+      await _repository.dismissReports(_contentId, _contentType);
       state = state.copyWith(
         isActing: false,
         group: state.group?.copyWith(reports: const []),

@@ -183,12 +183,17 @@ class ReportedContent {
     required this.text,
     required this.mediaUrls,
     this.restaurantName,
+    this.postPreview,
   });
 
   final String username;
   final String? restaurantName;
   final String text;
   final List<String> mediaUrls;
+
+  /// Snippet of the parent post, shown when the reported content is a
+  /// comment so the moderator can see which post it belongs to.
+  final String? postPreview;
 }
 
 class AdminDashboardData {

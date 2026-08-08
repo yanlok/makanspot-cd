@@ -14,9 +14,25 @@ import 'widgets/admin_skeletons.dart';
 import 'widgets/admin_status_badge.dart';
 
 class ModerationDetailsScreen extends ConsumerStatefulWidget {
-  const ModerationDetailsScreen({required this.contentId, super.key});
+  const ModerationDetailsScreen({
+    required this.contentId,
+    required this.contentType,
+    super.key,
+  });
 
   final String contentId;
+  final ReportContentType contentType;
+
+  /// Parses the `?type=` route query parameter, defaulting to post.
+  ///
+  /// The type is explicit because post and comment IDs share separate
+  /// auto-increment sequences, so the ID alone cannot tell them apart.
+  static ReportContentType contentTypeFromQuery(String? value) {
+    for (final type in ReportContentType.values) {
+      if (type.name == value) return type;
+    }
+    return ReportContentType.post;
+  }
 
   @override
   ConsumerState<ModerationDetailsScreen> createState() =>
@@ -25,9 +41,21 @@ class ModerationDetailsScreen extends ConsumerStatefulWidget {
 
 class _ModerationDetailsScreenState
     extends ConsumerState<ModerationDetailsScreen> {
+  /// Back to the moderation list on the tab matching the reviewed content,
+  /// so a dismissed/removed comment lands on the comment tab.
+  String get _moderationListPath =>
+      widget.contentType == ReportContentType.comment
+      ? '/admin/moderation?tab=comment'
+      : '/admin/moderation';
+
   Future<void> _removeContent() async {
     final error = await ref
-        .read(moderationDetailsControllerProvider(widget.contentId).notifier)
+        .read(
+          moderationDetailsControllerProvider((
+            contentId: widget.contentId,
+            contentType: widget.contentType,
+          )).notifier,
+        )
         .removeContent();
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -40,12 +68,17 @@ class _ModerationDetailsScreenState
     );
     // Refresh the moderation list so the report no longer shows as pending.
     ref.invalidate(moderationControllerProvider);
-    if (mounted) context.go('/admin/moderation');
+    if (mounted) context.go(_moderationListPath);
   }
 
   Future<void> _dismiss() async {
     final error = await ref
-        .read(moderationDetailsControllerProvider(widget.contentId).notifier)
+        .read(
+          moderationDetailsControllerProvider((
+            contentId: widget.contentId,
+            contentType: widget.contentType,
+          )).notifier,
+        )
         .dismiss();
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
@@ -58,7 +91,7 @@ class _ModerationDetailsScreenState
     );
     // Refresh the moderation list so the dismissed report disappears.
     ref.invalidate(moderationControllerProvider);
-    if (mounted) context.go('/admin/moderation');
+    if (mounted) context.go(_moderationListPath);
   }
 
   Future<void> _confirmRemove() async {
@@ -89,7 +122,10 @@ class _ModerationDetailsScreenState
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(
-      moderationDetailsControllerProvider(widget.contentId),
+      moderationDetailsControllerProvider((
+        contentId: widget.contentId,
+        contentType: widget.contentType,
+      )),
     );
     final group = state.group;
     return SafeArea(
@@ -102,7 +138,7 @@ class _ModerationDetailsScreenState
             offset: const Offset(-80, 0),
             child: AdminBackButton(
               label: 'Back to Moderation',
-              onPressed: () => context.go('/admin/moderation'),
+              onPressed: () => context.go(_moderationListPath),
             ),
           ),
           const SizedBox(height: 16),
@@ -243,6 +279,41 @@ class _ContentCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 _Muted(text: content!.text),
+                if (content!.postPreview != null &&
+                    content!.postPreview!.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    key: const Key('admin-moderation-post-context'),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.background,
+                      borderRadius: BorderRadius.circular(AppRadii.control),
+                      border: Border.all(color: AppColors.secondary),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'On this post',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: AppColors.mutedForeground,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          content!.postPreview!,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.mutedForeground,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 if (content!.mediaUrls.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Row(

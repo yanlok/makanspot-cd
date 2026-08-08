@@ -35,9 +35,11 @@ class SupabaseAdminRepository implements AdminRepository {
   @override
   Future<ReportedContentGroup?> loadReportedContentGroup(
     String contentId,
+    ReportContentType contentType,
   ) async {
-    final isPost = await _contentIsPost(contentId);
-    final column = isPost ? 'post_id' : 'comment_id';
+    final column = contentType == ReportContentType.post
+        ? 'post_id'
+        : 'comment_id';
 
     final rows = await _client
         .from('reports')
@@ -63,9 +65,11 @@ class SupabaseAdminRepository implements AdminRepository {
   }
 
   @override
-  Future<void> removeContent(String contentId) async {
-    final isPost = await _contentIsPost(contentId);
-    final table = isPost ? 'posts' : 'comments';
+  Future<void> removeContent(
+    String contentId,
+    ReportContentType contentType,
+  ) async {
+    final table = contentType == ReportContentType.post ? 'posts' : 'comments';
     final updated = await _client
         .from(table)
         .update({'is_hidden': true})
@@ -80,9 +84,13 @@ class SupabaseAdminRepository implements AdminRepository {
   }
 
   @override
-  Future<void> dismissReports(String contentId) async {
-    final isPost = await _contentIsPost(contentId);
-    final column = isPost ? 'post_id' : 'comment_id';
+  Future<void> dismissReports(
+    String contentId,
+    ReportContentType contentType,
+  ) async {
+    final column = contentType == ReportContentType.post
+        ? 'post_id'
+        : 'comment_id';
     // Soft delete: mark the reports as dismissed so they leave the
     // moderation queue but remain in the table for audit.
     final updated = await _client
@@ -289,19 +297,22 @@ class SupabaseAdminRepository implements AdminRepository {
     for (final row in rows) {
       final postId = row['post_id'];
       final commentId = row['comment_id'];
-      final contentId = commentId != null ? '$commentId' : '$postId';
       final contentType = commentId != null
           ? ReportContentType.comment
           : ReportContentType.post;
+      final contentId = commentId != null ? '$commentId' : '$postId';
+      // Key by type too: post and comment IDs share separate identity
+      // sequences, so a post and a comment can have the same numeric ID.
+      final key = '${contentType.name}:$contentId';
 
-      if (!map.containsKey(contentId)) {
-        map[contentId] = {
+      if (!map.containsKey(key)) {
+        map[key] = {
           'contentId': contentId,
           'contentType': contentType,
           'reports': <Map<String, dynamic>>[],
         };
       }
-      (map[contentId]!['reports'] as List<Map<String, dynamic>>).add(row);
+      (map[key]!['reports'] as List<Map<String, dynamic>>).add(row);
     }
 
     // Fetch content preview, owner, and is_hidden for each group.
@@ -467,36 +478,26 @@ class SupabaseAdminRepository implements AdminRepository {
         .select('''
               id,
               content,
-              user:users!comments_user_id_fkey(username)
+              user:users!comments_user_id_fkey(username),
+              post:posts!comments_post_id_fkey(
+                content,
+                restaurants!posts_restaurant_id_fkey(name)
+              )
             ''')
         .eq('id', commentId)
         .maybeSingle();
     if (row == null) return null;
 
     final user = row['user'] as Map<String, dynamic>?;
+    final post = row['post'] as Map<String, dynamic>?;
+    final restaurant = post?['restaurants'] as Map<String, dynamic>?;
     return ReportedContent(
       username: _stringOrEmpty(user?['username']),
+      restaurantName: restaurant?['name'] as String?,
+      postPreview: post?['content'] as String?,
       text: row['content'] as String? ?? '',
       mediaUrls: const [],
     );
-  }
-
-  Future<bool> _contentIsPost(String contentId) async {
-    final id = int.parse(contentId);
-    final post = await _client
-        .from('posts')
-        .select('id')
-        .eq('id', id)
-        .maybeSingle();
-    if (post != null) return true;
-    // Hidden posts are filtered from non-admin sessions; fall back to the
-    // comments table before assuming the content is a comment.
-    final comment = await _client
-        .from('comments')
-        .select('id')
-        .eq('id', id)
-        .maybeSingle();
-    return comment == null;
   }
 
   String _stringOrEmpty(dynamic value) => value?.toString() ?? '';

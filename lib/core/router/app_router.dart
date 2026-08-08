@@ -195,8 +195,12 @@ GoRouter createAppRouter({String? initialLocation = AppRoutes.login}) {
           ),
           GoRoute(
             path: '/admin/moderation/:id',
-            builder: (context, state) =>
-                ModerationDetailsScreen(contentId: state.pathParameters['id']!),
+            builder: (context, state) => ModerationDetailsScreen(
+              contentId: state.pathParameters['id']!,
+              contentType: ModerationDetailsScreen.contentTypeFromQuery(
+                state.uri.queryParameters['type'],
+              ),
+            ),
           ),
         ],
       ),
