@@ -64,7 +64,15 @@ class SupabaseAuthRepository implements AuthRepository {
   @override
   Future<void> requestPasswordReset(String email) async {
     try {
-      await Supabase.instance.client.auth.resetPasswordForEmail(email);
+      final profile = await supabase
+          .from('users')
+          .select('email')
+          .eq('email', email)
+          .maybeSingle();
+      if (profile == null) {
+        throw const AuthFailure('No account found with this email address.');
+      }
+      await supabase.auth.resetPasswordForEmail(email);
     } on AuthException catch (error) {
       throw AuthFailure(authErrorMessage(error));
     }

@@ -127,15 +127,20 @@ class AuthController extends StateNotifier<AuthState> {
 
   Future<void> requestPasswordReset(String rawEmail) async {
     final email = rawEmail.trim();
-    if (email.isEmpty) {
-      _showError('Enter your email address.');
+    final emailError = _validateEmail(email);
+    state = state.copyWith(emailError: emailError, errorMessage: null);
+    if (emailError != null) {
       return;
     }
     state = state.copyWith(status: AuthStatus.loading);
     try {
       await _repository.requestPasswordReset(email);
+    } on AuthFailure catch (failure) {
+      _showError(failure.message);
+      return;
     } on Object {
-      // Account discovery is intentionally prevented by showing one result.
+      _showError('Something went wrong. Please try again.');
+      return;
     }
     state = state.copyWith(status: AuthStatus.success, passwordResetSent: true);
   }
@@ -145,12 +150,21 @@ class AuthController extends StateNotifier<AuthState> {
     required String password,
     required String confirmPassword,
   }) async {
-    if (password.isEmpty || confirmPassword.isEmpty) {
-      _showError('Complete all fields.');
-      return false;
+    final passwordError = _validatePassword(password);
+    final String? confirmPasswordError;
+    if (confirmPassword.isEmpty) {
+      confirmPasswordError = 'Confirm your new password.';
+    } else if (password != confirmPassword) {
+      confirmPasswordError = 'Passwords do not match.';
+    } else {
+      confirmPasswordError = null;
     }
-    if (password != confirmPassword) {
-      _showError('Passwords do not match');
+    state = state.copyWith(
+      passwordError: passwordError,
+      confirmPasswordError: confirmPasswordError,
+      errorMessage: null,
+    );
+    if (passwordError != null || confirmPasswordError != null) {
       return false;
     }
     return _run(

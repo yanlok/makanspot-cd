@@ -14,7 +14,7 @@
 - [Troubleshooting](#troubleshooting)
 
 ---
-
+###
 ## Prerequisites
 
 - **Supabase CLI** — [Install guide](https://supabase.com/docs/guides/cli/getting-started#installing-the-supabase-cli)

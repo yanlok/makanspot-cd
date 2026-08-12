@@ -67,6 +67,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
             obscureText: true,
             textInputAction: TextInputAction.next,
             autofocus: true,
+            errorText: state.passwordError,
           ),
           const SizedBox(height: 16),
           AuthTextField(
@@ -78,6 +79,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
             obscureText: true,
             textInputAction: TextInputAction.done,
             onSubmitted: (_) => _submit(token),
+            errorText: state.confirmPasswordError,
           ),
           const SizedBox(height: 16),
           AuthSubmitButton(
