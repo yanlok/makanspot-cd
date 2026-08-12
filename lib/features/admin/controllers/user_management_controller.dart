@@ -7,12 +7,15 @@ enum UserManagementStatus { loading, content, empty, error }
 
 enum UserStatusFilter { all, active, deactivated }
 
+enum UserRoleFilter { all, user, admin }
+
 class UserManagementState {
   const UserManagementState({
     required this.status,
     this.users = const [],
     this.searchQuery = '',
     this.statusFilter = UserStatusFilter.all,
+    this.roleFilter = UserRoleFilter.all,
     this.errorMessage,
   });
 
@@ -23,6 +26,7 @@ class UserManagementState {
   final List<AdminUser> users;
   final String searchQuery;
   final UserStatusFilter statusFilter;
+  final UserRoleFilter roleFilter;
   final String? errorMessage;
 
   UserManagementState copyWith({
@@ -30,6 +34,7 @@ class UserManagementState {
     List<AdminUser>? users,
     String? searchQuery,
     UserStatusFilter? statusFilter,
+    UserRoleFilter? roleFilter,
     String? errorMessage,
   }) {
     return UserManagementState(
@@ -37,6 +42,7 @@ class UserManagementState {
       users: users ?? this.users,
       searchQuery: searchQuery ?? this.searchQuery,
       statusFilter: statusFilter ?? this.statusFilter,
+      roleFilter: roleFilter ?? this.roleFilter,
       errorMessage: errorMessage,
     );
   }
@@ -84,6 +90,11 @@ class UserManagementController extends StateNotifier<UserManagementState> {
     _applyFilters();
   }
 
+  void selectRoleFilter(UserRoleFilter filter) {
+    state = state.copyWith(roleFilter: filter);
+    _applyFilters();
+  }
+
   void _applyFilters() {
     final query = state.searchQuery.trim().toLowerCase();
     final users = _allUsers
@@ -91,14 +102,21 @@ class UserManagementController extends StateNotifier<UserManagementState> {
           final matchesSearch =
               query.isEmpty ||
               user.username.toLowerCase().contains(query) ||
-              user.email.toLowerCase().contains(query);
+              user.email.toLowerCase().contains(query) ||
+              user.role.label.toLowerCase().contains(query);
           final matchesStatus =
               state.statusFilter == UserStatusFilter.all ||
               (state.statusFilter == UserStatusFilter.active &&
                   user.accountStatus == AdminAccountStatus.active) ||
               (state.statusFilter == UserStatusFilter.deactivated &&
                   user.accountStatus == AdminAccountStatus.deactivated);
-          return matchesSearch && matchesStatus;
+          final matchesRole =
+              state.roleFilter == UserRoleFilter.all ||
+              (state.roleFilter == UserRoleFilter.user &&
+                  user.role == AdminUserRole.user) ||
+              (state.roleFilter == UserRoleFilter.admin &&
+                  user.role == AdminUserRole.admin);
+          return matchesSearch && matchesStatus && matchesRole;
         })
         .toList(growable: false);
     state = state.copyWith(

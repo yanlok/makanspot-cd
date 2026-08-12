@@ -56,6 +56,23 @@ class UserManagementScreen extends ConsumerWidget {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: AdminFilterDropdown<UserRoleFilter>(
+                  width: null,
+                  value: state.roleFilter,
+                  options: const [
+                    ('All roles', UserRoleFilter.all),
+                    ('Users', UserRoleFilter.user),
+                    ('Admins', UserRoleFilter.admin),
+                  ],
+                  onChanged: controller.selectRoleFilter,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 20),
           if (state.status == UserManagementStatus.error)
             _UserManagementError(onRetry: controller.load)
@@ -159,7 +176,9 @@ class _UserCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    user.email,
+                    user.role == AdminUserRole.admin
+                        ? '${user.email} · Administrator'
+                        : user.email,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(

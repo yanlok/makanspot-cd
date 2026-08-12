@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/admin_models.dart';
 import '../models/admin_repository.dart';
@@ -73,24 +74,68 @@ class UserDetailsController extends StateNotifier<UserDetailsState> {
   /// or null when the save succeeded.
   Future<String?> save({
     required String rawUsername,
+    required String rawEmail,
+    required String rawPhone,
     required String profileTitle,
+    required AdminUserRole role,
     required String rawCommunityScore,
   }) async {
     final username = rawUsername.trim();
     if (username.isEmpty) {
-      return 'Username required';
+      return 'Username is required.';
+    }
+    final email = rawEmail.trim();
+    if (!_emailPattern.hasMatch(email)) {
+      return 'Enter a valid email address.';
+    }
+    final phone = rawPhone.trim();
+    if (phone.isNotEmpty && !_phonePattern.hasMatch(phone)) {
+      return 'Enter a valid phone number.';
     }
     final user = state.user;
     if (user == null) {
       return null;
     }
+    final communityScore = int.tryParse(rawCommunityScore.trim()) ?? 0;
+    try {
+      if (await _repository.emailExists(email, user.id)) {
+        return 'This email is already in use.';
+      }
+      if (phone.isNotEmpty && await _repository.phoneExists(phone, user.id)) {
+        return 'This phone number is already in use.';
+      }
+    } on Object {
+      return 'Could not validate your changes right now.';
+    }
+
     state = state.copyWith(isSaving: true);
     try {
       final updated = await _repository.updateUser(
         id: user.id,
         username: username,
+        email: email,
+        phone: phone,
+        role: role,
         profileTitle: profileTitle.trim(),
-        communityScore: int.tryParse(rawCommunityScore.trim()) ?? 0,
+        communityScore: communityScore,
+      );
+      await _recordAudit(
+        action: 'update_user',
+        target: updated,
+        changes: {
+          'username': {'from': user.username, 'to': username},
+          'email': {'from': user.email, 'to': email},
+          'phone': {'from': user.phone, 'to': phone},
+          'role': {'from': user.role.value, 'to': role.value},
+          'profile_title': {
+            'from': user.profileTitle,
+            'to': profileTitle.trim(),
+          },
+          'community_score': {
+            'from': user.communityScore,
+            'to': communityScore,
+          },
+        },
       );
       state = state.copyWith(isSaving: false, user: updated);
       return null;
@@ -117,10 +162,53 @@ class UserDetailsController extends StateNotifier<UserDetailsState> {
         user.id,
         newStatus,
       );
+      await _recordAudit(
+        action: 'toggle_account_status',
+        target: updated,
+        changes: {
+          'is_active': {
+            'from': user.accountStatus == AdminAccountStatus.active,
+            'to': newStatus == AdminAccountStatus.active,
+          },
+        },
+      );
       state = state.copyWith(user: updated);
       return null;
     } on Object {
       return 'Could not update status.';
     }
   }
+
+  Future<void> _recordAudit({
+    required String action,
+    required AdminUser? target,
+    required Map<String, Map<String, Object?>> changes,
+  }) async {
+    if (target == null) {
+      return;
+    }
+    String adminId = _fallbackAdminId;
+    String adminName = _fallbackAdminUsername;
+    try {
+      final session = Supabase.instance.client.auth.currentUser;
+      adminId = session?.id ?? adminId;
+      adminName = session?.email ?? adminName;
+    } on Object {
+      // Supabase is not initialized (tests or fixture mode); fall back to
+      // the fixed administrator identity.
+    }
+    await _repository.logAdminAction(
+      adminUserId: adminId,
+      adminUsername: adminName,
+      action: action,
+      targetUserId: target.id,
+      targetUsername: target.username,
+      fieldChanges: changes,
+    );
+  }
+
+  static const _fallbackAdminId = '00000000-0000-0000-0000-000000000000';
+  static const _fallbackAdminUsername = 'admin@makanspot.my';
+  static final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+  static final _phonePattern = RegExp(r'^\+?[0-9][0-9\s\-()]{6,}$');
 }

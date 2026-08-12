@@ -5,6 +5,7 @@ import 'package:makanspot/core/router/not_migrated_screen.dart';
 import 'package:makanspot/features/admin/views/admin_dashboard_screen.dart';
 import 'package:makanspot/features/admin/views/admin_login_screen.dart';
 import 'package:makanspot/features/admin/views/admin_shell.dart';
+import 'package:makanspot/features/admin/views/edit_user_screen.dart';
 import 'package:makanspot/features/admin/views/moderation_details_screen.dart';
 import 'package:makanspot/features/admin/views/moderation_screen.dart';
 import 'package:makanspot/features/admin/views/restaurant_details_screen.dart'
@@ -173,6 +174,11 @@ GoRouter createAppRouter({String? initialLocation = AppRoutes.login}) {
             path: '/admin/users/:id',
             builder: (context, state) =>
                 UserDetailsScreen(userId: state.pathParameters['id']!),
+          ),
+          GoRoute(
+            path: '/admin/users/:id/edit',
+            builder: (context, state) =>
+                EditUserScreen(userId: state.pathParameters['id']!),
           ),
           GoRoute(
             path: AppRoutes.adminRestaurants,

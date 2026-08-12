@@ -3,6 +3,18 @@ library;
 
 enum AdminAccountStatus { active, deactivated }
 
+enum AdminUserRole { user, admin }
+
+extension AdminUserRoleX on AdminUserRole {
+  String get label => this == AdminUserRole.admin ? 'Admin' : 'User';
+
+  String get value => this == AdminUserRole.admin ? 'admin' : 'user';
+
+  static AdminUserRole fromValue(String? value) {
+    return value == 'admin' ? AdminUserRole.admin : AdminUserRole.user;
+  }
+}
+
 enum ReportContentType { post, comment }
 
 class AdminUser {
@@ -14,6 +26,9 @@ class AdminUser {
     required this.profileTitle,
     required this.communityScore,
     required this.accountStatus,
+    this.role = AdminUserRole.user,
+    this.phone = '',
+    this.joinedAt,
   });
 
   final String id;
@@ -23,6 +38,9 @@ class AdminUser {
   final String profileTitle;
   final int communityScore;
   final AdminAccountStatus accountStatus;
+  final AdminUserRole role;
+  final String phone;
+  final DateTime? joinedAt;
 
   String get initial {
     if (username.isEmpty) return 'U';
@@ -31,18 +49,24 @@ class AdminUser {
 
   AdminUser copyWith({
     String? username,
+    String? email,
     String? profileTitle,
     int? communityScore,
     AdminAccountStatus? accountStatus,
+    AdminUserRole? role,
+    String? phone,
   }) {
     return AdminUser(
       id: id,
       username: username ?? this.username,
-      email: email,
+      email: email ?? this.email,
       profilePictureUrl: profilePictureUrl,
       profileTitle: profileTitle ?? this.profileTitle,
       communityScore: communityScore ?? this.communityScore,
       accountStatus: accountStatus ?? this.accountStatus,
+      role: role ?? this.role,
+      phone: phone ?? this.phone,
+      joinedAt: joinedAt,
     );
   }
 }

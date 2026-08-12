@@ -47,6 +47,9 @@ class FixtureAdminRepository implements AdminRepository {
   Future<AdminUser?> updateUser({
     required String id,
     required String username,
+    required String email,
+    required String phone,
+    required AdminUserRole role,
     required String profileTitle,
     required int communityScore,
   }) async {
@@ -54,6 +57,9 @@ class FixtureAdminRepository implements AdminRepository {
     if (i < 0) return null;
     _users[i] = _users[i].copyWith(
       username: username,
+      email: email,
+      phone: phone,
+      role: role,
       profileTitle: profileTitle,
       communityScore: communityScore,
     );
@@ -69,6 +75,33 @@ class FixtureAdminRepository implements AdminRepository {
     if (i < 0) return null;
     _users[i] = _users[i].copyWith(accountStatus: status);
     return _users[i];
+  }
+
+  @override
+  Future<bool> emailExists(String email, String excludeUserId) async {
+    return _users.any(
+      (u) =>
+          u.id != excludeUserId && u.email.toLowerCase() == email.toLowerCase(),
+    );
+  }
+
+  @override
+  Future<bool> phoneExists(String phone, String excludeUserId) async {
+    if (phone.trim().isEmpty) return false;
+    return _users.any((u) => u.id != excludeUserId && u.phone == phone);
+  }
+
+  @override
+  Future<void> logAdminAction({
+    required String adminUserId,
+    required String adminUsername,
+    required String action,
+    required String targetUserId,
+    required String targetUsername,
+    Map<String, Map<String, Object?>>? fieldChanges,
+  }) async {
+    // Fixture mode has no persistent audit store; the action is acknowledged
+    // so the controller flow completes without a database.
   }
 
   @override
@@ -186,6 +219,17 @@ String _image(String id) {
 
 final _seedUsers = <AdminUser>[
   AdminUser(
+    id: 'admin-user-1',
+    username: 'Admin',
+    email: 'admin@makanspot.my',
+    profilePictureUrl: 'assets/images/default_icon.jpg',
+    profileTitle: 'Site Administrator',
+    communityScore: 0,
+    accountStatus: AdminAccountStatus.active,
+    role: AdminUserRole.admin,
+    joinedAt: DateTime(2026, 6, 1),
+  ),
+  AdminUser(
     id: 'demo-user',
     username: 'Yih Loong',
     email: 'yl@makanspot.my',
@@ -193,6 +237,30 @@ final _seedUsers = <AdminUser>[
     profileTitle: 'Hidden Gem Hunter',
     communityScore: 185,
     accountStatus: AdminAccountStatus.active,
+    phone: '+60 12-345 6789',
+    joinedAt: DateTime(2026, 7, 15),
+  ),
+  AdminUser(
+    id: 'demo-user-2',
+    username: 'Aisyah Rahman',
+    email: 'aisyah@makanspot.my',
+    profilePictureUrl: 'assets/images/default_icon.jpg',
+    profileTitle: 'Flavour Explorer',
+    communityScore: 120,
+    accountStatus: AdminAccountStatus.active,
+    phone: '+60 16-789 1234',
+    joinedAt: DateTime(2026, 7, 20),
+  ),
+  AdminUser(
+    id: 'demo-user-3',
+    username: 'Daniel Lee',
+    email: 'daniel@makanspot.my',
+    profilePictureUrl: 'assets/images/default_icon.jpg',
+    profileTitle: 'New Foodie',
+    communityScore: 30,
+    accountStatus: AdminAccountStatus.deactivated,
+    phone: '',
+    joinedAt: DateTime(2026, 8, 1),
   ),
 ];
 

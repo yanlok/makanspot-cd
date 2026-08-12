@@ -189,20 +189,92 @@ class SupabaseAdminRepository implements AdminRepository {
   Future<AdminUser?> updateUser({
     required String id,
     required String username,
+    required String email,
+    required String phone,
+    required AdminUserRole role,
     required String profileTitle,
     required int communityScore,
-  }) {
-    throw UnimplementedError('User update is not yet supported via Supabase.');
+  }) async {
+    final updated = await _client
+        .from('users')
+        .update({
+          'username': username,
+          'email': email,
+          'phone_number': phone.trim().isEmpty ? null : phone.trim(),
+          'role': role.value,
+          'community_score': communityScore,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', id)
+        .select();
+    if (updated.isEmpty) {
+      throw StateError(
+        'User update affected no rows. The signed-in account may lack '
+        'admin permissions.',
+      );
+    }
+    return _userFromRow(updated.single);
   }
 
   @override
   Future<AdminUser?> setUserAccountStatus(
     String id,
     AdminAccountStatus status,
-  ) {
-    throw UnimplementedError(
-      'Account status toggle is not yet supported via Supabase.',
-    );
+  ) async {
+    final updated = await _client
+        .from('users')
+        .update({
+          'is_active': status == AdminAccountStatus.active,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', id)
+        .select();
+    if (updated.isEmpty) {
+      throw StateError(
+        'Account status update affected no rows. The signed-in account may '
+        'lack admin permissions.',
+      );
+    }
+    return _userFromRow(updated.single);
+  }
+
+  @override
+  Future<bool> emailExists(String email, String excludeUserId) async {
+    final rows = await _client
+        .from('users')
+        .select('id')
+        .eq('email', email)
+        .neq('id', excludeUserId);
+    return rows.isNotEmpty;
+  }
+
+  @override
+  Future<bool> phoneExists(String phone, String excludeUserId) async {
+    final rows = await _client
+        .from('users')
+        .select('id')
+        .eq('phone_number', phone)
+        .neq('id', excludeUserId);
+    return rows.isNotEmpty;
+  }
+
+  @override
+  Future<void> logAdminAction({
+    required String adminUserId,
+    required String adminUsername,
+    required String action,
+    required String targetUserId,
+    required String targetUsername,
+    Map<String, Map<String, Object?>>? fieldChanges,
+  }) async {
+    await _client.from('admin_audit_log').insert({
+      'admin_user_id': adminUserId,
+      'admin_username': adminUsername,
+      'action': action,
+      'target_user_id': targetUserId,
+      'target_username': targetUsername,
+      'field_changes': fieldChanges ?? {},
+    });
   }
 
   // ── Restaurants ──────────────────────────────────────────────────
@@ -383,6 +455,8 @@ class SupabaseAdminRepository implements AdminRepository {
   }
 
   AdminUser _userFromRow(Map<String, dynamic> row) {
+    final createdAt = row['created_at'] as String?;
+    final isActive = row['is_active'] as bool? ?? true;
     return AdminUser(
       id: row['id'] as String,
       username: _stringOrEmpty(row['username']),
@@ -393,7 +467,12 @@ class SupabaseAdminRepository implements AdminRepository {
         (row['community_score'] as num?)?.toInt() ?? 0,
       ),
       communityScore: (row['community_score'] as num?)?.toInt() ?? 0,
-      accountStatus: AdminAccountStatus.active,
+      accountStatus: isActive
+          ? AdminAccountStatus.active
+          : AdminAccountStatus.deactivated,
+      role: AdminUserRoleX.fromValue(row['role'] as String?),
+      phone: row['phone_number'] as String? ?? '',
+      joinedAt: createdAt == null ? null : DateTime.tryParse(createdAt),
     );
   }
 
