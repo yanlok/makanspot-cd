@@ -25,6 +25,8 @@ abstract interface class CommunityRepository {
 
   Future<void> archivePost(String id);
 
+  Future<void> unarchivePost(String id);
+
   Future<CommunityComment> addComment({
     required String postId,
     required String text,
