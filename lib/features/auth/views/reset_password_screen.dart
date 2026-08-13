@@ -83,7 +83,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
           AuthSubmitButton(
             label: 'Reset password',
             loadingLabel: 'Resetting...',
-            isLoading: state.isLoading,
+            isLoading: state.isSubmitting,
             onPressed: () => _submit(token),
             buttonKey: const Key('reset-password-submit'),
           ),

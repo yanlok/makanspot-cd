@@ -15,6 +15,7 @@ class AuthTextField extends StatelessWidget {
     this.autofocus = false,
     this.trailing,
     this.onSubmitted,
+    this.errorText,
     super.key,
   });
 
@@ -29,6 +30,7 @@ class AuthTextField extends StatelessWidget {
   final bool autofocus;
   final Widget? trailing;
   final ValueChanged<String>? onSubmitted;
+  final String? errorText;
 
   @override
   Widget build(BuildContext context) {
@@ -74,12 +76,25 @@ class AuthTextField extends StatelessWidget {
                 horizontal: 12,
                 vertical: 12,
               ),
-              border: _border(AppColors.secondary),
-              enabledBorder: _border(AppColors.secondary),
-              focusedBorder: _border(AppColors.primary, width: 2),
+              border: errorText == null
+                  ? _border(AppColors.secondary)
+                  : _border(AppColors.destructive),
+              enabledBorder: errorText == null
+                  ? _border(AppColors.secondary)
+                  : _border(AppColors.destructive),
+              focusedBorder: errorText == null
+                  ? _border(AppColors.primary, width: 2)
+                  : _border(AppColors.destructive, width: 2),
             ),
           ),
         ),
+        if (errorText != null) ...[
+          const SizedBox(height: AppSpacing.small),
+          Text(
+            errorText!,
+            style: const TextStyle(color: AppColors.destructive, fontSize: 12),
+          ),
+        ],
       ],
     );
   }

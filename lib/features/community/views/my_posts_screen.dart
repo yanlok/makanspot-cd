@@ -21,7 +21,16 @@ class MyPostsScreen extends ConsumerWidget {
       bottom: false,
       child: Column(
         children: [
-          CommunityPageHeader(title: 'My Posts', onBack: context.pop),
+          CommunityPageHeader(
+            title: 'My Posts',
+            onBack: context.pop,
+            bottom: Text(
+              'Edit your reviews and move finished ones out of the feed.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: AppColors.mutedForeground),
+            ),
+          ),
           Expanded(child: _buildBody(context, state, controller)),
         ],
       ),
@@ -82,40 +91,50 @@ class MyPostsScreen extends ConsumerWidget {
                             ),
                             onLike: () {},
                           ),
-                          if (!state.showArchived) ...[
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    key: Key('edit-${post.id}'),
-                                    onPressed: () =>
-                                        context.push('/post/${post.id}/edit'),
-                                    icon: const Icon(
-                                      LucideIcons.pencil,
-                                      size: 16,
-                                    ),
-                                    label: const Text('Edit'),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  key: Key('edit-${post.id}'),
+                                  onPressed: () =>
+                                      context.push('/post/${post.id}/edit'),
+                                  icon: const Icon(
+                                    LucideIcons.pencil,
+                                    size: 16,
+                                  ),
+                                  label: const Text('Edit'),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  key: Key(
+                                    state.showArchived
+                                        ? 'unarchive-${post.id}'
+                                        : 'archive-${post.id}',
+                                  ),
+                                  onPressed: () => state.showArchived
+                                      ? controller.unarchive(post.id)
+                                      : _confirmArchive(
+                                          context,
+                                          () => controller.archive(post.id),
+                                        ),
+                                  icon: Icon(
+                                    state.showArchived
+                                        ? LucideIcons.archiveRestore
+                                        : LucideIcons.archive,
+                                    size: 16,
+                                  ),
+                                  label: Text(
+                                    state.showArchived
+                                        ? 'Unarchive'
+                                        : 'Archive',
                                   ),
                                 ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    key: Key('archive-${post.id}'),
-                                    onPressed: () => _confirmArchive(
-                                      context,
-                                      () => controller.archive(post.id),
-                                    ),
-                                    icon: const Icon(
-                                      LucideIcons.archive,
-                                      size: 16,
-                                    ),
-                                    label: const Text('Archive'),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                              ),
+                            ],
+                          ),
                         ],
                       );
                     },

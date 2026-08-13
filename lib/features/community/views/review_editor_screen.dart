@@ -452,20 +452,31 @@ class _RatingPicker extends StatelessWidget {
       child: Row(
         children: [
           for (var star = 1; star <= 5; star++)
-            IconButton(
-              key: Key('review-rating-$star'),
-              tooltip: '$star star${star == 1 ? '' : 's'}',
-              onPressed: () => onChanged(star),
-              icon: Icon(
-                star <= value ? LucideIcons.star : LucideIcons.star,
-                color: star <= value
-                    ? const Color(0xFFF5A623)
-                    : AppColors.secondary,
-                fill: star <= value ? 1 : 0,
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: InkResponse(
+                key: Key('review-rating-$star'),
+                onTap: () => onChanged(star),
+                radius: 22,
+                child: Icon(
+                  star <= value ? Icons.star : Icons.star_border,
+                  size: 24,
+                  color: star <= value
+                      ? const Color(0xFFF5A623)
+                      : AppColors.mutedForeground,
+                ),
               ),
             ),
           if (value > 0)
-            Text('$value.0', style: Theme.of(context).textTheme.titleSmall),
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: Text(
+                '$value.0',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ),
         ],
       ),
     );
