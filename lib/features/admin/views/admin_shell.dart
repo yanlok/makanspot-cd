@@ -4,12 +4,12 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:makanspot/core/theme/app_theme.dart';
+import 'package:makanspot/features/auth/controllers/auth_controller.dart';
 
-import '../controllers/admin_auth_controller.dart';
-import 'admin_login_screen.dart';
 import 'widgets/admin_confirm_dialog.dart';
 
-/// Administrator shell: header, bottom navigation, and auth gate.
+/// Administrator shell: header and bottom navigation. Route access is
+/// guarded by the router redirect, which only admits admin sessions.
 class AdminShell extends ConsumerWidget {
   const AdminShell({required this.path, required this.child, super.key});
 
@@ -18,10 +18,6 @@ class AdminShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(adminAuthControllerProvider);
-    if (!state.isAuthenticated) {
-      return const AdminLoginScreen();
-    }
     return ColoredBox(
       color: AppColors.background,
       child: Align(
@@ -71,8 +67,8 @@ class AdminShell extends ConsumerWidget {
       destructive: true,
     );
     if ((shouldLogout ?? false) && context.mounted) {
-      ref.read(adminAuthControllerProvider.notifier).logout();
-      context.go('/admin/login');
+      ref.read(authControllerProvider.notifier).logout();
+      // The router redirect sends the signed-out user to the login screen.
     }
   }
 }

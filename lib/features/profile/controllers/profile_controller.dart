@@ -87,10 +87,7 @@ class ProfileController extends StateNotifier<ProfileState> {
     state = const ProfileState.loading();
     try {
       final profileData = await _repository.loadProfile();
-      state = ProfileState(
-        status: ProfileStatus.content,
-        data: profileData,
-      );
+      state = ProfileState(status: ProfileStatus.content, data: profileData);
       await reloadAccountSummaries();
     } on Object {
       state = const ProfileState(
@@ -147,19 +144,21 @@ class ProfileController extends StateNotifier<ProfileState> {
     }
 
     final query = state.accountSearchQuery.trim().toLowerCase();
-    final filtered = _allAccounts.where((account) {
-      final matchesQuery =
-          query.isEmpty ||
-          account.name.toLowerCase().contains(query) ||
-          account.email.toLowerCase().contains(query);
-      final matchesRole =
-          state.roleFilter == AccountRoleFilter.all ||
-          account.role.toLowerCase() == state.roleFilter.name;
-      final matchesStatus =
-          state.statusFilter == AccountStatusFilter.all ||
-          account.status.toLowerCase() == state.statusFilter.name;
-      return matchesQuery && matchesRole && matchesStatus;
-    }).toList(growable: false);
+    final filtered = _allAccounts
+        .where((account) {
+          final matchesQuery =
+              query.isEmpty ||
+              account.name.toLowerCase().contains(query) ||
+              account.email.toLowerCase().contains(query);
+          final matchesRole =
+              state.roleFilter == AccountRoleFilter.all ||
+              account.role.toLowerCase() == state.roleFilter.name;
+          final matchesStatus =
+              state.statusFilter == AccountStatusFilter.all ||
+              account.status.toLowerCase() == state.statusFilter.name;
+          return matchesQuery && matchesRole && matchesStatus;
+        })
+        .toList(growable: false);
 
     state = state.copyWith(
       accountListStatus: filtered.isEmpty
