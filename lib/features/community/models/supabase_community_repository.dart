@@ -19,7 +19,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
   }
 
   static const _postSelect =
-      'id,user_id,restaurant_id,content,rating,media_urls,created_at,'
+      'id,user_id,restaurant_id,content,rating,media_urls,status,created_at,'
       'users!posts_user_id_fkey(username,avatar_url,community_score),'
       'restaurants!posts_restaurant_id_fkey(name,restaurant_images(image_url,is_primary)),'
       'likes(user_id)';
@@ -29,6 +29,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
     final rows = await _client
         .from('posts')
         .select(_postSelect)
+        .eq('status', 'active')
         .order('created_at', ascending: false);
     return rows.map<CommunityPost>(_postFromRow).toList(growable: false);
   }
@@ -110,6 +111,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
           'content': reviewText,
           'rating': rating,
           'media_urls': urls,
+          'status': 'active',
         })
         .select(_postSelect)
         .single();
@@ -141,7 +143,26 @@ class SupabaseCommunityRepository implements CommunityRepository {
 
   @override
   Future<void> archivePost(String id) async {
-    await _client.from('posts').delete().eq('id', id).eq('user_id', _user.id);
+    await _client
+        .from('posts')
+        .update({
+          'status': 'archived',
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', id)
+        .eq('user_id', _user.id);
+  }
+
+  @override
+  Future<void> unarchivePost(String id) async {
+    await _client
+        .from('posts')
+        .update({
+          'status': 'active',
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', id)
+        .eq('user_id', _user.id);
   }
 
   @override
@@ -243,7 +264,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
       isLiked:
           currentUserId != null &&
           likes.any((like) => (like as Map)['user_id'] == currentUserId),
-      status: 'active',
+      status: row['status']?.toString() ?? 'active',
       createdAt:
           DateTime.tryParse(row['created_at']?.toString() ?? '') ??
           DateTime.now(),

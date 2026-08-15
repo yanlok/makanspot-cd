@@ -93,9 +93,18 @@ class FixtureCommunityRepository implements CommunityRepository {
 
   @override
   Future<void> archivePost(String id) async {
+    await _setPostStatus(id, 'archived');
+  }
+
+  @override
+  Future<void> unarchivePost(String id) async {
+    await _setPostStatus(id, 'active');
+  }
+
+  Future<void> _setPostStatus(String id, String status) async {
     final index = _posts.indexWhere((post) => post.id == id);
     if (index >= 0) {
-      _posts[index] = _posts[index].copyWith(status: 'archived');
+      _posts[index] = _posts[index].copyWith(status: status);
     }
   }
 
