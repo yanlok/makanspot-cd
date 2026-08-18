@@ -4,8 +4,9 @@ import '../models/discover_repository.dart';
 import '../models/discover_restaurant.dart';
 import '../models/fixture_discover_repository.dart';
 import 'discover_state.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:makanspot/shared/widgets/user_location_map.dart';
+
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 final discoverRepositoryProvider = Provider<DiscoverRepository>((ref) {
   return const FixtureDiscoverRepository();
@@ -168,48 +169,10 @@ class DiscoverController extends StateNotifier<DiscoverState> {
     return Set.unmodifiable(result);
   }
 
-  bool _callMap() {
-    bool success = true;
-    bool allowlocation = true;
-    showDialog<void>(
-      context: state.context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Enable Location Services'),
-          content: const Text(
-            'To allow active location tracking, please enable location sharing',
-          ),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('Allow'),
-              onPressed: () {
-                Navigator.of(context).pop();
-                success = true;
-                allowlocation = true;
-              },
-            ),
-            TextButton(
-              child: const Text('Deny'),
-              onPressed: () {
-                Navigator.of(context).pop();
-                success = false;
-                allowlocation = false;
-              },
-            ),
-          ],
-        );
-      },
-    );
-    Scaffold(body: GoogleMap(
-      initialCameraPosition: const CameraPosition(
-        target: LatLng(3.1390, 101.6869), // Example coordinates
-        zoom: 12,
-        myLocationEnabled: allowlocation,
-        myLocationButtonEnabled: allowlocation,
-      ),
-    )); 
-    
-    return success;
-  }; 
+  Future<void> setup() async{
+  await dotenv.load(fileName: ".env");
+  MapboxOptions.setAccessToken(dotenv.env['MAP_ACCESS_TOKEN']!);
+  }
+
+  
 }

@@ -10,6 +10,10 @@ import '../controllers/discover_state.dart';
 import 'widgets/discover_filter_strip.dart';
 import 'widgets/discover_restaurant_card.dart';
 
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:geolocator/geolocator.dart' as gl;
+
 class DiscoverScreen extends ConsumerStatefulWidget {
   const DiscoverScreen({required this.arguments, super.key});
 
@@ -24,11 +28,87 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
     text: widget.arguments.query,
   );
 
+  void initState() {
+    super.initState();
+    _setupPositionTracking();
+  } 
+
+  StreamSubscription? userPositionStream;
+
   @override
   void dispose() {
     _searchController.dispose();
+    userPositionStream?.cancel();
     super.dispose();
   }
+
+  mp.MapboxMap? mapboxMapController;
+
+  @override
+  Widget map(BuildContext contedxt){
+    return Scaffold(
+      body: mp.MapWidget(
+        onMapCreated: _onMapCreated,
+        styleUri: mp.MapboxStyles.DARK,
+      ),
+    );
+  }
+
+  void _onMapCreated(mp.MapboxMap controller) async {
+    setState(() {
+      mapboxMapController = controller;
+    });  
+
+    mapboxMapController?.location.updateSettings(
+      mp.LocationComponentSettings(
+        enabled: true,
+      ),
+    );
+
+    final pointAnnotationManager = mapboxMapController?.annotations.createPointAnnotationManager();
+    final Unit8List imageData = await;
+  }
+
+  Future<void> _setupPositionTracking() async {
+    bool serviceEnabled;
+    gl.LocationPermission permission;
+    serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
+
+    if(!serviceEnabled){
+      return Future.error('Location services are disabled.');
+    }
+    permission = await gl.Geolocator.checkPermission();
+    if(permission == gl.LocationPermission.denied){
+      permission = await gl.Geolocator.requestPermission();
+      if(permission == gl.LocationPermission.denied){
+        return Future.error('Location permissions are denied');
+      }
+    }
+
+    if(permission == gl.LocationPermission.deniedForever){
+      return Future.error('Location permissions are permanently denied, we cannot request permissions.');
+    }
+
+    gl.LocationSettings locationSettings = gl.LocationSettings(
+      accuracy: gl.LocationAccuracy.high, 
+      distanceFilter: 10
+    );
+
+    userPositionStream?.cancel();
+    userPositionStream = gl.Geolocator.getPositionStream(locationSettings: locationSettings).listen(
+      (
+        gl.Position? position,
+      ) {
+        if (position != null && mapboxMapController != null) {
+          mapboxMapController?.setCamera(mp.CameraOptions(
+            zoom: 14.0,
+            center: mp.Point(coordinates: mp.Position(position.longitude, position.latitude)),
+          ));
+        }
+      },);
+    }  
+  }
+  
 
   @override
   Widget build(BuildContext context) {
