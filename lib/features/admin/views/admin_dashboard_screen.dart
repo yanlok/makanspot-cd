@@ -81,6 +81,8 @@ class _DashboardContent extends StatelessWidget {
     return Column(
       children: [
         _StatGrid(data: data, loading: loading),
+        const SizedBox(height: 16),
+        _PipelineButton(),
         const SizedBox(height: 24),
         _RecentModeration(data: data, loading: loading),
       ],
@@ -267,6 +269,62 @@ class _StatCardTile extends StatelessWidget {
                 context,
               ).textTheme.bodySmall?.copyWith(color: AppColors.mutedForeground),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PipelineButton extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      key: const Key('admin-v2-pipeline'),
+      onTap: () => context.go('/admin/scraper'),
+      borderRadius: BorderRadius.circular(AppRadii.card),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.primary.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(AppRadii.card),
+          border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(LucideIcons.scan, size: 20, color: AppColors.primary),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'V2 Instagram Pipeline',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.foreground,
+                    ),
+                  ),
+                  Text(
+                    'Trigger scrape, monitor progress',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.mutedForeground,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(LucideIcons.chevronRight, size: 18, color: AppColors.mutedForeground),
           ],
         ),
       ),

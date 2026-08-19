@@ -12,6 +12,7 @@ import 'package:makanspot/features/admin/views/restaurant_details_screen.dart'
 import 'package:makanspot/features/admin/views/restaurant_management_screen.dart';
 import 'package:makanspot/features/admin/views/user_details_screen.dart';
 import 'package:makanspot/features/admin/views/user_management_screen.dart';
+import 'package:makanspot/features/admin/views/v2_data_scraper_screen.dart';
 import 'package:makanspot/features/auth/controllers/auth_controller.dart';
 import 'package:makanspot/features/auth/controllers/auth_state.dart';
 import 'package:makanspot/features/auth/views/change_password_screen.dart';
@@ -52,6 +53,7 @@ abstract final class AppRoutes {
   static const adminRestaurants = '/admin/restaurants';
   static const adminNewRestaurant = '/admin/restaurants/new';
   static const adminModeration = '/admin/moderation';
+  static const adminScraper = '/admin/scraper';
 }
 
 /// Routes that can be visited without signing in.
@@ -240,6 +242,10 @@ GoRouter createAppRouter({
                 state.uri.queryParameters['type'],
               ),
             ),
+          ),
+          GoRoute(
+            path: AppRoutes.adminScraper,
+            builder: (context, state) => const V2DataScraperScreen(),
           ),
         ],
       ),
