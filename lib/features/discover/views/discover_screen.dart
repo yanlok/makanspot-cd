@@ -5,6 +5,10 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:makanspot/core/theme/app_theme.dart';
 
+import 'dart:typed_data';
+import 'package:flutter/services.dart' show rootBundle;
+import 'dart:async';
+
 import '../controllers/discover_controller.dart';
 import '../controllers/discover_state.dart';
 import 'widgets/discover_filter_strip.dart';
@@ -32,82 +36,6 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
     super.initState();
     _setupPositionTracking();
   } 
-
-  StreamSubscription? userPositionStream;
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    userPositionStream?.cancel();
-    super.dispose();
-  }
-
-  mp.MapboxMap? mapboxMapController;
-
-  @override
-  Widget map(BuildContext contedxt){
-    return Scaffold(
-      body: mp.MapWidget(
-        onMapCreated: _onMapCreated,
-        styleUri: mp.MapboxStyles.DARK,
-      ),
-    );
-  }
-
-  void _onMapCreated(mp.MapboxMap controller) async {
-    setState(() {
-      mapboxMapController = controller;
-    });  
-
-    mapboxMapController?.location.updateSettings(
-      mp.LocationComponentSettings(
-        enabled: true,
-      ),
-    );
-
-    final pointAnnotationManager = mapboxMapController?.annotations.createPointAnnotationManager();
-    final Unit8List imageData = await;
-  }
-
-  Future<void> _setupPositionTracking() async {
-    bool serviceEnabled;
-    gl.LocationPermission permission;
-    serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
-
-    if(!serviceEnabled){
-      return Future.error('Location services are disabled.');
-    }
-    permission = await gl.Geolocator.checkPermission();
-    if(permission == gl.LocationPermission.denied){
-      permission = await gl.Geolocator.requestPermission();
-      if(permission == gl.LocationPermission.denied){
-        return Future.error('Location permissions are denied');
-      }
-    }
-
-    if(permission == gl.LocationPermission.deniedForever){
-      return Future.error('Location permissions are permanently denied, we cannot request permissions.');
-    }
-
-    gl.LocationSettings locationSettings = gl.LocationSettings(
-      accuracy: gl.LocationAccuracy.high, 
-      distanceFilter: 10
-    );
-
-    userPositionStream?.cancel();
-    userPositionStream = gl.Geolocator.getPositionStream(locationSettings: locationSettings).listen(
-      (
-        gl.Position? position,
-      ) {
-        if (position != null && mapboxMapController != null) {
-          mapboxMapController?.setCamera(mp.CameraOptions(
-            zoom: 14.0,
-            center: mp.Point(coordinates: mp.Position(position.longitude, position.latitude)),
-          ));
-        }
-      },);
-    }  
-  }
   
 
   @override
@@ -155,6 +83,94 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
         ],
       ),
     );
+  }
+
+  StreamSubscription? userPositionStream;
+
+  @override
+  void dispose() {
+    _searchController.dispose();  
+    userPositionStream?.cancel();
+    super.dispose();
+  }
+
+  mp.MapboxMap? mapboxMapController;
+
+  @override
+  Widget map(BuildContext contedxt){
+    return Scaffold(
+      body: mp.MapWidget(
+        onMapCreated: _onMapCreated,
+        styleUri: mp.MapboxStyles.DARK,
+      ),
+    );
+  }
+
+  void _onMapCreated(mp.MapboxMap controller) async {
+    setState(() {
+      mapboxMapController = controller;
+    });  
+
+    mapboxMapController?.location.updateSettings(
+      mp.LocationComponentSettings(
+        enabled: true,
+      ),
+    );
+
+    final pointAnnotationManager = await mapboxMapController?.annotations.createPointAnnotationManager();
+    final Uint8List imageData = await loadRestMarkerImage();
+    mp.PointAnnotationOptions pointAnnotationOptions = mp.PointAnnotationOptions(
+      geometry: mp.Point(coordinates: mp.Position(103.851959, 1.290270)),
+      image: imageData,
+      iconSize: 1.0,
+    );
+
+    pointAnnotationManager?.create(pointAnnotationOptions);
+  }
+
+  Future<void> _setupPositionTracking() async {
+    bool serviceEnabled;
+    gl.LocationPermission permission;
+    serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
+
+    if(!serviceEnabled){
+      return Future.error('Location services are disabled.');
+    }
+    permission = await gl.Geolocator.checkPermission();
+    if(permission == gl.LocationPermission.denied){
+      permission = await gl.Geolocator.requestPermission();
+      if(permission == gl.LocationPermission.denied){
+        return Future.error('Location permissions are denied');
+      }
+    }
+
+    if(permission == gl.LocationPermission.deniedForever){
+      return Future.error('Location permissions are permanently denied, we cannot request permissions.');
+    }
+
+    gl.LocationSettings locationSettings = gl.LocationSettings(
+      accuracy: gl.LocationAccuracy.high, 
+      distanceFilter: 10
+    );
+
+    userPositionStream?.cancel();
+    userPositionStream = gl.Geolocator.getPositionStream(locationSettings: locationSettings).listen(
+      (
+        gl.Position? position,
+      ) {
+        if (position != null && mapboxMapController != null) {
+          mapboxMapController?.setCamera(mp.CameraOptions(
+            zoom: 14.0,
+            center: mp.Point(coordinates: mp.Position(position.longitude, position.latitude)),
+          ));
+        }
+      },);
+    }  
+    
+    Future<Uint8List> loadRestMarkerImage() async {
+      var byteData = await rootBundle.load('assets/images/restaurant_marker.png');
+      return byteData.buffer.asUint8List();
+    }
   }
 }
 
