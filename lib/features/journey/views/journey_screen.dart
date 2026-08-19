@@ -156,8 +156,6 @@ class _JourneyHero extends StatelessWidget {
   }
 }
 
-enum JourneyPeriod { allTime, last30Days, last12Months, yearToDate }
-
 class _JourneyContent extends StatefulWidget {
   const _JourneyContent({required this.data});
 
@@ -168,27 +166,29 @@ class _JourneyContent extends StatefulWidget {
 }
 
 class _JourneyContentState extends State<_JourneyContent> {
-  JourneyPeriod _period = JourneyPeriod.allTime;
+  JourneyVisitPeriod _period = JourneyVisitPeriod.allTime;
 
   List<JourneyVisit> _filteredVisits(JourneyData data) {
     final now = DateTime.now();
     DateTime? from;
     switch (_period) {
-      case JourneyPeriod.allTime:
+      case JourneyVisitPeriod.allTime:
         from = null;
         break;
-      case JourneyPeriod.last30Days:
+      case JourneyVisitPeriod.last30Days:
         from = now.subtract(const Duration(days: 30));
         break;
-      case JourneyPeriod.last12Months:
+      case JourneyVisitPeriod.last12Months:
         from = DateTime(now.year - 1, now.month, now.day);
         break;
-      case JourneyPeriod.yearToDate:
+      case JourneyVisitPeriod.yearToDate:
         from = DateTime(now.year, 1, 1);
         break;
     }
     if (from == null) return data.visits;
-    return data.visits.where((v) => v.visitDate.isAfter(from!)).toList(growable: false);
+    return data.visits
+        .where((v) => v.visitDate.isAfter(from!))
+        .toList(growable: false);
   }
 
   String _formatDate(DateTime d) => '${d.day}/${d.month}/${d.year}';
@@ -196,11 +196,18 @@ class _JourneyContentState extends State<_JourneyContent> {
   @override
   Widget build(BuildContext context) {
     final data = widget.data;
-    final earned = data.achievementProgress.where((item) => item.earned).take(3).toList(growable: false);
+    final earned = data.achievementProgress
+        .where((item) => item.earned)
+        .take(3)
+        .toList(growable: false);
     final visits = _filteredVisits(data);
     final uniqueRestaurants = visits.map((v) => v.restaurantId).toSet().length;
     final reviews = visits.where((v) => v.postId != null).length;
-    final cuisines = visits.map((v) => v.cuisine).where((s) => s.isNotEmpty).toSet().length;
+    final cuisines = visits
+        .map((v) => v.cuisine)
+        .where((s) => s.isNotEmpty)
+        .toSet()
+        .length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -208,26 +215,41 @@ class _JourneyContentState extends State<_JourneyContent> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('Exploration Overview', style: Theme.of(context).textTheme.titleLarge),
-            PopupMenuButton<JourneyPeriod>(
+            Text(
+              'Exploration Overview',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            PopupMenuButton<JourneyVisitPeriod>(
               initialValue: _period,
               onSelected: (p) => setState(() => _period = p),
               itemBuilder: (ctx) => [
-                const PopupMenuItem(value: JourneyPeriod.allTime, child: Text('All time')),
-                const PopupMenuItem(value: JourneyPeriod.last30Days, child: Text('Last 30 days')),
-                const PopupMenuItem(value: JourneyPeriod.last12Months, child: Text('Last 12 months')),
-                const PopupMenuItem(value: JourneyPeriod.yearToDate, child: Text('Year to date')),
+                const PopupMenuItem(
+                  value: JourneyVisitPeriod.allTime,
+                  child: Text('All time'),
+                ),
+                const PopupMenuItem(
+                  value: JourneyVisitPeriod.last30Days,
+                  child: Text('Last 30 days'),
+                ),
+                const PopupMenuItem(
+                  value: JourneyVisitPeriod.last12Months,
+                  child: Text('Last 12 months'),
+                ),
+                const PopupMenuItem(
+                  value: JourneyVisitPeriod.yearToDate,
+                  child: Text('Year to date'),
+                ),
               ],
               child: Row(
                 children: [
                   Text(
-                    _period == JourneyPeriod.allTime
+                    _period == JourneyVisitPeriod.allTime
                         ? 'All time'
-                        : _period == JourneyPeriod.last30Days
-                            ? '30 days'
-                            : _period == JourneyPeriod.last12Months
-                                ? '12 months'
-                                : 'YTD',
+                        : _period == JourneyVisitPeriod.last30Days
+                        ? '30 days'
+                        : _period == JourneyVisitPeriod.last12Months
+                        ? '12 months'
+                        : 'YTD',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   const SizedBox(width: 6),
@@ -273,8 +295,16 @@ class _JourneyContentState extends State<_JourneyContent> {
         const SizedBox(height: 24),
         Row(
           children: [
-            Expanded(child: Text('Recent Achievements', style: Theme.of(context).textTheme.titleMedium)),
-            TextButton(onPressed: () => context.push('/achievements'), child: const Text('View All')),
+            Expanded(
+              child: Text(
+                'Recent Achievements',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            TextButton(
+              onPressed: () => context.push('/achievements'),
+              child: const Text('View All'),
+            ),
           ],
         ),
         const SizedBox(height: 8),
@@ -283,7 +313,10 @@ class _JourneyContentState extends State<_JourneyContent> {
           const SizedBox(height: 10),
         ],
         const SizedBox(height: 14),
-        Text('Recent Activities', style: Theme.of(context).textTheme.titleMedium),
+        Text(
+          'Recent Activities',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
         const SizedBox(height: 8),
         for (final visit in visits.take(6)) ...[
           Container(
@@ -297,7 +330,12 @@ class _JourneyContentState extends State<_JourneyContent> {
             child: Row(
               children: [
                 if (visit.restaurantImage.isNotEmpty)
-                  Image.network(visit.restaurantImage, width: 56, height: 56, fit: BoxFit.cover)
+                  Image.network(
+                    visit.restaurantImage,
+                    width: 56,
+                    height: 56,
+                    fit: BoxFit.cover,
+                  )
                 else
                   Container(width: 56, height: 56, color: AppColors.secondary),
                 const SizedBox(width: 12),
@@ -305,14 +343,24 @@ class _JourneyContentState extends State<_JourneyContent> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(visit.restaurantName, style: Theme.of(context).textTheme.titleSmall),
+                      Text(
+                        visit.restaurantName,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
                       const SizedBox(height: 4),
-                      Text('${visit.cuisine} • ${_formatDate(visit.visitDate)}', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.mutedForeground)),
+                      Text(
+                        '${visit.cuisine} • ${_formatDate(visit.visitDate)}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.mutedForeground,
+                        ),
+                      ),
                     ],
                   ),
                 ),
                 IconButton(
-                  onPressed: visit.postId != null ? () => context.push('/posts/${visit.postId}') : null,
+                  onPressed: visit.postId != null
+                      ? () => context.push('/post/${visit.postId}')
+                      : null,
                   icon: const Icon(LucideIcons.chevronRight),
                 ),
               ],
@@ -320,11 +368,23 @@ class _JourneyContentState extends State<_JourneyContent> {
           ),
         ],
         const SizedBox(height: 14),
-        JourneyMenuTile(icon: LucideIcons.calendar, label: 'Visit History', onTap: () => context.push('/visit-history')),
+        JourneyMenuTile(
+          icon: LucideIcons.calendar,
+          label: 'Visit History',
+          onTap: () => context.push('/visit-history'),
+        ),
         const SizedBox(height: 8),
-        JourneyMenuTile(icon: LucideIcons.mapPin, label: 'Exploration Map', onTap: () => context.push('/exploration-map')),
+        JourneyMenuTile(
+          icon: LucideIcons.mapPin,
+          label: 'Exploration Map',
+          onTap: () => context.push('/exploration-map'),
+        ),
         const SizedBox(height: 8),
-        JourneyMenuTile(icon: LucideIcons.award, label: 'View All Progress', onTap: () => context.push('/achievements')),
+        JourneyMenuTile(
+          icon: LucideIcons.award,
+          label: 'View All Progress',
+          onTap: () => context.push('/achievements'),
+        ),
       ],
     );
   }

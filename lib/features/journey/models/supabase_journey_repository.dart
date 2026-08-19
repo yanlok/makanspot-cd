@@ -37,9 +37,11 @@ class SupabaseJourneyRepository implements JourneyRepository {
 
     final user = userRow ?? const {};
     final visits = postRows.map<JourneyVisit>(_visitFromRow).toList();
-    final locations = <JourneyLocation>[
-      for (final row in postRows) ?_locationFromRow(row),
-    ];
+    final locationsById = <String, JourneyLocation>{};
+    for (final row in postRows) {
+      final location = _locationFromRow(row);
+      if (location != null) locationsById[location.id] = location;
+    }
     final totalLikes = likeRows.fold<int>(
       0,
       (sum, row) => sum + ((row['likes'] as List? ?? const []).length),
@@ -55,7 +57,7 @@ class SupabaseJourneyRepository implements JourneyRepository {
             user['avatar_url']?.toString() ?? 'assets/images/default_icon.jpg',
       ),
       visits: visits,
-      locations: locations,
+      locations: locationsById.values.toList(growable: false),
       reviewCount: visits.length,
       totalLikes: totalLikes,
       // The achievements and score history are not modelled in the

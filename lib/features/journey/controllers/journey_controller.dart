@@ -12,11 +12,17 @@ enum JourneyStatus { loading, content, error }
 
 enum AchievementTab { earned, locked, history }
 
+enum JourneyVisitPeriod { allTime, last30Days, last12Months, yearToDate }
+
+enum JourneyActivityFilter { all, reviews }
+
 class JourneyState {
   const JourneyState({
     required this.status,
     this.data,
     this.visitSearch = '',
+    this.visitPeriod = JourneyVisitPeriod.allTime,
+    this.activityFilter = JourneyActivityFilter.all,
     this.selectedLocationId,
     this.achievementTab = AchievementTab.earned,
     this.errorMessage,
@@ -27,17 +33,37 @@ class JourneyState {
   final JourneyStatus status;
   final JourneyData? data;
   final String visitSearch;
+  final JourneyVisitPeriod visitPeriod;
+  final JourneyActivityFilter activityFilter;
   final String? selectedLocationId;
   final AchievementTab achievementTab;
   final String? errorMessage;
 
   List<JourneyVisit> get filteredVisits {
     final query = visitSearch.trim().toLowerCase();
+    final now = DateTime.now();
+    final DateTime? from = switch (visitPeriod) {
+      JourneyVisitPeriod.allTime => null,
+      JourneyVisitPeriod.last30Days => now.subtract(const Duration(days: 30)),
+      JourneyVisitPeriod.last12Months => DateTime(
+        now.year - 1,
+        now.month,
+        now.day,
+      ),
+      JourneyVisitPeriod.yearToDate => DateTime(now.year, 1, 1),
+    };
     return data?.visits
             .where((visit) {
-              return query.isEmpty ||
+              final matchesQuery =
+                  query.isEmpty ||
                   visit.restaurantName.toLowerCase().contains(query) ||
                   visit.cuisine.toLowerCase().contains(query);
+              final matchesDate =
+                  from == null || !visit.visitDate.isBefore(from);
+              final matchesActivity =
+                  activityFilter == JourneyActivityFilter.all ||
+                  visit.postId != null;
+              return matchesQuery && matchesDate && matchesActivity;
             })
             .toList(growable: false) ??
         const [];
@@ -53,6 +79,8 @@ class JourneyState {
     JourneyStatus? status,
     JourneyData? data,
     String? visitSearch,
+    JourneyVisitPeriod? visitPeriod,
+    JourneyActivityFilter? activityFilter,
     String? selectedLocationId,
     AchievementTab? achievementTab,
     String? errorMessage,
@@ -61,6 +89,8 @@ class JourneyState {
       status: status ?? this.status,
       data: data ?? this.data,
       visitSearch: visitSearch ?? this.visitSearch,
+      visitPeriod: visitPeriod ?? this.visitPeriod,
+      activityFilter: activityFilter ?? this.activityFilter,
       selectedLocationId: selectedLocationId ?? this.selectedLocationId,
       achievementTab: achievementTab ?? this.achievementTab,
       errorMessage: errorMessage ?? this.errorMessage,
@@ -129,6 +159,14 @@ class JourneyController extends StateNotifier<JourneyState> {
 
   void updateVisitSearch(String value) {
     state = state.copyWith(visitSearch: value);
+  }
+
+  void updateVisitPeriod(JourneyVisitPeriod period) {
+    state = state.copyWith(visitPeriod: period);
+  }
+
+  void updateActivityFilter(JourneyActivityFilter filter) {
+    state = state.copyWith(activityFilter: filter);
   }
 
   void selectLocation(String id) {
