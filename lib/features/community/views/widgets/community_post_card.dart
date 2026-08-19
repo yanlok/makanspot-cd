@@ -169,7 +169,10 @@ class CommunityPostCard extends StatelessWidget {
                       size: 20,
                       color: AppColors.mutedForeground,
                     ),
-                    label: const Text(''),
+                    label: Text(
+                      '${post.commentCount}',
+                      style: const TextStyle(color: AppColors.mutedForeground),
+                    ),
                   ),
                 ],
               ),

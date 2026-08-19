@@ -14,7 +14,10 @@ class FixtureCommunityRepository implements CommunityRepository {
   @override
   Future<List<CommunityPost>> loadCommunityPosts() async {
     return List.unmodifiable(
-      _posts.where((post) => post.status == 'active').toList()
+      _posts
+          .where((post) => post.status == 'active')
+          .map(_withCommentCount)
+          .toList()
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
     );
   }
@@ -22,7 +25,10 @@ class FixtureCommunityRepository implements CommunityRepository {
   @override
   Future<List<CommunityPost>> loadMyPosts() async {
     return List.unmodifiable(
-      _posts.where((post) => post.userId == 'demo-user').toList()
+      _posts
+          .where((post) => post.userId == 'demo-user')
+          .map(_withCommentCount)
+          .toList()
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
     );
   }
@@ -37,7 +43,7 @@ class FixtureCommunityRepository implements CommunityRepository {
       return null;
     }
     return CommunityPostDetails(
-      post: matches.single,
+      post: _withCommentCount(matches.single),
       comments: List.unmodifiable(
         _comments.where((comment) => comment.postId == id),
       ),
@@ -138,6 +144,14 @@ class FixtureCommunityRepository implements CommunityRepository {
       likes: post.isLiked ? post.likes - 1 : post.likes + 1,
     );
     return _posts[index];
+  }
+
+  CommunityPost _withCommentCount(CommunityPost post) {
+    return post.copyWith(
+      commentCount: _comments
+          .where((comment) => comment.postId == post.id)
+          .length,
+    );
   }
 }
 

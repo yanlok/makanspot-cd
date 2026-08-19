@@ -12,6 +12,7 @@ class PostDetailsState {
     this.post,
     this.comments = const [],
     this.errorMessage,
+    this.isLikePending = false,
   });
 
   const PostDetailsState.loading() : this(status: PostDetailsStatus.loading);
@@ -20,18 +21,21 @@ class PostDetailsState {
   final CommunityPost? post;
   final List<CommunityComment> comments;
   final String? errorMessage;
+  final bool isLikePending;
 
   PostDetailsState copyWith({
     PostDetailsStatus? status,
     CommunityPost? post,
     List<CommunityComment>? comments,
     String? errorMessage,
+    bool? isLikePending,
   }) {
     return PostDetailsState(
       status: status ?? this.status,
       post: post ?? this.post,
       comments: comments ?? this.comments,
       errorMessage: errorMessage ?? this.errorMessage,
+      isLikePending: isLikePending ?? this.isLikePending,
     );
   }
 }
@@ -75,9 +79,17 @@ class PostDetailsController extends StateNotifier<PostDetailsState> {
   }
 
   Future<void> toggleLike() async {
-    final updated = await _repository.toggleLike(postId);
-    if (updated != null) {
-      state = state.copyWith(post: updated);
+    if (state.isLikePending) return;
+    state = state.copyWith(isLikePending: true);
+    try {
+      final updated = await _repository.toggleLike(postId);
+      if (updated != null) {
+        state = state.copyWith(post: updated);
+      }
+    } finally {
+      if (mounted) {
+        state = state.copyWith(isLikePending: false);
+      }
     }
   }
 
@@ -92,6 +104,9 @@ class PostDetailsController extends StateNotifier<PostDetailsState> {
       parentCommentId: parentCommentId,
     );
     state = state.copyWith(
+      post: state.post?.copyWith(
+        commentCount: (state.post?.commentCount ?? state.comments.length) + 1,
+      ),
       comments: List.unmodifiable([comment, ...state.comments]),
     );
   }
