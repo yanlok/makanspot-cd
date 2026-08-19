@@ -250,7 +250,7 @@ Deno.test("best image ranking is deterministic and penalizes promotions", () => 
   );
 });
 
-Deno.test("reverse geocode uses permanent v6 request and parses context", async () => {
+Deno.test("reverse geocode uses v6 request and parses context", async () => {
   const previous = Deno.env.get("MAPBOX_TOKEN");
   Deno.env.set("MAPBOX_TOKEN", "test-token");
   let requested = "";
@@ -277,8 +277,8 @@ Deno.test("reverse geocode uses permanent v6 request and parses context", async 
     "v6 endpoint required",
   );
   assert(
-    requested.includes("permanent=true") && requested.includes("country=my"),
-    "stored Malaysia request flags required",
+    requested.includes("country=my"),
+    "country=my flag required",
   );
   assert(result?.city === "Petaling Jaya", "city context should parse");
 });

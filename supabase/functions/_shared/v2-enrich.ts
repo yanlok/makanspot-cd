@@ -216,7 +216,7 @@ export function v2ParseReverseGeocode(
   return { address, city };
 }
 
-/** Stored reverse results require Mapbox's permanent=true flag. */
+/** Reverse geocode a lat/lng into address + city (free-tier safe). */
 export async function v2ReverseGeocode(
   latitude: number,
   longitude: number,
@@ -228,7 +228,6 @@ export async function v2ReverseGeocode(
   url.searchParams.set("latitude", String(latitude));
   url.searchParams.set("longitude", String(longitude));
   url.searchParams.set("country", "my");
-  url.searchParams.set("permanent", "true");
   url.searchParams.set("access_token", token);
   try {
     const response = await fetcher(url.toString());
