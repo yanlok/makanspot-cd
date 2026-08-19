@@ -37,6 +37,9 @@ class CommunityPageHeader extends StatelessWidget {
                 Expanded(
                   child: Text(
                     title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    softWrap: false,
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),

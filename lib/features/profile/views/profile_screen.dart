@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:makanspot/core/theme/app_theme.dart';
+import 'package:makanspot/features/auth/controllers/auth_controller.dart';
 
 import '../controllers/profile_controller.dart';
 import '../models/profile_models.dart';
@@ -56,13 +57,13 @@ class ProfileScreen extends ConsumerWidget {
           const SizedBox(height: 18),
           _AccountSummarySection(state: state, controller: controller),
           if (data.earnedBadges.isNotEmpty) _BadgeSection(data: data),
-          _ProfileMenu(onLogout: () => _confirmLogout(context)),
+          _ProfileMenu(onLogout: () => _confirmLogout(context, ref)),
         ],
       ),
     );
   }
 
-  Future<void> _confirmLogout(BuildContext context) async {
+  Future<void> _confirmLogout(BuildContext context, WidgetRef ref) async {
     final shouldLogout = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -83,7 +84,8 @@ class ProfileScreen extends ConsumerWidget {
       ),
     );
     if ((shouldLogout ?? false) && context.mounted) {
-      context.go('/');
+      ref.read(authControllerProvider.notifier).logout();
+      // The router redirect sends the signed-out user to the login screen.
     }
   }
 }
@@ -375,13 +377,16 @@ class _AccountSummarySection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Registered Accounts', style: Theme.of(context).textTheme.titleSmall),
+          Text(
+            'Registered Accounts',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
           const SizedBox(height: 4),
           Text(
             'Search and filter by name, email, role, and status.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: AppColors.mutedForeground,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: AppColors.mutedForeground),
           ),
           const SizedBox(height: 12),
           TextField(
@@ -398,6 +403,7 @@ class _AccountSummarySection extends StatelessWidget {
               Expanded(
                 child: DropdownButtonFormField<AccountRoleFilter>(
                   key: const Key('profile-account-role-filter'),
+                  isExpanded: true,
                   value: state.roleFilter,
                   items: const [
                     DropdownMenuItem(
@@ -424,6 +430,7 @@ class _AccountSummarySection extends StatelessWidget {
               Expanded(
                 child: DropdownButtonFormField<AccountStatusFilter>(
                   key: const Key('profile-account-status-filter'),
+                  isExpanded: true,
                   value: state.statusFilter,
                   items: const [
                     DropdownMenuItem(
@@ -498,7 +505,9 @@ class _AccountSummaryContent extends StatelessWidget {
         title: 'No Results',
         message: 'No accounts matched your current search and filters.',
         actionLabel: state.hasAccountFilters ? 'Clear Filters' : null,
-        onAction: state.hasAccountFilters ? controller.clearAccountFilters : null,
+        onAction: state.hasAccountFilters
+            ? controller.clearAccountFilters
+            : null,
       );
     }
     return Column(
@@ -546,9 +555,9 @@ class _AccountSummaryState extends StatelessWidget {
           Text(
             message,
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: AppColors.mutedForeground,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: AppColors.mutedForeground),
           ),
           if (actionLabel != null && onAction != null) ...[
             const SizedBox(height: 10),
@@ -660,9 +669,9 @@ class _RoleBadge extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-          color: AppColors.secondaryForeground,
-        ),
+        style: Theme.of(
+          context,
+        ).textTheme.labelMedium?.copyWith(color: AppColors.secondaryForeground),
       ),
     );
   }
@@ -696,9 +705,9 @@ class _StatusBadge extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-          color: foreground,
-        ),
+        style: Theme.of(
+          context,
+        ).textTheme.labelMedium?.copyWith(color: foreground),
       ),
     );
   }
@@ -720,6 +729,7 @@ class _ProfileMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     final items = [
       (LucideIcons.pencil, 'Edit Profile', '/profile/edit'),
+      (LucideIcons.keyRound, 'Change Password', '/profile/change-password'),
       (LucideIcons.fileText, 'My Posts', '/my-posts'),
       (LucideIcons.map, 'Discovery Journey', '/journey'),
       (LucideIcons.award, 'Achievements & Progress', '/achievements'),
