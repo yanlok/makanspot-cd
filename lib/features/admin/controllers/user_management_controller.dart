@@ -7,12 +7,13 @@ enum UserManagementStatus { loading, content, empty, error }
 
 enum UserStatusFilter { all, active, deactivated }
 
-enum UserRoleFilter { all, user, admin }
+enum UserRoleFilter { all, user, admin, manager }
 
 class UserManagementState {
   const UserManagementState({
     required this.status,
     this.users = const [],
+    this.allUsers = const [],
     this.searchQuery = '',
     this.statusFilter = UserStatusFilter.all,
     this.roleFilter = UserRoleFilter.all,
@@ -24,6 +25,7 @@ class UserManagementState {
 
   final UserManagementStatus status;
   final List<AdminUser> users;
+  final List<AdminUser> allUsers;
   final String searchQuery;
   final UserStatusFilter statusFilter;
   final UserRoleFilter roleFilter;
@@ -32,6 +34,7 @@ class UserManagementState {
   UserManagementState copyWith({
     UserManagementStatus? status,
     List<AdminUser>? users,
+    List<AdminUser>? allUsers,
     String? searchQuery,
     UserStatusFilter? statusFilter,
     UserRoleFilter? roleFilter,
@@ -40,6 +43,7 @@ class UserManagementState {
     return UserManagementState(
       status: status ?? this.status,
       users: users ?? this.users,
+      allUsers: allUsers ?? this.allUsers,
       searchQuery: searchQuery ?? this.searchQuery,
       statusFilter: statusFilter ?? this.statusFilter,
       roleFilter: roleFilter ?? this.roleFilter,
@@ -75,7 +79,8 @@ class UserManagementController extends StateNotifier<UserManagementState> {
     } on Object {
       state = const UserManagementState(
         status: UserManagementStatus.error,
-        errorMessage: 'We could not load user accounts right now.',
+        errorMessage:
+            'Unable to retrieve user accounts. Check your connection and try again.',
       );
     }
   }
@@ -115,7 +120,9 @@ class UserManagementController extends StateNotifier<UserManagementState> {
               (state.roleFilter == UserRoleFilter.user &&
                   user.role == AdminUserRole.user) ||
               (state.roleFilter == UserRoleFilter.admin &&
-                  user.role == AdminUserRole.admin);
+                  user.role == AdminUserRole.admin) ||
+              (state.roleFilter == UserRoleFilter.manager &&
+                  user.role == AdminUserRole.manager);
           return matchesSearch && matchesStatus && matchesRole;
         })
         .toList(growable: false);
@@ -124,6 +131,7 @@ class UserManagementController extends StateNotifier<UserManagementState> {
           ? UserManagementStatus.empty
           : UserManagementStatus.content,
       users: List.unmodifiable(users),
+      allUsers: List.unmodifiable(_allUsers),
     );
   }
 }

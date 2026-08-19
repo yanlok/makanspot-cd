@@ -10,6 +10,7 @@ class UserDetailsState {
   const UserDetailsState({
     required this.status,
     this.user,
+    this.accountId,
     this.isSaving = false,
     this.errorMessage,
   });
@@ -18,18 +19,21 @@ class UserDetailsState {
 
   final UserDetailsStatus status;
   final AdminUser? user;
+  final String? accountId;
   final bool isSaving;
   final String? errorMessage;
 
   UserDetailsState copyWith({
     UserDetailsStatus? status,
     AdminUser? user,
+    String? accountId,
     bool? isSaving,
     String? errorMessage,
   }) {
     return UserDetailsState(
       status: status ?? this.status,
       user: user ?? this.user,
+      accountId: accountId ?? this.accountId,
       isSaving: isSaving ?? this.isSaving,
       errorMessage: errorMessage,
     );
@@ -52,16 +56,23 @@ class UserDetailsController extends StateNotifier<UserDetailsState> {
 
   final AdminRepository _repository;
   final String _userId;
+  List<AdminUser> _allUsers = const [];
 
   Future<void> load() async {
     state = const UserDetailsState.loading();
     try {
-      final user = await _repository.loadUser(_userId);
-      if (user == null) {
+      _allUsers = await _repository.loadUsers();
+      final matches = _allUsers.where((user) => user.id == _userId);
+      if (matches.isEmpty) {
         state = const UserDetailsState(status: UserDetailsStatus.notFound);
         return;
       }
-      state = UserDetailsState(status: UserDetailsStatus.content, user: user);
+      final user = matches.single;
+      state = UserDetailsState(
+        status: UserDetailsStatus.content,
+        user: user,
+        accountId: adminUserAccountId(user, _allUsers),
+      );
     } on Object {
       state = const UserDetailsState(
         status: UserDetailsStatus.error,
@@ -76,20 +87,33 @@ class UserDetailsController extends StateNotifier<UserDetailsState> {
     required String rawUsername,
     required String rawEmail,
     required String rawPhone,
-    required String profileTitle,
     required AdminUserRole role,
     required String rawCommunityScore,
   }) async {
     final username = rawUsername.trim();
-    if (username.isEmpty) {
-      return 'Username is required.';
-    }
     final email = rawEmail.trim();
+    final phone = rawPhone.trim();
+    final missingFields = <String>[
+      if (username.isEmpty) 'Name',
+      if (email.isEmpty) 'Email',
+      if (phone.isEmpty) 'Phone number',
+    ];
+    if (missingFields.length == 3) {
+      return 'Name,Email,Phone number is required';
+    }
+    if (missingFields.length == 1) {
+      return '${missingFields.single} is required';
+    }
+    if (missingFields.isNotEmpty) {
+      return '${missingFields.join(' and ')} are required';
+    }
+    if (!_namePattern.hasMatch(username)) {
+      return 'Name can contain letters and underscores only.';
+    }
     if (!_emailPattern.hasMatch(email)) {
       return 'Enter a valid email address.';
     }
-    final phone = rawPhone.trim();
-    if (phone.isNotEmpty && !_phonePattern.hasMatch(phone)) {
+    if (!_phonePattern.hasMatch(phone)) {
       return 'Enter a valid phone number.';
     }
     final user = state.user;
@@ -98,11 +122,21 @@ class UserDetailsController extends StateNotifier<UserDetailsState> {
     }
     final communityScore = int.tryParse(rawCommunityScore.trim()) ?? 0;
     try {
-      if (await _repository.emailExists(email, user.id)) {
-        return 'This email is already in use.';
+      final duplicates = await Future.wait([
+        _repository.usernameExists(username, user.id),
+        _repository.emailExists(email, user.id),
+        _repository.phoneExists(phone, user.id),
+      ]);
+      final duplicateFields = <String>[
+        if (duplicates[0]) 'Name',
+        if (duplicates[1]) 'Email',
+        if (duplicates[2]) 'Phone number',
+      ];
+      if (duplicateFields.length == 1) {
+        return '${duplicateFields.single} is already in use.';
       }
-      if (phone.isNotEmpty && await _repository.phoneExists(phone, user.id)) {
-        return 'This phone number is already in use.';
+      if (duplicateFields.isNotEmpty) {
+        return '${duplicateFields.join(', ')} are already in use.';
       }
     } on Object {
       return 'Could not validate your changes right now.';
@@ -116,28 +150,38 @@ class UserDetailsController extends StateNotifier<UserDetailsState> {
         email: email,
         phone: phone,
         role: role,
-        profileTitle: profileTitle.trim(),
         communityScore: communityScore,
       );
       await _recordAudit(
         action: 'update_user',
         target: updated,
         changes: {
-          'username': {'from': user.username, 'to': username},
-          'email': {'from': user.email, 'to': email},
-          'phone': {'from': user.phone, 'to': phone},
-          'role': {'from': user.role.value, 'to': role.value},
-          'profile_title': {
-            'from': user.profileTitle,
-            'to': profileTitle.trim(),
-          },
-          'community_score': {
-            'from': user.communityScore,
-            'to': communityScore,
-          },
+          if (user.username != username)
+            'username': {'from': user.username, 'to': username},
+          if (user.email != email) 'email': {'from': user.email, 'to': email},
+          if (user.phone != phone) 'phone': {'from': user.phone, 'to': phone},
+          if (user.role != role)
+            'role': {'from': user.role.value, 'to': role.value},
+          if (user.communityScore != communityScore)
+            'community_score': {
+              'from': user.communityScore,
+              'to': communityScore,
+            },
         },
       );
-      state = state.copyWith(isSaving: false, user: updated);
+      if (updated != null) {
+        _allUsers = [
+          for (final existing in _allUsers)
+            if (existing.id == updated.id) updated else existing,
+        ];
+      }
+      state = state.copyWith(
+        isSaving: false,
+        user: updated,
+        accountId: updated == null
+            ? null
+            : adminUserAccountId(updated, _allUsers),
+      );
       return null;
     } on Object {
       state = state.copyWith(
@@ -209,6 +253,10 @@ class UserDetailsController extends StateNotifier<UserDetailsState> {
 
   static const _fallbackAdminId = '00000000-0000-0000-0000-000000000000';
   static const _fallbackAdminUsername = 'admin@makanspot.my';
-  static final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-  static final _phonePattern = RegExp(r'^\+?[0-9][0-9\s\-()]{6,}$');
+  static final _namePattern = RegExp(r'^[A-Za-zÀ-ÖØ-öø-ÿ_]+$');
+  static final _emailPattern = RegExp(
+    r'^[^@\s]+@gmail\.com$',
+    caseSensitive: false,
+  );
+  static final _phonePattern = RegExp(r'^0\d{2}-\d{7}$');
 }

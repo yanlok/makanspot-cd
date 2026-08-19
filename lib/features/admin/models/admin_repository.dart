@@ -29,11 +29,13 @@ abstract interface class AdminRepository {
     required String email,
     required String phone,
     required AdminUserRole role,
-    required String profileTitle,
     required int communityScore,
   });
 
   Future<AdminUser?> setUserAccountStatus(String id, AdminAccountStatus status);
+
+  /// True when another user already holds [username] (excluding [excludeUserId]).
+  Future<bool> usernameExists(String username, String excludeUserId);
 
   /// True when another user already holds [email] (excluding [excludeUserId]).
   Future<bool> emailExists(String email, String excludeUserId);
@@ -50,6 +52,9 @@ abstract interface class AdminRepository {
     required String targetUsername,
     Map<String, Map<String, Object?>>? fieldChanges,
   });
+
+  /// Returns administrative actions in reverse chronological order.
+  Future<List<AdminAuditLog>> loadAdminActionLogs();
 
   Future<List<AdminRestaurant>> loadRestaurants();
 

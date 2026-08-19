@@ -8,6 +8,7 @@ import 'package:makanspot/core/theme/app_theme.dart';
 import '../controllers/restaurant_management_controller.dart';
 import '../models/admin_models.dart';
 import 'widgets/admin_empty_state.dart';
+import 'widgets/admin_filter_dropdown.dart';
 import 'widgets/admin_page_header.dart';
 import 'widgets/admin_search_field.dart';
 import 'widgets/admin_skeletons.dart';
@@ -31,6 +32,36 @@ class RestaurantManagementScreen extends ConsumerWidget {
           const AdminPageHeader(
             title: 'Restaurants',
             subtitle: 'Manage restaurant records',
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: AdminFilterDropdown<RestaurantVerificationFilter>(
+                  width: null,
+                  value: state.verificationFilter,
+                  options: const [
+                    ('All statuses', RestaurantVerificationFilter.all),
+                    ('Verified', RestaurantVerificationFilter.verified),
+                    ('Pending', RestaurantVerificationFilter.pending),
+                    ('Rejected', RestaurantVerificationFilter.rejected),
+                  ],
+                  onChanged: controller.selectVerificationFilter,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: AdminFilterDropdown<RestaurantSort>(
+                  width: null,
+                  value: state.sort,
+                  options: const [
+                    ('Name: A–Z', RestaurantSort.nameAscending),
+                    ('Name: Z–A', RestaurantSort.nameDescending),
+                  ],
+                  onChanged: controller.selectSort,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 20),
           Row(
@@ -158,11 +189,20 @@ class _RestaurantCard extends StatelessWidget {
                           ),
                           const SizedBox(width: 8),
                           AdminStatusBadge(
-                            label: restaurant.isVerified
-                                ? 'Verified'
-                                : 'Unverified',
+                            label: restaurant.verificationStatus,
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        restaurant.ownerName.isEmpty
+                            ? 'Owner not provided'
+                            : 'Owner: ${restaurant.ownerName}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.mutedForeground,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Row(

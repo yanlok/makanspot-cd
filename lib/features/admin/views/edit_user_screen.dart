@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -26,7 +27,7 @@ class _EditUserScreenState extends ConsumerState<EditUserScreen> {
   final _usernameController = TextEditingController();
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _profileTitleController = TextEditingController();
+  final _accountIdController = TextEditingController();
   final _communityScoreController = TextEditingController();
   AdminUserRole _role = AdminUserRole.user;
   bool _seeded = false;
@@ -37,16 +38,16 @@ class _EditUserScreenState extends ConsumerState<EditUserScreen> {
     _usernameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
-    _profileTitleController.dispose();
+    _accountIdController.dispose();
     _communityScoreController.dispose();
     super.dispose();
   }
 
-  void _seed(AdminUser user) {
+  void _seed(AdminUser user, String accountId) {
     _usernameController.text = user.username;
     _emailController.text = user.email;
     _phoneController.text = user.phone;
-    _profileTitleController.text = user.profileTitle;
+    _accountIdController.text = accountId;
     _communityScoreController.text = '${user.communityScore}';
     _role = user.role;
     _seeded = true;
@@ -60,7 +61,6 @@ class _EditUserScreenState extends ConsumerState<EditUserScreen> {
           rawUsername: _usernameController.text,
           rawEmail: _emailController.text,
           rawPhone: _phoneController.text,
-          profileTitle: _profileTitleController.text,
           role: _role,
           rawCommunityScore: _communityScoreController.text,
         );
@@ -71,6 +71,8 @@ class _EditUserScreenState extends ConsumerState<EditUserScreen> {
       setState(() => _errorMessage = error);
       return;
     }
+    _accountIdController.text =
+        ref.read(userDetailsControllerProvider(widget.userId)).accountId ?? '';
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Changes Saved — User information updated.'),
@@ -124,7 +126,7 @@ class _EditUserScreenState extends ConsumerState<EditUserScreen> {
     final state = ref.watch(userDetailsControllerProvider(widget.userId));
     final user = state.user;
     if (!_seeded && user != null) {
-      _seed(user);
+      _seed(user, state.accountId ?? '');
     }
     return SafeArea(
       bottom: false,
@@ -132,7 +134,10 @@ class _EditUserScreenState extends ConsumerState<EditUserScreen> {
         key: const Key('edit-user-scroll'),
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
-          AdminBackButton(label: 'Back to Details', onPressed: context.pop),
+          AdminBackButton(
+            label: 'Back to Details',
+            onPressed: () => context.go('/admin/users/${widget.userId}'),
+          ),
           const SizedBox(height: 16),
           if (state.status == UserDetailsStatus.loading)
             const _EditUserSkeleton()
@@ -149,7 +154,7 @@ class _EditUserScreenState extends ConsumerState<EditUserScreen> {
               usernameController: _usernameController,
               emailController: _emailController,
               phoneController: _phoneController,
-              profileTitleController: _profileTitleController,
+              accountIdController: _accountIdController,
               communityScoreController: _communityScoreController,
               role: _role,
               onRoleChanged: (value) => setState(() => _role = value),
@@ -206,7 +211,7 @@ class _EditFormCard extends StatelessWidget {
     required this.usernameController,
     required this.emailController,
     required this.phoneController,
-    required this.profileTitleController,
+    required this.accountIdController,
     required this.communityScoreController,
     required this.role,
     required this.onRoleChanged,
@@ -216,7 +221,7 @@ class _EditFormCard extends StatelessWidget {
   final TextEditingController usernameController;
   final TextEditingController emailController;
   final TextEditingController phoneController;
-  final TextEditingController profileTitleController;
+  final TextEditingController accountIdController;
   final TextEditingController communityScoreController;
   final AdminUserRole role;
   final ValueChanged<AdminUserRole> onRoleChanged;
@@ -267,10 +272,16 @@ class _EditFormCard extends StatelessWidget {
           ),
           const SizedBox(height: 24),
           _field(
-            label: 'Username *',
+            label: 'Name *',
             child: AdminInputField(
               controller: usernameController,
-              hint: '',
+              hint: 'Enter full name',
+              helperText: 'Cannot accept spaces. Letters and underscores only.',
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(
+                  RegExp(r'[A-Za-zÀ-ÖØ-öø-ÿ_]'),
+                ),
+              ],
               fieldKey: const Key('admin-user-username'),
             ),
           ),
@@ -279,7 +290,8 @@ class _EditFormCard extends StatelessWidget {
             label: 'Email *',
             child: AdminInputField(
               controller: emailController,
-              hint: 'user@example.com',
+              hint: 'name@gmail.com',
+              helperText: 'Enter a valid email address',
               keyboardType: TextInputType.emailAddress,
               fieldKey: const Key('admin-user-email'),
             ),
@@ -289,8 +301,12 @@ class _EditFormCard extends StatelessWidget {
             label: 'Phone Number',
             child: AdminInputField(
               controller: phoneController,
-              hint: 'e.g. +60 12-345 6789',
+              hint: '012-3456789',
+              helperText: 'Enter a valid phone number',
               keyboardType: TextInputType.phone,
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9-]')),
+              ],
               fieldKey: const Key('admin-user-phone'),
             ),
           ),
@@ -302,17 +318,20 @@ class _EditFormCard extends StatelessWidget {
               options: const [
                 ('User', AdminUserRole.user),
                 ('Admin', AdminUserRole.admin),
+                ('Manager', AdminUserRole.manager),
               ],
               onChanged: onRoleChanged,
             ),
           ),
           const SizedBox(height: 16),
           _field(
-            label: 'Profile Title',
+            label: 'Account ID',
             child: AdminInputField(
-              controller: profileTitleController,
-              hint: '',
-              fieldKey: const Key('admin-user-profile-title'),
+              controller: accountIdController,
+              hint: 'System generated',
+              helperText: 'System generated and cannot be edited.',
+              enabled: false,
+              fieldKey: const Key('admin-user-account-id'),
             ),
           ),
           const SizedBox(height: 16),

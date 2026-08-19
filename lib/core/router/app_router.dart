@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:makanspot/core/router/not_migrated_screen.dart';
 import 'package:makanspot/features/admin/views/admin_dashboard_screen.dart';
+import 'package:makanspot/features/admin/views/admin_action_log_screen.dart';
 import 'package:makanspot/features/admin/views/admin_login_screen.dart';
 import 'package:makanspot/features/admin/views/admin_shell.dart';
 import 'package:makanspot/features/admin/views/edit_user_screen.dart';
@@ -10,6 +11,7 @@ import 'package:makanspot/features/admin/views/moderation_details_screen.dart';
 import 'package:makanspot/features/admin/views/moderation_screen.dart';
 import 'package:makanspot/features/admin/views/restaurant_details_screen.dart'
     as admin;
+import 'package:makanspot/features/admin/views/restaurant_information_screen.dart';
 import 'package:makanspot/features/admin/views/restaurant_management_screen.dart';
 import 'package:makanspot/features/admin/views/user_details_screen.dart';
 import 'package:makanspot/features/admin/views/user_management_screen.dart';
@@ -47,6 +49,7 @@ abstract final class AppRoutes {
   static const adminLogin = '/admin/login';
   static const adminDashboard = '/admin';
   static const adminUsers = '/admin/users';
+  static const adminActionLog = '/admin/action-log';
   static const adminRestaurants = '/admin/restaurants';
   static const adminNewRestaurant = '/admin/restaurants/new';
   static const adminModeration = '/admin/moderation';
@@ -171,6 +174,10 @@ GoRouter createAppRouter({String? initialLocation = AppRoutes.login}) {
             builder: (context, state) => const UserManagementScreen(),
           ),
           GoRoute(
+            path: AppRoutes.adminActionLog,
+            builder: (context, state) => const AdminActionLogScreen(),
+          ),
+          GoRoute(
             path: '/admin/users/:id',
             builder: (context, state) =>
                 UserDetailsScreen(userId: state.pathParameters['id']!),
@@ -190,8 +197,14 @@ GoRouter createAppRouter({String? initialLocation = AppRoutes.login}) {
                 const admin.RestaurantDetailsScreen(restaurantId: 'new'),
           ),
           GoRoute(
-            path: '/admin/restaurants/:id',
+            path: '/admin/restaurants/:id/edit',
             builder: (context, state) => admin.RestaurantDetailsScreen(
+              restaurantId: state.pathParameters['id']!,
+            ),
+          ),
+          GoRoute(
+            path: '/admin/restaurants/:id',
+            builder: (context, state) => RestaurantInformationScreen(
               restaurantId: state.pathParameters['id']!,
             ),
           ),

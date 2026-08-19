@@ -3,16 +3,34 @@ library;
 
 enum AdminAccountStatus { active, deactivated }
 
-enum AdminUserRole { user, admin }
+enum AdminUserRole { user, admin, manager }
 
 extension AdminUserRoleX on AdminUserRole {
-  String get label => this == AdminUserRole.admin ? 'Admin' : 'User';
+  String get label => switch (this) {
+    AdminUserRole.user => 'User',
+    AdminUserRole.admin => 'Admin',
+    AdminUserRole.manager => 'Manager',
+  };
 
-  String get value => this == AdminUserRole.admin ? 'admin' : 'user';
+  String get value => switch (this) {
+    AdminUserRole.user => 'user',
+    AdminUserRole.admin => 'admin',
+    AdminUserRole.manager => 'manager',
+  };
 
   static AdminUserRole fromValue(String? value) {
-    return value == 'admin' ? AdminUserRole.admin : AdminUserRole.user;
+    return switch (value) {
+      'admin' => AdminUserRole.admin,
+      'manager' => AdminUserRole.manager,
+      _ => AdminUserRole.user,
+    };
   }
+
+  String get accountIdPrefix => switch (this) {
+    AdminUserRole.user => 'U',
+    AdminUserRole.admin => 'A',
+    AdminUserRole.manager => 'M',
+  };
 }
 
 enum ReportContentType { post, comment }
@@ -23,7 +41,6 @@ class AdminUser {
     required this.username,
     required this.email,
     required this.profilePictureUrl,
-    required this.profileTitle,
     required this.communityScore,
     required this.accountStatus,
     this.role = AdminUserRole.user,
@@ -35,7 +52,6 @@ class AdminUser {
   final String username;
   final String email;
   final String profilePictureUrl;
-  final String profileTitle;
   final int communityScore;
   final AdminAccountStatus accountStatus;
   final AdminUserRole role;
@@ -50,7 +66,6 @@ class AdminUser {
   AdminUser copyWith({
     String? username,
     String? email,
-    String? profileTitle,
     int? communityScore,
     AdminAccountStatus? accountStatus,
     AdminUserRole? role,
@@ -61,7 +76,6 @@ class AdminUser {
       username: username ?? this.username,
       email: email ?? this.email,
       profilePictureUrl: profilePictureUrl,
-      profileTitle: profileTitle ?? this.profileTitle,
       communityScore: communityScore ?? this.communityScore,
       accountStatus: accountStatus ?? this.accountStatus,
       role: role ?? this.role,
@@ -69,6 +83,50 @@ class AdminUser {
       joinedAt: joinedAt,
     );
   }
+}
+
+/// Creates a stable display ID from a user's role and alphabetical position.
+String adminUserAccountId(AdminUser user, Iterable<AdminUser> allUsers) {
+  final usersWithSameRole =
+      allUsers.where((candidate) => candidate.role == user.role).toList()
+        ..sort((left, right) {
+          final nameComparison = left.username.toLowerCase().compareTo(
+            right.username.toLowerCase(),
+          );
+          return nameComparison != 0
+              ? nameComparison
+              : left.id.compareTo(right.id);
+        });
+  final index = usersWithSameRole.indexWhere(
+    (candidate) => candidate.id == user.id,
+  );
+  final position = index >= 0 ? index + 1 : usersWithSameRole.length + 1;
+  return '${user.role.accountIdPrefix}${position.toString().padLeft(3, '0')}';
+}
+
+class AdminAuditLog {
+  const AdminAuditLog({
+    required this.id,
+    required this.adminUsername,
+    required this.action,
+    required this.targetUsername,
+    required this.fieldChanges,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String adminUsername;
+  final String action;
+  final String targetUsername;
+  final Map<String, AdminAuditFieldChange> fieldChanges;
+  final DateTime createdAt;
+}
+
+class AdminAuditFieldChange {
+  const AdminAuditFieldChange({required this.from, required this.to});
+
+  final String from;
+  final String to;
 }
 
 class AdminRestaurant {
@@ -80,6 +138,7 @@ class AdminRestaurant {
     required this.imageUrl,
     required this.operatingHours,
     required this.contact,
+    required this.ownerName,
     required this.budget,
     required this.description,
     required this.sourcePlatform,
@@ -96,6 +155,7 @@ class AdminRestaurant {
   final String imageUrl;
   final String operatingHours;
   final String contact;
+  final String ownerName;
   final String budget;
   final String description;
   final String sourcePlatform;
@@ -104,10 +164,21 @@ class AdminRestaurant {
   final double? latitude;
   final double? longitude;
 
+  String get verificationStatus => isVerified ? 'Verified' : 'Pending';
+
   String get ratingDisplay {
     final value = rating;
     if (value == null) return '—';
     return value.toStringAsFixed(1);
+  }
+
+  String get displayId {
+    final numericId =
+        int.tryParse(id) ??
+        int.tryParse(RegExp(r'\d+$').firstMatch(id)?.group(0) ?? '');
+    return numericId == null
+        ? 'R$id'
+        : 'R${numericId.toString().padLeft(5, '0')}';
   }
 }
 
@@ -118,6 +189,7 @@ class AdminRestaurantDraft {
     required this.address,
     required this.operatingHours,
     required this.contact,
+    required this.ownerName,
     required this.budget,
     required this.description,
     required this.imageUrl,
@@ -133,6 +205,7 @@ class AdminRestaurantDraft {
   final String address;
   final String operatingHours;
   final String contact;
+  final String ownerName;
   final String budget;
   final String description;
   final String imageUrl;

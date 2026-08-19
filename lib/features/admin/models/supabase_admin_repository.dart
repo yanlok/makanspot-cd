@@ -192,7 +192,6 @@ class SupabaseAdminRepository implements AdminRepository {
     required String email,
     required String phone,
     required AdminUserRole role,
-    required String profileTitle,
     required int communityScore,
   }) async {
     final updated = await _client
@@ -239,6 +238,16 @@ class SupabaseAdminRepository implements AdminRepository {
   }
 
   @override
+  Future<bool> usernameExists(String username, String excludeUserId) async {
+    final rows = await _client
+        .from('users')
+        .select('id')
+        .ilike('username', username)
+        .neq('id', excludeUserId);
+    return rows.isNotEmpty;
+  }
+
+  @override
   Future<bool> emailExists(String email, String excludeUserId) async {
     final rows = await _client
         .from('users')
@@ -277,52 +286,52 @@ class SupabaseAdminRepository implements AdminRepository {
     });
   }
 
+  @override
+  Future<List<AdminAuditLog>> loadAdminActionLogs() async {
+    final rows = await _client
+        .from('admin_audit_log')
+        .select()
+        .order('created_at', ascending: false);
+    return rows.map(_auditLogFromRow).toList(growable: false);
+  }
+
   // ── Restaurants ──────────────────────────────────────────────────
 
   @override
   Future<List<AdminRestaurant>> loadRestaurants() async {
-    final rows = await _client
-        .from('restaurants')
-        .select('''
-              id,
-              name,
-              description,
-              address,
-              latitude,
-              longitude,
-              price_range,
-              rating,
-              operating_hours,
-              phone_number,
-              social_media_source,
-              is_verified,
-              restaurant_images!inner(image_url, is_primary)
-            ''')
-        .order('name');
-    return rows.map(_restaurantFromRow).toList(growable: false);
+    try {
+      final rows = await _client
+          .from('restaurants')
+          .select(_restaurantSelect(includeOwnerName: true))
+          .order('name');
+      return rows.map(_restaurantFromRow).toList(growable: false);
+    } on PostgrestException catch (error) {
+      if (!_isMissingOwnerName(error)) rethrow;
+      final rows = await _client
+          .from('restaurants')
+          .select(_restaurantSelect(includeOwnerName: false))
+          .order('name');
+      return rows.map(_restaurantFromRow).toList(growable: false);
+    }
   }
 
   @override
   Future<AdminRestaurant?> loadRestaurant(String id) async {
-    final row = await _client
-        .from('restaurants')
-        .select('''
-              id,
-              name,
-              description,
-              address,
-              latitude,
-              longitude,
-              price_range,
-              rating,
-              operating_hours,
-              phone_number,
-              social_media_source,
-              is_verified,
-              restaurant_images!inner(image_url, is_primary)
-            ''')
-        .eq('id', id)
-        .maybeSingle();
+    Map<String, dynamic>? row;
+    try {
+      row = await _client
+          .from('restaurants')
+          .select(_restaurantSelect(includeOwnerName: true))
+          .eq('id', id)
+          .maybeSingle();
+    } on PostgrestException catch (error) {
+      if (!_isMissingOwnerName(error)) rethrow;
+      row = await _client
+          .from('restaurants')
+          .select(_restaurantSelect(includeOwnerName: false))
+          .eq('id', id)
+          .maybeSingle();
+    }
     if (row == null) return null;
     return _restaurantFromRow(row);
   }
@@ -463,9 +472,6 @@ class SupabaseAdminRepository implements AdminRepository {
       email: _stringOrEmpty(row['email']),
       profilePictureUrl:
           row['avatar_url'] as String? ?? 'assets/images/default_icon.jpg',
-      profileTitle: _profileTitleFromScore(
-        (row['community_score'] as num?)?.toInt() ?? 0,
-      ),
       communityScore: (row['community_score'] as num?)?.toInt() ?? 0,
       accountStatus: isActive
           ? AdminAccountStatus.active
@@ -473,6 +479,26 @@ class SupabaseAdminRepository implements AdminRepository {
       role: AdminUserRoleX.fromValue(row['role'] as String?),
       phone: row['phone_number'] as String? ?? '',
       joinedAt: createdAt == null ? null : DateTime.tryParse(createdAt),
+    );
+  }
+
+  AdminAuditLog _auditLogFromRow(Map<String, dynamic> row) {
+    final rawChanges =
+        row['field_changes'] as Map<String, dynamic>? ?? const {};
+    return AdminAuditLog(
+      id: '${row['id']}',
+      adminUsername: _stringOrEmpty(row['admin_username']),
+      action: _stringOrEmpty(row['action']),
+      targetUsername: _stringOrEmpty(row['target_username']),
+      fieldChanges: {
+        for (final entry in rawChanges.entries)
+          if (entry.value is Map)
+            entry.key: AdminAuditFieldChange(
+              from: _stringOrEmpty((entry.value as Map)['from']),
+              to: _stringOrEmpty((entry.value as Map)['to']),
+            ),
+      },
+      createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
     );
   }
 
@@ -498,19 +524,34 @@ class SupabaseAdminRepository implements AdminRepository {
     return AdminRestaurant(
       id: '${row['id']}',
       name: _stringOrEmpty(row['name']),
-      cuisine: row['social_media_source'] as String? ?? '',
+      cuisine: _cuisineFromRow(row),
       address: _stringOrEmpty(row['address']),
       imageUrl: imageUrl,
       operatingHours: operatingHours,
       contact: row['phone_number'] as String? ?? '',
+      ownerName: row['owner_name'] as String? ?? '',
       budget: row['price_range'] as String? ?? '',
       description: row['description'] as String? ?? '',
       sourcePlatform: row['social_media_source'] as String? ?? 'Manual',
-      isVerified: row['is_verified'] as bool? ?? false,
+      isVerified: row['is_approved'] as bool? ?? false,
       rating: (row['rating'] as num?)?.toDouble(),
       latitude: (row['latitude'] as num?)?.toDouble(),
       longitude: (row['longitude'] as num?)?.toDouble(),
     );
+  }
+
+  String _cuisineFromRow(Map<String, dynamic> row) {
+    final relationships = row['restaurant_categories'];
+    if (relationships is! List) return '';
+    return relationships
+        .map((relationship) {
+          final category = relationship is Map
+              ? relationship['categories']
+              : null;
+          return category is Map ? category['name']?.toString() ?? '' : '';
+        })
+        .where((name) => name.isNotEmpty)
+        .join(', ');
   }
 
   Future<ReportedContent?> _loadPostContent(String postId) async {
@@ -580,11 +621,25 @@ class SupabaseAdminRepository implements AdminRepository {
 
   String _stringOrEmpty(dynamic value) => value?.toString() ?? '';
 
-  String _profileTitleFromScore(int score) {
-    if (score >= 200) return 'Food Legend';
-    if (score >= 150) return 'Makan Master';
-    if (score >= 100) return 'Flavour Explorer';
-    if (score >= 50) return 'Taste Tester';
-    return 'New Foodie';
-  }
+  bool _isMissingOwnerName(PostgrestException error) =>
+      error.code == '42703' && error.message.contains('owner_name');
+
+  String _restaurantSelect({required bool includeOwnerName}) =>
+      '''
+    id,
+    name,
+    description,
+    address,
+    latitude,
+    longitude,
+    price_range,
+    rating,
+    operating_hours,
+    phone_number,
+    ${includeOwnerName ? 'owner_name,' : ''}
+    social_media_source,
+    is_approved,
+    restaurant_images(image_url, is_primary),
+    restaurant_categories(categories(name))
+  ''';
 }

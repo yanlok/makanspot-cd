@@ -27,7 +27,10 @@ class UserDetailsScreen extends ConsumerWidget {
         key: const Key('user-details-scroll'),
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
-          AdminBackButton(label: 'Back to Users', onPressed: context.pop),
+          AdminBackButton(
+            label: 'Back to Users',
+            onPressed: () => context.go('/admin/users'),
+          ),
           const SizedBox(height: 16),
           if (state.status == UserDetailsStatus.loading)
             const _UserDetailsSkeleton()
@@ -39,7 +42,7 @@ class UserDetailsScreen extends ConsumerWidget {
           else if (state.status == UserDetailsStatus.error)
             Text(state.errorMessage!, textAlign: TextAlign.center)
           else ...[
-            _UserProfileCard(user: user!),
+            _UserProfileCard(user: user!, accountId: state.accountId ?? ''),
             const SizedBox(height: 24),
             AdminPrimaryButton(
               label: 'Edit Account',
@@ -55,9 +58,10 @@ class UserDetailsScreen extends ConsumerWidget {
 }
 
 class _UserProfileCard extends StatelessWidget {
-  const _UserProfileCard({required this.user});
+  const _UserProfileCard({required this.user, required this.accountId});
 
   final AdminUser user;
+  final String accountId;
 
   @override
   Widget build(BuildContext context) {
@@ -114,7 +118,7 @@ class _UserProfileCard extends StatelessWidget {
             'Phone',
             user.phone.isEmpty ? 'Not provided' : user.phone,
           ),
-          _infoRow(context, 'Profile Title', user.profileTitle),
+          _infoRow(context, 'Account ID', accountId),
           _infoRow(context, 'Community Score', '${user.communityScore}'),
           if (joined != null) _infoRow(context, 'Joined', _formatDate(joined)),
         ],

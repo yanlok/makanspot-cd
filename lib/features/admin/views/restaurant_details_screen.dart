@@ -43,6 +43,7 @@ class _RestaurantDetailsScreenState
   final _addressController = TextEditingController();
   final _hoursController = TextEditingController();
   final _contactController = TextEditingController();
+  final _ownerNameController = TextEditingController();
   final _ratingController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _sourceController = TextEditingController();
@@ -75,6 +76,7 @@ class _RestaurantDetailsScreenState
     _addressController.dispose();
     _hoursController.dispose();
     _contactController.dispose();
+    _ownerNameController.dispose();
     _ratingController.dispose();
     _descriptionController.dispose();
     _sourceController.dispose();
@@ -91,6 +93,7 @@ class _RestaurantDetailsScreenState
     _addressController.text = restaurant.address;
     _hoursController.text = restaurant.operatingHours;
     _contactController.text = restaurant.contact;
+    _ownerNameController.text = restaurant.ownerName;
     _ratingController.text = restaurant.rating?.toString() ?? '';
     _budget = _budgets.contains(restaurant.budget)
         ? restaurant.budget
@@ -111,6 +114,7 @@ class _RestaurantDetailsScreenState
       address: _addressController.text,
       operatingHours: _hoursController.text,
       contact: _contactController.text,
+      ownerName: _ownerNameController.text,
       budget: _budget,
       description: _descriptionController.text,
       imageUrl: _imageUrl,
@@ -222,7 +226,16 @@ class _RestaurantDetailsScreenState
         key: const Key('restaurant-details-scroll'),
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
-          AdminBackButton(label: 'Back to Restaurants', onPressed: context.pop),
+          AdminBackButton(
+            label: widget.restaurantId == 'new'
+                ? 'Back to Restaurants'
+                : 'Back to Restaurant Information',
+            onPressed: () => context.go(
+              widget.restaurantId == 'new'
+                  ? '/admin/restaurants'
+                  : '/admin/restaurants/${widget.restaurantId}',
+            ),
+          ),
           const SizedBox(height: 16),
           if (state.status == RestaurantDetailsStatus.loading)
             const _RestaurantDetailsSkeleton()
@@ -241,11 +254,16 @@ class _RestaurantDetailsScreenState
               imageUrl: _imageUrl,
             ),
             const SizedBox(height: 24),
+            if (!isCreate) ...[
+              _RestaurantInformationCard(restaurant: restaurant),
+              const SizedBox(height: 24),
+            ],
             _FormCard(
               nameController: _nameController,
               addressController: _addressController,
               hoursController: _hoursController,
               contactController: _contactController,
+              ownerNameController: _ownerNameController,
               ratingController: _ratingController,
               descriptionController: _descriptionController,
               sourceController: _sourceController,
@@ -283,6 +301,98 @@ class _RestaurantDetailsScreenState
               ),
             ],
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _RestaurantInformationCard extends StatelessWidget {
+  const _RestaurantInformationCard({required this.restaurant});
+
+  final AdminRestaurant restaurant;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.secondary),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Restaurant Information',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 16),
+          _infoRow(context, 'Restaurant Name', restaurant.name),
+          _infoRow(
+            context,
+            'Location',
+            restaurant.address.isEmpty ? 'Not provided' : restaurant.address,
+          ),
+          _infoRow(
+            context,
+            'Operating Hours',
+            restaurant.operatingHours.isEmpty
+                ? 'Not provided'
+                : restaurant.operatingHours,
+          ),
+          _infoRow(
+            context,
+            'Owner Name',
+            restaurant.ownerName.isEmpty
+                ? 'Not provided'
+                : restaurant.ownerName,
+          ),
+          _infoRow(
+            context,
+            'Owner Phone',
+            restaurant.contact.isEmpty ? 'Not provided' : restaurant.contact,
+          ),
+          _infoRow(
+            context,
+            'Status',
+            restaurant.isVerified ? 'Verified' : 'Unverified',
+            isLast: true,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(
+    BuildContext context,
+    String label,
+    String value, {
+    bool isLast = false,
+  }) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 112,
+            child: Text(
+              label,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: AppColors.mutedForeground),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: AppColors.foreground),
+            ),
+          ),
         ],
       ),
     );
@@ -360,6 +470,7 @@ class _FormCard extends StatelessWidget {
     required this.addressController,
     required this.hoursController,
     required this.contactController,
+    required this.ownerNameController,
     required this.ratingController,
     required this.descriptionController,
     required this.sourceController,
@@ -380,6 +491,7 @@ class _FormCard extends StatelessWidget {
   final TextEditingController addressController;
   final TextEditingController hoursController;
   final TextEditingController contactController;
+  final TextEditingController ownerNameController;
   final TextEditingController ratingController;
   final TextEditingController descriptionController;
   final TextEditingController sourceController;
@@ -448,10 +560,18 @@ class _FormCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _field(
-            label: 'Contact',
+            label: 'Owner Name',
+            child: AdminInputField(
+              controller: ownerNameController,
+              hint: 'Owner name',
+            ),
+          ),
+          const SizedBox(height: 16),
+          _field(
+            label: 'Owner Phone Number',
             child: AdminInputField(
               controller: contactController,
-              hint: 'Phone number',
+              hint: 'Owner phone number',
             ),
           ),
           const SizedBox(height: 16),
@@ -476,7 +596,8 @@ class _FormCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _field(
-            label: 'Verified',
+            label:
+                'Verification Status: ${isVerified ? 'Verified' : 'Pending'}',
             child: AdminOutlineButton(
               label: isVerified ? 'Verified' : 'Unverified',
               borderColor: isVerified ? AppColors.success : AppColors.secondary,
