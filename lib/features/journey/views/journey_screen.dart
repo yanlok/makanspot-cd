@@ -156,23 +156,86 @@ class _JourneyHero extends StatelessWidget {
   }
 }
 
-class _JourneyContent extends StatelessWidget {
+enum JourneyPeriod { allTime, last30Days, last12Months, yearToDate }
+
+class _JourneyContent extends StatefulWidget {
   const _JourneyContent({required this.data});
 
   final JourneyData data;
 
   @override
+  State<_JourneyContent> createState() => _JourneyContentState();
+}
+
+class _JourneyContentState extends State<_JourneyContent> {
+  JourneyPeriod _period = JourneyPeriod.allTime;
+
+  List<JourneyVisit> _filteredVisits(JourneyData data) {
+    final now = DateTime.now();
+    DateTime? from;
+    switch (_period) {
+      case JourneyPeriod.allTime:
+        from = null;
+        break;
+      case JourneyPeriod.last30Days:
+        from = now.subtract(const Duration(days: 30));
+        break;
+      case JourneyPeriod.last12Months:
+        from = DateTime(now.year - 1, now.month, now.day);
+        break;
+      case JourneyPeriod.yearToDate:
+        from = DateTime(now.year, 1, 1);
+        break;
+    }
+    if (from == null) return data.visits;
+    return data.visits.where((v) => v.visitDate.isAfter(from!)).toList(growable: false);
+  }
+
+  String _formatDate(DateTime d) => '${d.day}/${d.month}/${d.year}';
+
+  @override
   Widget build(BuildContext context) {
-    final earned = data.achievementProgress
-        .where((item) => item.earned)
-        .take(3)
-        .toList(growable: false);
+    final data = widget.data;
+    final earned = data.achievementProgress.where((item) => item.earned).take(3).toList(growable: false);
+    final visits = _filteredVisits(data);
+    final uniqueRestaurants = visits.map((v) => v.restaurantId).toSet().length;
+    final reviews = visits.where((v) => v.postId != null).length;
+    final cuisines = visits.map((v) => v.cuisine).where((s) => s.isNotEmpty).toSet().length;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Exploration Overview',
-          style: Theme.of(context).textTheme.titleLarge,
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Exploration Overview', style: Theme.of(context).textTheme.titleLarge),
+            PopupMenuButton<JourneyPeriod>(
+              initialValue: _period,
+              onSelected: (p) => setState(() => _period = p),
+              itemBuilder: (ctx) => [
+                const PopupMenuItem(value: JourneyPeriod.allTime, child: Text('All time')),
+                const PopupMenuItem(value: JourneyPeriod.last30Days, child: Text('Last 30 days')),
+                const PopupMenuItem(value: JourneyPeriod.last12Months, child: Text('Last 12 months')),
+                const PopupMenuItem(value: JourneyPeriod.yearToDate, child: Text('Year to date')),
+              ],
+              child: Row(
+                children: [
+                  Text(
+                    _period == JourneyPeriod.allTime
+                        ? 'All time'
+                        : _period == JourneyPeriod.last30Days
+                            ? '30 days'
+                            : _period == JourneyPeriod.last12Months
+                                ? '12 months'
+                                : 'YTD',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(width: 6),
+                  const Icon(LucideIcons.chevronDown, size: 16),
+                ],
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 12),
         GridView.count(
@@ -185,17 +248,17 @@ class _JourneyContent extends StatelessWidget {
           children: [
             JourneyStatCard(
               icon: LucideIcons.utensils,
-              value: data.visits.length,
+              value: uniqueRestaurants,
               label: 'Restaurants Visited',
             ),
             JourneyStatCard(
               icon: LucideIcons.penLine,
-              value: data.reviewCount,
+              value: reviews,
               label: 'Reviews Submitted',
             ),
             JourneyStatCard(
               icon: LucideIcons.compass,
-              value: data.cuisineCount,
+              value: cuisines,
               label: 'Cuisines Explored',
             ),
             JourneyStatCard(
@@ -210,16 +273,8 @@ class _JourneyContent extends StatelessWidget {
         const SizedBox(height: 24),
         Row(
           children: [
-            Expanded(
-              child: Text(
-                'Recent Achievements',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            ),
-            TextButton(
-              onPressed: () => context.push('/achievements'),
-              child: const Text('View All'),
-            ),
+            Expanded(child: Text('Recent Achievements', style: Theme.of(context).textTheme.titleMedium)),
+            TextButton(onPressed: () => context.push('/achievements'), child: const Text('View All')),
           ],
         ),
         const SizedBox(height: 8),
@@ -228,23 +283,48 @@ class _JourneyContent extends StatelessWidget {
           const SizedBox(height: 10),
         ],
         const SizedBox(height: 14),
-        JourneyMenuTile(
-          icon: LucideIcons.calendar,
-          label: 'Visit History',
-          onTap: () => context.push('/visit-history'),
-        ),
+        Text('Recent Activities', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        JourneyMenuTile(
-          icon: LucideIcons.mapPin,
-          label: 'Exploration Map',
-          onTap: () => context.push('/exploration-map'),
-        ),
+        for (final visit in visits.take(6)) ...[
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(AppRadii.card),
+              border: Border.all(color: AppColors.secondary),
+            ),
+            child: Row(
+              children: [
+                if (visit.restaurantImage.isNotEmpty)
+                  Image.network(visit.restaurantImage, width: 56, height: 56, fit: BoxFit.cover)
+                else
+                  Container(width: 56, height: 56, color: AppColors.secondary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(visit.restaurantName, style: Theme.of(context).textTheme.titleSmall),
+                      const SizedBox(height: 4),
+                      Text('${visit.cuisine} • ${_formatDate(visit.visitDate)}', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.mutedForeground)),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: visit.postId != null ? () => context.push('/posts/${visit.postId}') : null,
+                  icon: const Icon(LucideIcons.chevronRight),
+                ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: 14),
+        JourneyMenuTile(icon: LucideIcons.calendar, label: 'Visit History', onTap: () => context.push('/visit-history')),
         const SizedBox(height: 8),
-        JourneyMenuTile(
-          icon: LucideIcons.award,
-          label: 'View All Progress',
-          onTap: () => context.push('/achievements'),
-        ),
+        JourneyMenuTile(icon: LucideIcons.mapPin, label: 'Exploration Map', onTap: () => context.push('/exploration-map')),
+        const SizedBox(height: 8),
+        JourneyMenuTile(icon: LucideIcons.award, label: 'View All Progress', onTap: () => context.push('/achievements')),
       ],
     );
   }

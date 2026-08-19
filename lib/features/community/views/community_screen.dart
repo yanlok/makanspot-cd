@@ -36,6 +36,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
           _CommunityHeader(
             searchController: _searchController,
             onSearch: controller.updateSearch,
+            onMyPosts: () => context.push('/my-posts'),
             onReview: () => context.push('/review/create'),
           ),
           Expanded(child: _buildBody(context, state, controller)),
@@ -108,11 +109,13 @@ class _CommunityHeader extends StatelessWidget {
   const _CommunityHeader({
     required this.searchController,
     required this.onSearch,
+    required this.onMyPosts,
     required this.onReview,
   });
 
   final TextEditingController searchController;
   final ValueChanged<String> onSearch;
+  final VoidCallback onMyPosts;
   final VoidCallback onReview;
 
   @override
@@ -132,9 +135,15 @@ class _CommunityHeader extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Community',
-                        style: Theme.of(context).textTheme.headlineSmall,
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Community',
+                          maxLines: 1,
+                          softWrap: false,
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
                       ),
                       Text(
                         'Community reviews & food stories',
@@ -145,6 +154,12 @@ class _CommunityHeader extends StatelessWidget {
                     ],
                   ),
                 ),
+                TextButton(
+                  key: const Key('community-my-posts'),
+                  onPressed: onMyPosts,
+                  child: const Text('My Posts'),
+                ),
+                const SizedBox(width: 8),
                 FilledButton.icon(
                   key: const Key('community-write-review'),
                   onPressed: onReview,

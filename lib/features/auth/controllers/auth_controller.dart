@@ -1,103 +1,157 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:makanspot/core/config/supabase_config.dart';
+
 import '../models/auth_repository.dart';
 import '../models/fixture_auth_repository.dart';
 import '../models/supabase_auth_repository.dart';
-import 'package:makanspot/core/config/supabase_config.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' hide AuthState;
 import 'auth_state.dart';
+import 'auth_validators.dart';
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
   if (SupabaseConfig.isConfigured) {
-    return SupabaseAuthRepository(Supabase.instance.client);
+    return SupabaseAuthRepository();
   }
-  return const FixtureAuthRepository();
+  return FixtureAuthRepository();
 });
 
-final authControllerProvider =
-    StateNotifierProvider.autoDispose<AuthController, AuthState>((ref) {
-      return AuthController(ref.watch(authRepositoryProvider));
-    });
+/// Kept alive so the session survives route changes and can gate the router.
+final authControllerProvider = StateNotifierProvider<AuthController, AuthState>(
+  (ref) => AuthController(ref.watch(authRepositoryProvider)),
+);
 
 class AuthController extends StateNotifier<AuthState> {
-  AuthController(this._repository) : super(const AuthState());
+  AuthController(this._repository)
+    : super(const AuthState(status: AuthStatus.restoring));
 
   final AuthRepository _repository;
 
-  Future<bool> login(String rawEmail, String password) async {
+  /// Restores the saved session on startup; called once from the app root.
+  Future<void> restoreSession() async {
+    try {
+      final session = await _repository.restoreSession();
+      state = session == null
+          ? const AuthState(status: AuthStatus.unauthenticated)
+          : AuthState(status: AuthStatus.authenticated, session: session);
+    } on Object {
+      // A failed restore is treated as signed out so the app never gets
+      // stuck mid-startup.
+      state = const AuthState(status: AuthStatus.unauthenticated);
+    }
+  }
+
+  Future<bool> login(String rawEmail, String rawPassword) async {
     final email = rawEmail.trim();
-    if (email.isEmpty || password.isEmpty) {
-      _showError('Enter your email and password.');
+    final emailError = validateEmail(email);
+    final passwordError = validatePassword(rawPassword);
+    state = state.copyWith(
+      emailError: emailError,
+      passwordError: passwordError,
+      errorMessage: null,
+      registrationSucceeded: false,
+    );
+    if (emailError != null || passwordError != null) {
       return false;
     }
-    return _run(() => _repository.login(email: email, password: password));
+    state = state.copyWith(isSubmitting: true, errorMessage: null);
+    try {
+      final session = await _repository.login(
+        email: email,
+        password: rawPassword,
+      );
+      state = AuthState(status: AuthStatus.authenticated, session: session);
+      return true;
+    } on AuthFailure catch (failure) {
+      _showError(failure.message);
+    } on Object {
+      _showError('Something went wrong. Please try again.');
+    }
+    return false;
   }
 
   Future<bool> register({
     required String rawEmail,
-    required String password,
+    required String rawPassword,
     required String confirmPassword,
   }) async {
     final email = rawEmail.trim();
-    if (email.isEmpty || password.isEmpty || confirmPassword.isEmpty) {
-      _showError('Complete all fields.');
-      return false;
+    final emailError = validateEmail(email);
+    final passwordError = validatePassword(rawPassword);
+    final String? confirmPasswordError;
+    if (confirmPassword.isEmpty) {
+      confirmPasswordError = 'Confirm your password.';
+    } else if (rawPassword != confirmPassword) {
+      confirmPasswordError = 'Passwords do not match.';
+    } else {
+      confirmPasswordError = null;
     }
-    if (password != confirmPassword) {
-      _showError('Passwords do not match');
-      return false;
-    }
-    final succeeded = await _run(
-      () => _repository.register(email: email, password: password),
+    state = state.copyWith(
+      emailError: emailError,
+      passwordError: passwordError,
+      confirmPasswordError: confirmPasswordError,
+      errorMessage: null,
+      registrationSucceeded: false,
     );
-    if (succeeded) {
-      state = state.copyWith(
-        status: AuthStatus.idle,
-        registrationEmail: email,
-        awaitingOtp: true,
-      );
-    }
-    return succeeded;
-  }
-
-  Future<bool> verifyOtp(String code) async {
-    final email = state.registrationEmail;
-    if (email == null || code.length != 6) {
-      _showError('Enter the 6-digit verification code.');
+    if (emailError != null ||
+        passwordError != null ||
+        confirmPasswordError != null) {
       return false;
     }
-    return _run(() => _repository.verifyOtp(email: email, code: code));
+    state = state.copyWith(isSubmitting: true, errorMessage: null);
+    try {
+      final session = await _repository.register(
+        email: email,
+        password: rawPassword,
+      );
+      if (session == null) {
+        // The account was created but cannot be used yet (for example email
+        // confirmation is pending); the user signs in on the Login screen.
+        state = state.copyWith(
+          isSubmitting: false,
+          registrationSucceeded: true,
+        );
+      } else {
+        state = AuthState(status: AuthStatus.authenticated, session: session);
+      }
+      return true;
+    } on AuthFailure catch (failure) {
+      _showError(failure.message);
+    } on Object {
+      _showError('Something went wrong. Please try again.');
+    }
+    return false;
   }
 
-  Future<void> resendOtp() async {
-    final email = state.registrationEmail;
-    if (email == null) {
-      return;
-    }
+  /// Signs out and clears the saved session. The router redirect sends the
+  /// user to the Login screen.
+  Future<void> logout() async {
     try {
-      await _repository.resendOtp(email);
-      state = state.copyWith(
-        status: AuthStatus.idle,
-        resendConfirmation: 'Check your email for the new code.',
-      );
+      await _repository.logout();
     } on Object {
-      _showError('Failed to resend code');
+      // The local session is cleared anyway; a failed remote sign-out is
+      // replaced by the next sign-in.
     }
+    state = const AuthState(status: AuthStatus.unauthenticated);
   }
 
   Future<void> requestPasswordReset(String rawEmail) async {
     final email = rawEmail.trim();
-    if (email.isEmpty) {
-      _showError('Enter your email address.');
+    final emailError = validateEmail(email);
+    state = state.copyWith(emailError: emailError, errorMessage: null);
+    if (emailError != null) {
       return;
     }
-    state = state.copyWith(status: AuthStatus.loading);
+    state = state.copyWith(isSubmitting: true, errorMessage: null);
     try {
       await _repository.requestPasswordReset(email);
+    } on AuthFailure catch (failure) {
+      _showError(failure.message);
+      return;
     } on Object {
-      // Account discovery is intentionally prevented by showing one result.
+      _showError('Something went wrong. Please try again.');
+      return;
     }
-    state = state.copyWith(status: AuthStatus.success, passwordResetSent: true);
+    state = state.copyWith(isSubmitting: false, passwordResetSent: true);
   }
 
   Future<bool> resetPassword({
@@ -105,24 +159,31 @@ class AuthController extends StateNotifier<AuthState> {
     required String password,
     required String confirmPassword,
   }) async {
-    if (password.isEmpty || confirmPassword.isEmpty) {
-      _showError('Complete all fields.');
-      return false;
+    final passwordError = validatePassword(password);
+    final String? confirmPasswordError;
+    if (confirmPassword.isEmpty) {
+      confirmPasswordError = 'Confirm your new password.';
+    } else if (password != confirmPassword) {
+      confirmPasswordError = 'Passwords do not match.';
+    } else {
+      confirmPasswordError = null;
     }
-    if (password != confirmPassword) {
-      _showError('Passwords do not match');
-      return false;
-    }
-    return _run(
-      () => _repository.resetPassword(token: token, newPassword: password),
+    state = state.copyWith(
+      passwordError: passwordError,
+      confirmPasswordError: confirmPasswordError,
+      errorMessage: null,
     );
-  }
-
-  Future<bool> _run(Future<void> Function() action) async {
-    state = state.copyWith(status: AuthStatus.loading);
+    if (passwordError != null || confirmPasswordError != null) {
+      return false;
+    }
+    state = state.copyWith(isSubmitting: true, errorMessage: null);
     try {
-      await action();
-      state = state.copyWith(status: AuthStatus.success);
+      await _repository.resetPassword(token: token, newPassword: password);
+      state = state.copyWith(
+        isSubmitting: false,
+        passwordError: null,
+        confirmPasswordError: null,
+      );
       return true;
     } on AuthFailure catch (failure) {
       _showError(failure.message);
@@ -133,6 +194,6 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   void _showError(String message) {
-    state = state.copyWith(status: AuthStatus.error, errorMessage: message);
+    state = state.copyWith(isSubmitting: false, errorMessage: message);
   }
 }
