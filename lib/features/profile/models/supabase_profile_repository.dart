@@ -161,18 +161,9 @@ class SupabaseProfileRepository implements ProfileRepository {
       }
     }
 
-    int reviewCount = postRows.length;
-    try {
-      reviewCount =
-          (await _client.from('posts').select('id').eq('user_id', userId).count())
-              .count;
-    } on Object {
-      // Keep the derived count above if the aggregate query is unsupported.
-    }
-
     return ProfileStats(
       visits: postRows.length,
-      reviews: reviewCount,
+      reviews: postRows.length,
       cuisines: cuisineNames.length,
       earnedBadges: await _loadEarnedBadges(userId),
     );
