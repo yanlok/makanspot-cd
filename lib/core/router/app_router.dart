@@ -1,17 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:makanspot/core/router/not_migrated_screen.dart';
 import 'package:makanspot/features/admin/views/admin_dashboard_screen.dart';
-import 'package:makanspot/features/admin/views/admin_login_screen.dart';
+import 'package:makanspot/features/admin/views/admin_action_log_screen.dart';
 import 'package:makanspot/features/admin/views/admin_shell.dart';
+import 'package:makanspot/features/admin/views/edit_user_screen.dart';
 import 'package:makanspot/features/admin/views/moderation_details_screen.dart';
 import 'package:makanspot/features/admin/views/moderation_screen.dart';
 import 'package:makanspot/features/admin/views/restaurant_details_screen.dart'
     as admin;
+import 'package:makanspot/features/admin/views/restaurant_information_screen.dart';
 import 'package:makanspot/features/admin/views/restaurant_management_screen.dart';
 import 'package:makanspot/features/admin/views/user_details_screen.dart';
 import 'package:makanspot/features/admin/views/user_management_screen.dart';
+import 'package:makanspot/features/auth/controllers/auth_controller.dart';
+import 'package:makanspot/features/auth/controllers/auth_state.dart';
+import 'package:makanspot/features/auth/views/change_password_screen.dart';
 import 'package:makanspot/features/auth/views/forgot_password_screen.dart';
 import 'package:makanspot/features/auth/views/login_screen.dart';
 import 'package:makanspot/features/auth/views/register_screen.dart';
@@ -43,17 +49,54 @@ abstract final class AppRoutes {
   static const register = '/register';
   static const forgotPassword = '/forgot-password';
   static const resetPassword = '/reset-password';
-  static const adminLogin = '/admin/login';
+  static const changePassword = '/profile/change-password';
   static const adminDashboard = '/admin';
   static const adminUsers = '/admin/users';
+  static const adminActionLog = '/admin/action-log';
   static const adminRestaurants = '/admin/restaurants';
   static const adminNewRestaurant = '/admin/restaurants/new';
   static const adminModeration = '/admin/moderation';
 }
 
-GoRouter createAppRouter({String? initialLocation = AppRoutes.login}) {
+/// Routes that can be visited without signing in.
+const _publicRoutes = {
+  AppRoutes.login,
+  AppRoutes.register,
+  AppRoutes.forgotPassword,
+  AppRoutes.resetPassword,
+};
+
+GoRouter createAppRouter({
+  required WidgetRef ref,
+  String initialLocation = AppRoutes.login,
+}) {
   return GoRouter(
     initialLocation: initialLocation,
+    // Re-evaluated by the app whenever the auth state changes
+    // (see MakanSpotApp), so login, logout, and session restore drive the
+    // navigation.
+    redirect: (context, state) {
+      final authState = ref.read(authControllerProvider);
+      final location = state.matchedLocation;
+      if (authState.status == AuthStatus.restoring) {
+        // Hold on the login screen until the saved session is restored.
+        return location == AppRoutes.login ? null : AppRoutes.login;
+      }
+      final session = authState.session;
+      if (session == null) {
+        if (_publicRoutes.contains(location)) {
+          return null;
+        }
+        return AppRoutes.login;
+      }
+      if (_publicRoutes.contains(location)) {
+        return session.isAdmin ? AppRoutes.adminDashboard : AppRoutes.home;
+      }
+      if (location.startsWith(AppRoutes.adminDashboard) && !session.isAdmin) {
+        return AppRoutes.home;
+      }
+      return null;
+    },
     routes: [
       ShellRoute(
         builder: (context, state, child) {
@@ -132,6 +175,10 @@ GoRouter createAppRouter({String? initialLocation = AppRoutes.login}) {
             path: '/profile/edit',
             builder: (context, state) => const EditProfileScreen(),
           ),
+          GoRoute(
+            path: AppRoutes.changePassword,
+            builder: (context, state) => const ChangePasswordScreen(),
+          ),
         ],
       ),
       GoRoute(
@@ -152,10 +199,6 @@ GoRouter createAppRouter({String? initialLocation = AppRoutes.login}) {
           return ResetPasswordScreen(token: state.uri.queryParameters['token']);
         },
       ),
-      GoRoute(
-        path: AppRoutes.adminLogin,
-        builder: (context, state) => const AdminLoginScreen(),
-      ),
       ShellRoute(
         builder: (context, state, child) {
           return AdminShell(path: state.uri.path, child: child);
@@ -170,9 +213,18 @@ GoRouter createAppRouter({String? initialLocation = AppRoutes.login}) {
             builder: (context, state) => const UserManagementScreen(),
           ),
           GoRoute(
+            path: AppRoutes.adminActionLog,
+            builder: (context, state) => const AdminActionLogScreen(),
+          ),
+          GoRoute(
             path: '/admin/users/:id',
             builder: (context, state) =>
                 UserDetailsScreen(userId: state.pathParameters['id']!),
+          ),
+          GoRoute(
+            path: '/admin/users/:id/edit',
+            builder: (context, state) =>
+                EditUserScreen(userId: state.pathParameters['id']!),
           ),
           GoRoute(
             path: AppRoutes.adminRestaurants,
@@ -184,8 +236,14 @@ GoRouter createAppRouter({String? initialLocation = AppRoutes.login}) {
                 const admin.RestaurantDetailsScreen(restaurantId: 'new'),
           ),
           GoRoute(
-            path: '/admin/restaurants/:id',
+            path: '/admin/restaurants/:id/edit',
             builder: (context, state) => admin.RestaurantDetailsScreen(
+              restaurantId: state.pathParameters['id']!,
+            ),
+          ),
+          GoRoute(
+            path: '/admin/restaurants/:id',
+            builder: (context, state) => RestaurantInformationScreen(
               restaurantId: state.pathParameters['id']!,
             ),
           ),

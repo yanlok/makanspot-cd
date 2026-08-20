@@ -94,24 +94,7 @@ class CommunityPostCard extends StatelessWidget {
             if (post.rating > 0)
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                child: Row(
-                  children: [
-                    for (var star = 1; star <= 5; star++)
-                      Icon(
-                        LucideIcons.star,
-                        size: 16,
-                        color: star <= post.rating
-                            ? const Color(0xFFF5A623)
-                            : AppColors.secondary,
-                        fill: star <= post.rating ? 1 : 0,
-                      ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${post.rating}.0',
-                      style: Theme.of(context).textTheme.labelMedium,
-                    ),
-                  ],
-                ),
+                child: _RatingRow(rating: post.rating),
               ),
             InkWell(
               key: Key('open-post-${post.id}'),
@@ -186,7 +169,10 @@ class CommunityPostCard extends StatelessWidget {
                       size: 20,
                       color: AppColors.mutedForeground,
                     ),
-                    label: const Text(''),
+                    label: Text(
+                      '${post.commentCount}',
+                      style: const TextStyle(color: AppColors.mutedForeground),
+                    ),
                   ),
                 ],
               ),
@@ -204,4 +190,35 @@ bool _isVideo(String url) {
       path.endsWith('.mov') ||
       path.endsWith('.m4v') ||
       path.endsWith('.webm');
+}
+
+class _RatingRow extends StatelessWidget {
+  const _RatingRow({required this.rating});
+
+  final int rating;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        for (var star = 1; star <= 5; star++) ...[
+          Icon(
+            star <= rating ? Icons.star : Icons.star_border,
+            size: 18,
+            color: star <= rating
+                ? const Color(0xFFF5A623)
+                : const Color(0xFFC9C2B6),
+          ),
+          if (star < 5) const SizedBox(width: 2),
+        ],
+        const SizedBox(width: 8),
+        Text(
+          '$rating.0',
+          style: Theme.of(
+            context,
+          ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700),
+        ),
+      ],
+    );
+  }
 }

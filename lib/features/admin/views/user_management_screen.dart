@@ -56,20 +56,46 @@ class UserManagementScreen extends ConsumerWidget {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: AdminFilterDropdown<UserRoleFilter>(
+                  width: null,
+                  value: state.roleFilter,
+                  options: const [
+                    ('All roles', UserRoleFilter.all),
+                    ('Users', UserRoleFilter.user),
+                    ('Admins', UserRoleFilter.admin),
+                    ('Managers', UserRoleFilter.manager),
+                  ],
+                  onChanged: controller.selectRoleFilter,
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 20),
           if (state.status == UserManagementStatus.error)
-            _UserManagementError(onRetry: controller.load)
+            _UserManagementError(
+              message:
+                  state.errorMessage ??
+                  'Unable to retrieve user accounts. Check your connection and try again.',
+              onRetry: controller.load,
+            )
           else if (state.status == UserManagementStatus.loading)
             const AdminListSkeleton(count: 5, cardHeight: 112)
           else if (state.status == UserManagementStatus.empty)
             const AdminEmptyState(
               icon: LucideIcons.users,
-              title: 'No Users Found',
-              message: 'No users match your search criteria.',
+              title: 'No accounts found.',
+              message: 'Try a different search or filter.',
             )
           else
             for (final user in state.users) ...[
-              _UserCard(user: user),
+              _UserCard(
+                user: user,
+                accountId: adminUserAccountId(user, state.allUsers),
+              ),
               const SizedBox(height: 12),
             ],
         ],
@@ -79,8 +105,9 @@ class UserManagementScreen extends ConsumerWidget {
 }
 
 class _UserManagementError extends StatelessWidget {
-  const _UserManagementError({required this.onRetry});
+  const _UserManagementError({required this.message, required this.onRetry});
 
+  final String message;
   final VoidCallback onRetry;
 
   @override
@@ -97,7 +124,7 @@ class _UserManagementError extends StatelessWidget {
               color: AppColors.mutedForeground,
             ),
             const SizedBox(height: 12),
-            const Text('We could not load user accounts right now.'),
+            Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 16),
             FilledButton(onPressed: onRetry, child: const Text('Try Again')),
           ],
@@ -108,9 +135,10 @@ class _UserManagementError extends StatelessWidget {
 }
 
 class _UserCard extends StatelessWidget {
-  const _UserCard({required this.user});
+  const _UserCard({required this.user, required this.accountId});
 
   final AdminUser user;
+  final String accountId;
 
   @override
   Widget build(BuildContext context) {
@@ -154,12 +182,30 @@ class _UserCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      AdminStatusBadge(label: _statusLabel(user.accountStatus)),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          AdminStatusBadge(
+                            label: _statusLabel(user.accountStatus),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'ID: $accountId',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: AppColors.mutedForeground,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    user.email,
+                    user.role == AdminUserRole.admin
+                        ? '${user.email} · Administrator'
+                        : user.email,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(

@@ -1,54 +1,70 @@
 import 'package:flutter/foundation.dart';
 
-enum AuthStatus { idle, loading, success, error }
+import '../models/auth_session.dart';
+
+enum AuthStatus { restoring, unauthenticated, authenticated }
 
 @immutable
 class AuthState {
   const AuthState({
-    this.status = AuthStatus.idle,
+    this.status = AuthStatus.restoring,
+    this.session,
+    this.isSubmitting = false,
     this.errorMessage,
     this.emailError,
     this.passwordError,
     this.confirmPasswordError,
-    this.registrationEmail,
-    this.awaitingOtp = false,
     this.passwordResetSent = false,
-    this.resendConfirmation,
+    this.registrationSucceeded = false,
   });
 
+  /// Overall session status.
   final AuthStatus status;
+
+  /// The signed-in session; non-null when [status] is
+  /// [AuthStatus.authenticated].
+  final AuthSession? session;
+
+  /// Whether a form submission is in progress.
+  final bool isSubmitting;
+
+  /// General authentication error (for example invalid credentials).
   final String? errorMessage;
+
   final String? emailError;
   final String? passwordError;
   final String? confirmPasswordError;
-  final String? registrationEmail;
-  final bool awaitingOtp;
-  final bool passwordResetSent;
-  final String? resendConfirmation;
 
-  bool get isLoading => status == AuthStatus.loading;
+  /// Set after a successful forgot-password request.
+  final bool passwordResetSent;
+
+  /// Set after registration when the account must be signed into manually
+  /// (no session was returned by the backend).
+  final bool registrationSucceeded;
+
+  bool get isAuthenticated => status == AuthStatus.authenticated;
 
   AuthState copyWith({
     AuthStatus? status,
+    bool? isSubmitting,
     String? errorMessage,
     String? emailError,
     String? passwordError,
     String? confirmPasswordError,
-    String? registrationEmail,
-    bool? awaitingOtp,
     bool? passwordResetSent,
-    String? resendConfirmation,
+    bool? registrationSucceeded,
   }) {
     return AuthState(
       status: status ?? this.status,
+      session: session,
+      isSubmitting: isSubmitting ?? this.isSubmitting,
       errorMessage: errorMessage,
       emailError: emailError,
       passwordError: passwordError,
       confirmPasswordError: confirmPasswordError,
-      registrationEmail: registrationEmail ?? this.registrationEmail,
-      awaitingOtp: awaitingOtp ?? this.awaitingOtp,
       passwordResetSent: passwordResetSent ?? this.passwordResetSent,
-      resendConfirmation: resendConfirmation,
+      registrationSucceeded:
+          registrationSucceeded ?? this.registrationSucceeded,
     );
   }
 }

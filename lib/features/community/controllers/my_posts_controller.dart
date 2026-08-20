@@ -79,6 +79,11 @@ class MyPostsController extends StateNotifier<MyPostsState> {
 
   Future<void> archive(String id) async {
     await _repository.archivePost(id);
-    state = state.copyWith(posts: await _repository.loadMyPosts());
+    await load();
+  }
+
+  Future<void> unarchive(String id) async {
+    await _repository.unarchivePost(id);
+    await load();
   }
 }

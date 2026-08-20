@@ -89,7 +89,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                 AuthSubmitButton(
                   label: 'Send reset link',
                   loadingLabel: 'Sending...',
-                  isLoading: state.isLoading,
+                  isLoading: state.isSubmitting,
                   onPressed: _submit,
                   buttonKey: const Key('send-reset-link'),
                 ),

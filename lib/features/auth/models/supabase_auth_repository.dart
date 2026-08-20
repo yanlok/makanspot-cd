@@ -1,61 +1,68 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'auth_repository.dart';
+import 'auth_session.dart';
 
 /// Supabase-backed implementation of [AuthRepository].
 ///
-/// Requires `Supabase.initialize` to have run (see `main.dart`). Session
+/// Requires `Supabase.initialize` to have run (see `main.dart`); session
 /// persistence and restoration are handled by `supabase_flutter` itself.
 class SupabaseAuthRepository implements AuthRepository {
   @override
-  Future<void> login({required String email, required String password}) async {
-    try {
-      await Supabase.instance.client.auth.signInWithPassword(
-        email: email,
-        password: password,
-      );
-    } on AuthException catch (error) {
-      throw AuthFailure(authErrorMessage(error));
+  Future<AuthSession?> restoreSession() async {
+    final session = Supabase.instance.client.auth.currentSession;
+    if (session == null) {
+      return null;
     }
+    return _sessionForUser(session.user);
   }
 
   @override
-  Future<void> register({
+  Future<AuthSession> login({
     required String email,
     required String password,
   }) async {
     try {
-      // With email confirmation enabled (Supabase default) this returns a user
-      // whose email is unconfirmed; the OTP screen then calls [verifyOtp].
-      await Supabase.instance.client.auth.signUp(
+      final response = await Supabase.instance.client.auth.signInWithPassword(
         email: email,
         password: password,
       );
+      final user = response.user;
+      if (user == null) {
+        throw const AuthFailure('Authentication failed. Please try again.');
+      }
+      return await _sessionForUser(user);
     } on AuthException catch (error) {
       throw AuthFailure(authErrorMessage(error));
     }
   }
 
   @override
-  Future<void> verifyOtp({required String email, required String code}) async {
+  Future<AuthSession?> register({
+    required String email,
+    required String password,
+  }) async {
     try {
-      await Supabase.instance.client.auth.verifyOTP(
-        type: OtpType.email,
-        token: code,
+      final response = await Supabase.instance.client.auth.signUp(
         email: email,
+        password: password,
       );
+      final user = response.user;
+      if (user == null) {
+        // Email confirmation is enabled server-side; the account cannot be
+        // signed into until the user confirms, so no session is returned.
+        return null;
+      }
+      return await _sessionForUser(user);
     } on AuthException catch (error) {
       throw AuthFailure(authErrorMessage(error));
     }
   }
 
   @override
-  Future<void> resendOtp(String email) async {
+  Future<void> logout() async {
     try {
-      await Supabase.instance.client.auth.resend(
-        type: OtpType.email,
-        email: email,
-      );
+      await Supabase.instance.client.auth.signOut();
     } on AuthException catch (error) {
       throw AuthFailure(authErrorMessage(error));
     }
@@ -64,7 +71,7 @@ class SupabaseAuthRepository implements AuthRepository {
   @override
   Future<void> requestPasswordReset(String email) async {
     try {
-      final profile = await supabase
+      final profile = await Supabase.instance.client
           .from('users')
           .select('email')
           .eq('email', email)
@@ -72,7 +79,7 @@ class SupabaseAuthRepository implements AuthRepository {
       if (profile == null) {
         throw const AuthFailure('No account found with this email address.');
       }
-      await supabase.auth.resetPasswordForEmail(email);
+      await Supabase.instance.client.auth.resetPasswordForEmail(email);
     } on AuthException catch (error) {
       throw AuthFailure(authErrorMessage(error));
     }
@@ -92,6 +99,47 @@ class SupabaseAuthRepository implements AuthRepository {
     } on AuthException catch (error) {
       throw AuthFailure(authErrorMessage(error));
     }
+  }
+
+  @override
+  Future<void> changePassword({
+    required String email,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      // Re-authenticate with the current password before updating, so a wrong
+      // current password is rejected by the backend.
+      await Supabase.instance.client.auth.signInWithPassword(
+        email: email,
+        password: currentPassword,
+      );
+      await Supabase.instance.client.auth.updateUser(
+        UserAttributes(password: newPassword),
+      );
+    } on AuthException catch (error) {
+      if (error.code == 'invalid_credentials' ||
+          error.message.toLowerCase().contains('invalid login credentials')) {
+        throw const AuthFailure('Your current password is incorrect.');
+      }
+      throw AuthFailure(authErrorMessage(error));
+    }
+  }
+
+  /// Builds the session for a signed-in [user], reading the account role from
+  /// `public.users` (auto-created for every auth user on signup).
+  Future<AuthSession> _sessionForUser(User user) async {
+    final row = await Supabase.instance.client
+        .from('users')
+        .select('role, username')
+        .eq('id', user.id)
+        .maybeSingle();
+    return AuthSession(
+      id: user.id,
+      email: user.email ?? '',
+      username: row?['username'] as String?,
+      role: (row?['role'] as String?) ?? AuthSession.roleUser,
+    );
   }
 }
 

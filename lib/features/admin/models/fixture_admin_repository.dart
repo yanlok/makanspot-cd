@@ -8,13 +8,15 @@ class FixtureAdminRepository implements AdminRepository {
       _restaurants = List.of(_seedRestaurants),
       _groups = _seedGroups(),
       _posts = List.of(_seedPosts),
-      _comments = List.of(_seedComments);
+      _comments = List.of(_seedComments),
+      _auditLogs = List.of(_seedAuditLogs);
 
   final List<AdminUser> _users;
   final List<AdminRestaurant> _restaurants;
   final List<ReportedContentGroup> _groups;
   final List<_FixturePost> _posts;
   final List<_FixtureComment> _comments;
+  final List<AdminAuditLog> _auditLogs;
   int _nextRestaurant = 1;
 
   @override
@@ -47,14 +49,18 @@ class FixtureAdminRepository implements AdminRepository {
   Future<AdminUser?> updateUser({
     required String id,
     required String username,
-    required String profileTitle,
+    required String email,
+    required String phone,
+    required AdminUserRole role,
     required int communityScore,
   }) async {
     final i = _users.indexWhere((u) => u.id == id);
     if (i < 0) return null;
     _users[i] = _users[i].copyWith(
       username: username,
-      profileTitle: profileTitle,
+      email: email,
+      phone: phone,
+      role: role,
       communityScore: communityScore,
     );
     return _users[i];
@@ -70,6 +76,61 @@ class FixtureAdminRepository implements AdminRepository {
     _users[i] = _users[i].copyWith(accountStatus: status);
     return _users[i];
   }
+
+  @override
+  Future<bool> usernameExists(String username, String excludeUserId) async {
+    return _users.any(
+      (u) =>
+          u.id != excludeUserId &&
+          u.username.toLowerCase() == username.toLowerCase(),
+    );
+  }
+
+  @override
+  Future<bool> emailExists(String email, String excludeUserId) async {
+    return _users.any(
+      (u) =>
+          u.id != excludeUserId && u.email.toLowerCase() == email.toLowerCase(),
+    );
+  }
+
+  @override
+  Future<bool> phoneExists(String phone, String excludeUserId) async {
+    if (phone.trim().isEmpty) return false;
+    return _users.any((u) => u.id != excludeUserId && u.phone == phone);
+  }
+
+  @override
+  Future<void> logAdminAction({
+    required String adminUserId,
+    required String adminUsername,
+    required String action,
+    required String targetUserId,
+    required String targetUsername,
+    Map<String, Map<String, Object?>>? fieldChanges,
+  }) async {
+    _auditLogs.insert(
+      0,
+      AdminAuditLog(
+        id: 'audit-${DateTime.now().microsecondsSinceEpoch}',
+        adminUsername: adminUsername,
+        action: action,
+        targetUsername: targetUsername,
+        fieldChanges: {
+          for (final entry in (fieldChanges ?? {}).entries)
+            entry.key: AdminAuditFieldChange(
+              from: entry.value['from']?.toString() ?? 'Not provided',
+              to: entry.value['to']?.toString() ?? 'Not provided',
+            ),
+        },
+        createdAt: DateTime.now(),
+      ),
+    );
+  }
+
+  @override
+  Future<List<AdminAuditLog>> loadAdminActionLogs() async =>
+      List.unmodifiable(_auditLogs);
 
   @override
   Future<List<AdminRestaurant>> loadRestaurants() async =>
@@ -169,6 +230,7 @@ class FixtureAdminRepository implements AdminRepository {
       imageUrl: draft.imageUrl,
       operatingHours: draft.operatingHours,
       contact: draft.contact,
+      ownerName: draft.ownerName,
       budget: draft.budget,
       description: draft.description,
       sourcePlatform: draft.sourcePlatform,
@@ -186,13 +248,57 @@ String _image(String id) {
 
 final _seedUsers = <AdminUser>[
   AdminUser(
+    id: 'admin-user-1',
+    username: 'Admin',
+    email: 'admin@makanspot.my',
+    profilePictureUrl: 'assets/images/default_icon.jpg',
+    communityScore: 0,
+    accountStatus: AdminAccountStatus.active,
+    role: AdminUserRole.admin,
+    joinedAt: DateTime(2026, 6, 1),
+  ),
+  AdminUser(
     id: 'demo-user',
     username: 'Yih Loong',
     email: 'yl@makanspot.my',
     profilePictureUrl: 'assets/images/default_icon.jpg',
-    profileTitle: 'Hidden Gem Hunter',
     communityScore: 185,
     accountStatus: AdminAccountStatus.active,
+    phone: '+60 12-345 6789',
+    joinedAt: DateTime(2026, 7, 15),
+  ),
+  AdminUser(
+    id: 'demo-user-2',
+    username: 'Aisyah Rahman',
+    email: 'aisyah@makanspot.my',
+    profilePictureUrl: 'assets/images/default_icon.jpg',
+    communityScore: 120,
+    accountStatus: AdminAccountStatus.active,
+    phone: '+60 16-789 1234',
+    joinedAt: DateTime(2026, 7, 20),
+  ),
+  AdminUser(
+    id: 'demo-user-3',
+    username: 'Daniel Lee',
+    email: 'daniel@makanspot.my',
+    profilePictureUrl: 'assets/images/default_icon.jpg',
+    communityScore: 30,
+    accountStatus: AdminAccountStatus.deactivated,
+    phone: '',
+    joinedAt: DateTime(2026, 8, 1),
+  ),
+];
+
+final _seedAuditLogs = <AdminAuditLog>[
+  AdminAuditLog(
+    id: 'audit-demo-1',
+    adminUsername: 'Admin A',
+    action: 'update_user',
+    targetUsername: 'John Tan',
+    fieldChanges: const {
+      'phone': AdminAuditFieldChange(from: '0123456789', to: '0123456788'),
+    },
+    createdAt: DateTime(2026, 8, 19, 19, 30),
   ),
 ];
 
@@ -207,6 +313,7 @@ final _seedRestaurants = <AdminRestaurant>[
     description: 'A much-loved Kampung Baru stop for fragrant nasi lemak.',
     operatingHours: '7:00 AM – 12:00 AM',
     contact: '+60 3-2698 2233',
+    ownerName: 'Siti Aminah',
     latitude: 3.1617,
     longitude: 101.7048,
     imageUrl: _image('photo-1563379926898-05f4575a45d8'),
@@ -223,6 +330,7 @@ final _seedRestaurants = <AdminRestaurant>[
     description: 'Springy noodles and comforting beef broth.',
     operatingHours: '7:30 AM – 4:00 PM',
     contact: '+60 3-2078 3536',
+    ownerName: 'Lim Wei Kiat',
     latitude: 3.1459,
     longitude: 101.7003,
     imageUrl: _image('photo-1569718212165-3a8278d5f624'),

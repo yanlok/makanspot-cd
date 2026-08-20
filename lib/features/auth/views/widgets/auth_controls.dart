@@ -92,10 +92,7 @@ class AuthTextField extends StatelessWidget {
           const SizedBox(height: AppSpacing.small),
           Text(
             errorText!,
-            style: const TextStyle(
-              color: AppColors.destructive,
-              fontSize: 12,
-            ),
+            style: const TextStyle(color: AppColors.destructive, fontSize: 12),
           ),
         ],
       ],

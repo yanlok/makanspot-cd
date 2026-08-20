@@ -27,6 +27,7 @@ class CommunityPost {
     required this.mediaUrls,
     required this.likes,
     required this.isLiked,
+    this.commentCount = 0,
     required this.status,
     required this.createdAt,
   });
@@ -44,6 +45,7 @@ class CommunityPost {
   final List<String> mediaUrls;
   final int likes;
   final bool isLiked;
+  final int commentCount;
   final String status;
   final DateTime createdAt;
 
@@ -53,6 +55,7 @@ class CommunityPost {
     List<String>? mediaUrls,
     int? likes,
     bool? isLiked,
+    int? commentCount,
     String? status,
   }) {
     return CommunityPost(
@@ -69,6 +72,7 @@ class CommunityPost {
       mediaUrls: mediaUrls ?? this.mediaUrls,
       likes: likes ?? this.likes,
       isLiked: isLiked ?? this.isLiked,
+      commentCount: commentCount ?? this.commentCount,
       status: status ?? this.status,
       createdAt: createdAt,
     );

@@ -19,16 +19,17 @@ class SupabaseCommunityRepository implements CommunityRepository {
   }
 
   static const _postSelect =
-      'id,user_id,restaurant_id,content,rating,media_urls,created_at,'
+      'id,user_id,restaurant_id,content,rating,media_urls,status,created_at,'
       'users!posts_user_id_fkey(username,avatar_url,community_score),'
       'restaurants!posts_restaurant_id_fkey(name,restaurant_images(image_url,is_primary)),'
-      'likes(user_id)';
+      'likes(user_id),comments(id)';
 
   @override
   Future<List<CommunityPost>> loadCommunityPosts() async {
     final rows = await _client
         .from('posts')
         .select(_postSelect)
+        .eq('status', 'active')
         .order('created_at', ascending: false);
     return rows.map<CommunityPost>(_postFromRow).toList(growable: false);
   }
@@ -74,7 +75,9 @@ class SupabaseCommunityRepository implements CommunityRepository {
     if (row == null) return null;
     final comments = await _client
         .from('comments')
-        .select('id,post_id,content,user_id,users(username,avatar_url)')
+        .select(
+          'id,post_id,content,user_id,parent_comment_id,users(username,avatar_url)',
+        )
         .eq('post_id', id)
         .order('created_at');
     return CommunityPostDetails(
@@ -88,6 +91,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
               username: user['username']?.toString() ?? 'Food explorer',
               userAvatar: user['avatar_url']?.toString() ?? '',
               text: item['content']?.toString() ?? '',
+              parentCommentId: item['parent_comment_id']?.toString(),
             );
           })
           .toList(growable: false),
@@ -110,6 +114,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
           'content': reviewText,
           'rating': rating,
           'media_urls': urls,
+          'status': 'active',
         })
         .select(_postSelect)
         .single();
@@ -141,7 +146,26 @@ class SupabaseCommunityRepository implements CommunityRepository {
 
   @override
   Future<void> archivePost(String id) async {
-    await _client.from('posts').delete().eq('id', id).eq('user_id', _user.id);
+    await _client
+        .from('posts')
+        .update({
+          'status': 'archived',
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', id)
+        .eq('user_id', _user.id);
+  }
+
+  @override
+  Future<void> unarchivePost(String id) async {
+    await _client
+        .from('posts')
+        .update({
+          'status': 'active',
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', id)
+        .eq('user_id', _user.id);
   }
 
   @override
@@ -156,8 +180,11 @@ class SupabaseCommunityRepository implements CommunityRepository {
           'post_id': int.parse(postId),
           'user_id': _user.id,
           'content': text,
+          'parent_comment_id': parentCommentId == null
+              ? null
+              : int.parse(parentCommentId),
         })
-        .select('id,post_id,content')
+        .select('id,post_id,content,parent_comment_id')
         .single();
     final metadata = _user.userMetadata ?? const {};
     return CommunityComment(
@@ -166,7 +193,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
       username: metadata['username']?.toString() ?? 'You',
       userAvatar: metadata['avatar_url']?.toString() ?? '',
       text: row['content'].toString(),
-      parentCommentId: parentCommentId,
+      parentCommentId: row['parent_comment_id']?.toString(),
     );
   }
 
@@ -226,6 +253,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
     final user = row['users'] as Map? ?? const {};
     final restaurant = row['restaurants'] as Map? ?? const {};
     final likes = row['likes'] as List? ?? const [];
+    final comments = row['comments'] as List? ?? const [];
     final currentUserId = _client.auth.currentUser?.id;
     return CommunityPost(
       id: row['id'].toString(),
@@ -240,10 +268,11 @@ class SupabaseCommunityRepository implements CommunityRepository {
       rating: row['rating'] as int? ?? 0,
       mediaUrls: List<String>.from(row['media_urls'] as List? ?? const []),
       likes: likes.length,
+      commentCount: comments.length,
       isLiked:
           currentUserId != null &&
           likes.any((like) => (like as Map)['user_id'] == currentUserId),
-      status: 'active',
+      status: row['status']?.toString() ?? 'active',
       createdAt:
           DateTime.tryParse(row['created_at']?.toString() ?? '') ??
           DateTime.now(),
