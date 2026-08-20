@@ -7,8 +7,8 @@ plugins {
 
 android {
     namespace = "com.example.makanspot"
-    compileSdk = 35
-    ndkVersion = flutter.ndkVersion
+    compileSdk = 36
+    ndkVersion = "27.3.13750724"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

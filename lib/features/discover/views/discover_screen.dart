@@ -32,10 +32,10 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
     text: widget.arguments.query,
   );
 
-  void initState() {
-    super.initState();
-    _setupPositionTracking();
-  } 
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
   
 
   @override
@@ -84,95 +84,9 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
       ),
     );
   }
-
-  StreamSubscription? userPositionStream;
-
-  @override
-  void dispose() {
-    _searchController.dispose();  
-    userPositionStream?.cancel();
-    super.dispose();
-  }
-
-  mp.MapboxMap? mapboxMapController;
-
-  @override
-  Widget map(BuildContext contedxt){
-    return Scaffold(
-      body: mp.MapWidget(
-        onMapCreated: _onMapCreated,
-        styleUri: mp.MapboxStyles.DARK,
-      ),
-    );
-  }
-
-  void _onMapCreated(mp.MapboxMap controller) async {
-    setState(() {
-      mapboxMapController = controller;
-    });  
-
-    mapboxMapController?.location.updateSettings(
-      mp.LocationComponentSettings(
-        enabled: true,
-      ),
-    );
-
-    final pointAnnotationManager = await mapboxMapController?.annotations.createPointAnnotationManager();
-    final Uint8List imageData = await loadRestMarkerImage();
-    mp.PointAnnotationOptions pointAnnotationOptions = mp.PointAnnotationOptions(
-      geometry: mp.Point(coordinates: mp.Position(103.851959, 1.290270)),
-      image: imageData,
-      iconSize: 1.0,
-    );
-
-    pointAnnotationManager?.create(pointAnnotationOptions);
-  }
-
-  Future<void> _setupPositionTracking() async {
-    bool serviceEnabled;
-    gl.LocationPermission permission;
-    serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
-
-    if(!serviceEnabled){
-      return Future.error('Location services are disabled.');
-    }
-    permission = await gl.Geolocator.checkPermission();
-    if(permission == gl.LocationPermission.denied){
-      permission = await gl.Geolocator.requestPermission();
-      if(permission == gl.LocationPermission.denied){
-        return Future.error('Location permissions are denied');
-      }
-    }
-
-    if(permission == gl.LocationPermission.deniedForever){
-      return Future.error('Location permissions are permanently denied, we cannot request permissions.');
-    }
-
-    gl.LocationSettings locationSettings = gl.LocationSettings(
-      accuracy: gl.LocationAccuracy.high, 
-      distanceFilter: 10
-    );
-
-    userPositionStream?.cancel();
-    userPositionStream = gl.Geolocator.getPositionStream(locationSettings: locationSettings).listen(
-      (
-        gl.Position? position,
-      ) {
-        if (position != null && mapboxMapController != null) {
-          mapboxMapController?.setCamera(mp.CameraOptions(
-            zoom: 14.0,
-            center: mp.Point(coordinates: mp.Position(position.longitude, position.latitude)),
-          ));
-        }
-      },);
-    }  
-    
-    Future<Uint8List> loadRestMarkerImage() async {
-      var byteData = await rootBundle.load('assets/images/restaurant_marker.png');
-      return byteData.buffer.asUint8List();
-    }
-  }
 }
+
+
 
 class _DiscoverHeader extends StatelessWidget {
   const _DiscoverHeader({
@@ -306,6 +220,15 @@ class _DiscoverHeader extends StatelessWidget {
                 ),
               ],
             ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const _MapView()),
+                );
+              },
+              child: const Text('View Map'),
+            ),
           ],
         ),
       ),
@@ -313,6 +236,106 @@ class _DiscoverHeader extends StatelessWidget {
   }
 }
 
+class _MapView extends StatefulWidget {
+  const _MapView();
+
+  @override
+  State<_MapView> createState() => _MapViewState();
+}
+
+class _MapViewState extends State<_MapView> {
+  StreamSubscription? userPositionStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _setupPositionTracking();
+  } 
+
+  @override
+  void dispose() { 
+    userPositionStream?.cancel();
+    super.dispose();
+  }
+
+  mp.MapboxMap? mapboxMapController;
+
+  @override
+  Widget build(BuildContext contedxt){
+    return Scaffold(
+      body: mp.MapWidget(
+        onMapCreated: _onMapCreated,
+        styleUri: mp.MapboxStyles.DARK,
+      ),
+    );
+  }
+
+  void _onMapCreated(mp.MapboxMap controller) async {
+    setState(() {
+      mapboxMapController = controller;
+    });  
+
+    mapboxMapController?.location.updateSettings(
+      mp.LocationComponentSettings(
+        enabled: true,
+      ),
+    );
+
+    final pointAnnotationManager = await mapboxMapController?.annotations.createPointAnnotationManager();
+    final Uint8List imageData = await loadRestMarkerImage();
+    mp.PointAnnotationOptions pointAnnotationOptions = mp.PointAnnotationOptions(
+      geometry: mp.Point(coordinates: mp.Position(103.851959, 1.290270)),
+      image: imageData,
+      iconSize: 1.0,
+    );
+
+    pointAnnotationManager?.create(pointAnnotationOptions);
+  }
+
+  Future<void> _setupPositionTracking() async {
+    bool serviceEnabled;
+    gl.LocationPermission permission;
+    serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
+
+    if(!serviceEnabled){
+      return Future.error('Location services are disabled.');
+    }
+    permission = await gl.Geolocator.checkPermission();
+    if(permission == gl.LocationPermission.denied){
+      permission = await gl.Geolocator.requestPermission();
+      if(permission == gl.LocationPermission.denied){
+        return Future.error('Location permissions are denied');
+      }
+    }
+
+    if(permission == gl.LocationPermission.deniedForever){
+      return Future.error('Location permissions are permanently denied, we cannot request permissions.');
+    }
+
+    gl.LocationSettings locationSettings = gl.LocationSettings(
+      accuracy: gl.LocationAccuracy.high, 
+      distanceFilter: 10
+    );
+
+    userPositionStream?.cancel();
+    userPositionStream = gl.Geolocator.getPositionStream(locationSettings: locationSettings).listen(
+      (
+        gl.Position? position,
+      ) {
+        if (position != null && mapboxMapController != null) {
+          mapboxMapController?.setCamera(mp.CameraOptions(
+            zoom: 14.0,
+            center: mp.Point(coordinates: mp.Position(position.longitude, position.latitude)),
+          ));
+        }
+      },);
+    }  
+    
+    Future<Uint8List> loadRestMarkerImage() async {
+      var byteData = await rootBundle.load('assets/images/restaurant_marker.png');
+      return byteData.buffer.asUint8List();
+    }
+}
 class _SortControl extends StatelessWidget {
   const _SortControl({
     required this.value,
