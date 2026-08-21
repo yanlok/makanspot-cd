@@ -8,6 +8,7 @@ import 'package:makanspot/core/theme/app_theme.dart';
 import '../controllers/community_controller.dart';
 import 'widgets/community_empty_state.dart';
 import 'widgets/community_post_card.dart';
+import 'widgets/community_report_dialog.dart';
 
 class CommunityScreen extends ConsumerStatefulWidget {
   const CommunityScreen({super.key});
@@ -31,16 +32,19 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
     final controller = ref.read(communityControllerProvider.notifier);
     return SafeArea(
       bottom: false,
-      child: Column(
-        children: [
-          _CommunityHeader(
-            searchController: _searchController,
-            onSearch: controller.updateSearch,
-            onMyPosts: () => context.push('/my-posts'),
-            onReview: () => context.push('/review/create'),
-          ),
-          Expanded(child: _buildBody(context, state, controller)),
-        ],
+      child: DecoratedBox(
+        decoration: const BoxDecoration(color: AppColors.background),
+        child: Column(
+          children: [
+            _CommunityHeader(
+              searchController: _searchController,
+              onSearch: controller.updateSearch,
+              onMyPosts: () => context.push('/my-posts'),
+              onReview: () => context.push('/review/create'),
+            ),
+            Expanded(child: _buildBody(context, state, controller)),
+          ],
+        ),
       ),
     );
   }
@@ -73,7 +77,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
       case CommunityStatus.content:
         return ListView.separated(
           key: const Key('community-post-list'),
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 28),
           itemCount: state.posts.length,
           separatorBuilder: (_, _) => const SizedBox(height: 16),
           itemBuilder: (context, index) {
@@ -84,24 +88,35 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
               onRestaurant: () =>
                   context.push('/restaurant/${post.restaurantId}'),
               onLike: () => controller.toggleLike(post.id),
-              onReport: () => _showReportDialog(context),
+              onSave: () => controller.toggleSave(post.id),
+              onReport: () => _showReportDialog(context, post.id, controller),
             );
           },
         );
     }
   }
 
-  void _showReportDialog(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Report Content'),
-        content: const Text('Thanks. We will review this community post.'),
-        actions: [
-          TextButton(onPressed: () => context.pop(), child: const Text('Done')),
-        ],
-      ),
+  Future<void> _showReportDialog(
+    BuildContext context,
+    String postId,
+    CommunityController controller,
+  ) async {
+    final submission = await showCommunityReportDialog(
+      context,
+      contentLabel: 'post',
     );
+    if (submission != null && context.mounted) {
+      await controller.reportPost(
+        postId,
+        submission.reason,
+        details: submission.details,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Report sent to moderators.')),
+        );
+      }
+    }
   }
 }
 
@@ -122,11 +137,15 @@ class _CommunityHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: const BoxDecoration(
-        color: AppColors.surface,
+        gradient: LinearGradient(
+          colors: [AppColors.surface, AppColors.background],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
         border: Border(bottom: BorderSide(color: AppColors.secondary)),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+        padding: const EdgeInsets.fromLTRB(16, 22, 16, 18),
         child: Column(
           children: [
             Row(
@@ -135,18 +154,15 @@ class _CommunityHeader extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          'Community',
-                          maxLines: 1,
-                          softWrap: false,
-                          style: Theme.of(context).textTheme.headlineSmall,
-                        ),
-                      ),
                       Text(
-                        'Community reviews & food stories',
+                        'Community',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Fresh finds, honest bites, local stories',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: AppColors.mutedForeground,
                         ),
@@ -170,14 +186,15 @@ class _CommunityHeader extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             SizedBox(
-              height: 48,
+              height: 52,
               child: TextField(
                 key: const Key('community-search'),
                 controller: searchController,
                 onChanged: onSearch,
                 decoration: const InputDecoration(
-                  hintText: 'Search posts or restaurants',
+                  hintText: 'Find a dish, place, or food story',
                   prefixIcon: Icon(LucideIcons.search, size: 19),
+                  suffixIcon: Icon(LucideIcons.slidersHorizontal, size: 18),
                 ),
               ),
             ),

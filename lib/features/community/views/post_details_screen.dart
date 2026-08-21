@@ -10,6 +10,7 @@ import '../controllers/post_details_controller.dart';
 import '../models/community_models.dart';
 import 'widgets/community_empty_state.dart';
 import 'widgets/community_page_header.dart';
+import 'widgets/community_report_dialog.dart';
 
 class PostDetailsScreen extends ConsumerStatefulWidget {
   const PostDetailsScreen({required this.postId, super.key});
@@ -75,9 +76,13 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
         );
       case PostDetailsStatus.content:
         final post = state.post!;
-        final topLevel = state.comments
-            .where((comment) => comment.parentCommentId == null)
-            .toList(growable: false);
+        final topLevel =
+            state.comments
+                .where((comment) => comment.parentCommentId == null)
+                .toList()
+              ..sort(
+                (a, b) => (b.isPinned ? 1 : 0).compareTo(a.isPinned ? 1 : 0),
+              );
         return ListView(
           key: const Key('post-details-scroll'),
           padding: const EdgeInsets.all(16),
@@ -86,6 +91,8 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
               post: post,
               controller: controller,
               isLikePending: state.isLikePending,
+              onReport: () => _showReportDialog(context, controller),
+              onSave: controller.toggleSave,
             ),
             const SizedBox(height: 16),
             Text(
@@ -124,6 +131,14 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
                       _replyController.clear();
                     });
                   },
+                  onDelete: comment.isOwn
+                      ? () => controller.deleteComment(comment.id)
+                      : null,
+                  onPin: comment.canPin
+                      ? () => controller.togglePinComment(comment)
+                      : null,
+                  onReport: () =>
+                      _showCommentReportDialog(context, controller, comment.id),
                 ),
                 if (_replyingTo == comment.id)
                   Padding(
@@ -146,12 +161,70 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
                 ))
                   Padding(
                     padding: const EdgeInsets.fromLTRB(40, 4, 0, 8),
-                    child: _CommentCard(comment: reply, isReply: true),
+                    child: _CommentCard(
+                      comment: reply,
+                      isReply: true,
+                      onDelete: reply.isOwn
+                          ? () => controller.deleteComment(reply.id)
+                          : null,
+                      onPin: reply.canPin
+                          ? () => controller.togglePinComment(reply)
+                          : null,
+                      onReport: () => _showCommentReportDialog(
+                        context,
+                        controller,
+                        reply.id,
+                      ),
+                    ),
                   ),
                 const SizedBox(height: 8),
               ],
           ],
         );
+    }
+  }
+
+  Future<void> _showReportDialog(
+    BuildContext context,
+    PostDetailsController controller,
+  ) async {
+    final submission = await showCommunityReportDialog(
+      context,
+      contentLabel: 'post',
+    );
+    if (submission != null) {
+      await controller.reportPost(
+        submission.reason,
+        details: submission.details,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Report sent to moderators.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _showCommentReportDialog(
+    BuildContext context,
+    PostDetailsController controller,
+    String commentId,
+  ) async {
+    final submission = await showCommunityReportDialog(
+      context,
+      contentLabel: 'comment',
+    );
+    if (submission != null) {
+      await controller.reportComment(
+        commentId,
+        submission.reason,
+        details: submission.details,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Report sent to moderators.')),
+        );
+      }
     }
   }
 }
@@ -161,11 +234,15 @@ class _DetailedPostCard extends StatelessWidget {
     required this.post,
     required this.controller,
     required this.isLikePending,
+    required this.onReport,
+    required this.onSave,
   });
 
   final CommunityPost post;
   final PostDetailsController controller;
   final bool isLikePending;
+  final VoidCallback onReport;
+  final VoidCallback onSave;
 
   @override
   Widget build(BuildContext context) {
@@ -215,7 +292,7 @@ class _DetailedPostCard extends StatelessWidget {
                   ),
                   IconButton(
                     tooltip: 'Report post',
-                    onPressed: () {},
+                    onPressed: onReport,
                     icon: const Icon(LucideIcons.ellipsis, size: 20),
                   ),
                 ],
@@ -276,13 +353,26 @@ class _DetailedPostCard extends StatelessWidget {
                     key: const Key('details-like'),
                     onPressed: isLikePending ? null : controller.toggleLike,
                     icon: Icon(
-                      LucideIcons.heart,
+                      post.isLiked ? Icons.favorite : LucideIcons.heart,
                       size: 20,
                       color: post.isLiked
                           ? AppColors.destructive
                           : AppColors.mutedForeground,
                     ),
                     label: Text('${post.likes}'),
+                  ),
+                  IconButton(
+                    tooltip: post.isSaved ? 'Remove saved post' : 'Save post',
+                    onPressed: onSave,
+                    icon: Icon(
+                      post.isSaved
+                          ? LucideIcons.bookmarkCheck
+                          : LucideIcons.bookmark,
+                      color: post.isSaved
+                          ? AppColors.primary
+                          : AppColors.mutedForeground,
+                      size: 20,
+                    ),
                   ),
                   TextButton.icon(
                     onPressed: () {},
@@ -392,12 +482,18 @@ class _CommentCard extends StatelessWidget {
     this.isReplying = false,
     this.isReply = false,
     this.onReply,
+    this.onDelete,
+    this.onPin,
+    required this.onReport,
   });
 
   final CommunityComment comment;
   final bool isReplying;
   final bool isReply;
   final VoidCallback? onReply;
+  final VoidCallback? onDelete;
+  final VoidCallback? onPin;
+  final VoidCallback onReport;
 
   @override
   Widget build(BuildContext context) {
@@ -446,9 +542,54 @@ class _CommentCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      comment.username,
-                      style: Theme.of(context).textTheme.labelMedium,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            comment.username,
+                            style: Theme.of(context).textTheme.labelMedium,
+                          ),
+                        ),
+                        if (comment.isPinned)
+                          const Icon(
+                            LucideIcons.pin,
+                            size: 14,
+                            color: AppColors.primary,
+                          ),
+                        PopupMenuButton<String>(
+                          tooltip: 'Comment actions',
+                          onSelected: (action) {
+                            switch (action) {
+                              case 'report':
+                                onReport();
+                              case 'delete':
+                                onDelete?.call();
+                              case 'pin':
+                                onPin?.call();
+                            }
+                          },
+                          itemBuilder: (context) => [
+                            const PopupMenuItem(
+                              value: 'report',
+                              child: Text('Report comment'),
+                            ),
+                            if (onPin != null)
+                              PopupMenuItem(
+                                value: 'pin',
+                                child: Text(
+                                  comment.isPinned
+                                      ? 'Unpin comment'
+                                      : 'Pin comment',
+                                ),
+                              ),
+                            if (onDelete != null)
+                              const PopupMenuItem(
+                                value: 'delete',
+                                child: Text('Delete comment'),
+                              ),
+                          ],
+                        ),
+                      ],
                     ),
                     Text(comment.text),
                   ],

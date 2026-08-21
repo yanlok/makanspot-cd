@@ -12,6 +12,7 @@ class CommunityPostCard extends StatelessWidget {
     required this.onOpen,
     required this.onRestaurant,
     required this.onLike,
+    required this.onSave,
     this.onReport,
     super.key,
   });
@@ -20,6 +21,7 @@ class CommunityPostCard extends StatelessWidget {
   final VoidCallback onOpen;
   final VoidCallback onRestaurant;
   final VoidCallback onLike;
+  final VoidCallback onSave;
   final VoidCallback? onReport;
 
   @override
@@ -147,7 +149,7 @@ class CommunityPostCard extends StatelessWidget {
                     key: Key('like-post-${post.id}'),
                     onPressed: onLike,
                     icon: Icon(
-                      LucideIcons.heart,
+                      post.isLiked ? Icons.favorite : LucideIcons.heart,
                       size: 20,
                       color: post.isLiked
                           ? AppColors.destructive
@@ -172,6 +174,20 @@ class CommunityPostCard extends StatelessWidget {
                     label: Text(
                       '${post.commentCount}',
                       style: const TextStyle(color: AppColors.mutedForeground),
+                    ),
+                  ),
+                  IconButton(
+                    key: Key('save-post-${post.id}'),
+                    tooltip: post.isSaved ? 'Remove saved post' : 'Save post',
+                    onPressed: onSave,
+                    icon: Icon(
+                      post.isSaved
+                          ? LucideIcons.bookmarkCheck
+                          : LucideIcons.bookmark,
+                      color: post.isSaved
+                          ? AppColors.primary
+                          : AppColors.mutedForeground,
+                      size: 20,
                     ),
                   ),
                 ],

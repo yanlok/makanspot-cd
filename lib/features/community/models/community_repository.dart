@@ -34,4 +34,22 @@ abstract interface class CommunityRepository {
   });
 
   Future<CommunityPost?> toggleLike(String id);
+
+  Future<CommunityPost?> toggleSave(String id);
+
+  Future<void> reportPost({
+    required String postId,
+    required CommunityReportReason reason,
+    String? additionalInfo,
+  });
+
+  Future<void> reportComment({
+    required String commentId,
+    required CommunityReportReason reason,
+    String? additionalInfo,
+  });
+
+  Future<void> deleteComment(String id);
+
+  Future<void> togglePinComment({required String id, required bool pinned});
 }
