@@ -40,14 +40,17 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
     final controller = ref.read(provider.notifier);
     return SafeArea(
       bottom: false,
-      child: Column(
-        children: [
-          CommunityPageHeader(
-            title: 'Post',
-            onBack: () => context.go('/community'),
-          ),
-          Expanded(child: _buildBody(context, state, controller)),
-        ],
+      child: DecoratedBox(
+        decoration: const BoxDecoration(color: AppColors.background),
+        child: Column(
+          children: [
+            CommunityPageHeader(
+              title: 'Post',
+              onBack: () => context.go('/community'),
+            ),
+            Expanded(child: _buildBody(context, state, controller)),
+          ],
+        ),
       ),
     );
   }
@@ -85,7 +88,7 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
               );
         return ListView(
           key: const Key('post-details-scroll'),
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
           children: [
             _DetailedPostCard(
               post: post,
@@ -258,12 +261,13 @@ class _DetailedPostCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.fromLTRB(12, 12, 8, 8),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   ClipOval(
                     child: SizedBox.square(
-                      dimension: 40,
+                      dimension: 44,
                       child: post.userAvatar.isEmpty
                           ? Image.asset('assets/images/default_icon.jpg')
                           : MakanNetworkImage(
@@ -282,34 +286,77 @@ class _DetailedPostCard extends StatelessWidget {
                           post.username,
                           style: Theme.of(context).textTheme.titleSmall,
                         ),
+                        const SizedBox(height: 2),
                         Text(
                           post.profileTitle,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: AppColors.mutedForeground),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _relativeTimeLabel(post.createdAt),
                           style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(color: AppColors.mutedForeground),
                         ),
                       ],
                     ),
                   ),
-                  IconButton(
+                  IconButton.filledTonal(
                     tooltip: 'Report post',
                     onPressed: onReport,
-                    icon: const Icon(LucideIcons.ellipsis, size: 20),
+                    icon: const Icon(LucideIcons.ellipsis, size: 18),
                   ),
                 ],
               ),
             ),
-            TextButton.icon(
-              onPressed: () => context.push('/restaurant/${post.restaurantId}'),
-              icon: const Icon(LucideIcons.utensils, size: 16),
-              label: Text(post.restaurantName),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              child: InkWell(
+                onTap: () => context.push('/restaurant/${post.restaurantId}'),
+                borderRadius: BorderRadius.circular(AppRadii.control),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(AppRadii.control),
+                    border: Border.all(color: AppColors.secondary),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        LucideIcons.utensils,
+                        size: 16,
+                        color: AppColors.secondaryForeground,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          post.restaurantName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.labelLarge,
+                        ),
+                      ),
+                      const Icon(
+                        LucideIcons.chevronRight,
+                        size: 16,
+                        color: AppColors.mutedForeground,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
             if (post.rating > 0)
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
                 child: _RatingRow(rating: post.rating),
               ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
               child: Text(
                 post.reviewText,
                 style: Theme.of(
@@ -323,7 +370,7 @@ class _DetailedPostCard extends StatelessWidget {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(AppRadii.control),
                   child: SizedBox(
-                    height: 160,
+                    height: 220,
                     width: double.infinity,
                     child: _isVideoUrl(post.mediaUrls.first)
                         ? Container(
@@ -346,7 +393,7 @@ class _DetailedPostCard extends StatelessWidget {
               ),
             const Divider(height: 1),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
               child: Row(
                 children: [
                   TextButton.icon(
@@ -354,15 +401,36 @@ class _DetailedPostCard extends StatelessWidget {
                     onPressed: isLikePending ? null : controller.toggleLike,
                     icon: Icon(
                       post.isLiked ? Icons.favorite : LucideIcons.heart,
-                      size: 20,
+                      size: 19,
                       color: post.isLiked
                           ? AppColors.destructive
                           : AppColors.mutedForeground,
                     ),
-                    label: Text('${post.likes}'),
+                    label: Text(
+                      '${post.likes} likes',
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.fade,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                   ),
-                  IconButton(
-                    tooltip: post.isSaved ? 'Remove saved post' : 'Save post',
+                  TextButton.icon(
+                    onPressed: () {},
+                    icon: const Icon(
+                      LucideIcons.messageCircle,
+                      size: 19,
+                      color: AppColors.mutedForeground,
+                    ),
+                    label: Text(
+                      '${post.commentCount} comments',
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.fade,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton.icon(
                     onPressed: onSave,
                     icon: Icon(
                       post.isSaved
@@ -371,17 +439,15 @@ class _DetailedPostCard extends StatelessWidget {
                       color: post.isSaved
                           ? AppColors.primary
                           : AppColors.mutedForeground,
-                      size: 20,
+                      size: 19,
                     ),
-                  ),
-                  TextButton.icon(
-                    onPressed: () {},
-                    icon: const Icon(
-                      LucideIcons.messageCircle,
-                      size: 20,
-                      color: AppColors.mutedForeground,
+                    label: Text(
+                      post.isSaved ? 'Saved' : 'Save',
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.fade,
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
-                    label: Text('${post.commentCount}'),
                   ),
                 ],
               ),
@@ -399,6 +465,18 @@ bool _isVideoUrl(String url) {
       path.endsWith('.mov') ||
       path.endsWith('.m4v') ||
       path.endsWith('.webm');
+}
+
+String _relativeTimeLabel(DateTime value) {
+  final now = DateTime.now();
+  final diff = now.difference(value);
+  if (diff.inMinutes < 1) return 'Just now';
+  if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+  if (diff.inDays < 1) return '${diff.inHours}h ago';
+  if (diff.inDays < 7) return '${diff.inDays}d ago';
+  final weeks = (diff.inDays / 7).floor();
+  if (weeks < 5) return '${weeks}w ago';
+  return '${value.day}/${value.month}/${value.year}';
 }
 
 class _RatingRow extends StatelessWidget {

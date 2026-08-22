@@ -5,6 +5,8 @@ abstract interface class CommunityRepository {
 
   Future<List<CommunityPost>> loadMyPosts();
 
+  Future<List<CommunityPost>> loadSavedPosts();
+
   Future<List<CommunityRestaurant>> loadRestaurants();
 
   Future<CommunityPostDetails?> loadPost(String id);

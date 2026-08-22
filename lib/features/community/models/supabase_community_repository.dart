@@ -45,6 +45,35 @@ class SupabaseCommunityRepository implements CommunityRepository {
   }
 
   @override
+  Future<List<CommunityPost>> loadSavedPosts() async {
+    final bookmarkRows = await _client
+        .from('bookmarks')
+        .select('post_id')
+        .eq('user_id', _user.id)
+        .order('created_at', ascending: false);
+    final orderedPostIds = bookmarkRows
+        .map<String>((row) => row['post_id'].toString())
+        .toList(growable: false);
+    if (orderedPostIds.isEmpty) {
+      return const [];
+    }
+
+    final rows = await _client
+        .from('posts')
+        .select(_postSelect)
+        .inFilter('id', orderedPostIds)
+        .eq('status', 'active');
+    final postsById = {
+      for (final row in rows) row['id'].toString(): _postFromRow(row),
+    };
+
+    return orderedPostIds
+        .map((id) => postsById[id])
+        .whereType<CommunityPost>()
+        .toList(growable: false);
+  }
+
+  @override
   Future<List<CommunityRestaurant>> loadRestaurants() async {
     final rows = await _client
         .from('restaurants')

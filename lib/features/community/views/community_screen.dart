@@ -40,6 +40,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
               searchController: _searchController,
               onSearch: controller.updateSearch,
               onMyPosts: () => context.push('/my-posts'),
+              onSavedPosts: () => context.push('/saved-posts'),
               onReview: () => context.push('/review/create'),
             ),
             Expanded(child: _buildBody(context, state, controller)),
@@ -125,12 +126,14 @@ class _CommunityHeader extends StatelessWidget {
     required this.searchController,
     required this.onSearch,
     required this.onMyPosts,
+    required this.onSavedPosts,
     required this.onReview,
   });
 
   final TextEditingController searchController;
   final ValueChanged<String> onSearch;
   final VoidCallback onMyPosts;
+  final VoidCallback onSavedPosts;
   final VoidCallback onReview;
 
   @override
@@ -147,6 +150,7 @@ class _CommunityHeader extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 22, 16, 18),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
@@ -170,17 +174,33 @@ class _CommunityHeader extends StatelessWidget {
                     ],
                   ),
                 ),
-                TextButton(
-                  key: const Key('community-my-posts'),
-                  onPressed: onMyPosts,
-                  child: const Text('My Posts'),
-                ),
-                const SizedBox(width: 8),
                 FilledButton.icon(
                   key: const Key('community-write-review'),
                   onPressed: onReview,
                   icon: const Icon(LucideIcons.plus, size: 19),
                   label: const Text('Review'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    key: const Key('community-my-posts'),
+                    onPressed: onMyPosts,
+                    icon: const Icon(LucideIcons.userRound, size: 16),
+                    label: const Text('My Posts'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    key: const Key('community-saved-posts'),
+                    onPressed: onSavedPosts,
+                    icon: const Icon(LucideIcons.bookmark, size: 16),
+                    label: const Text('Saved'),
+                  ),
                 ),
               ],
             ),

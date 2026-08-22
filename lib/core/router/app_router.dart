@@ -26,6 +26,7 @@ import 'package:makanspot/features/community/views/community_screen.dart';
 import 'package:makanspot/features/community/views/my_posts_screen.dart';
 import 'package:makanspot/features/community/views/post_details_screen.dart';
 import 'package:makanspot/features/community/views/review_editor_screen.dart';
+import 'package:makanspot/features/community/views/saved_posts_screen.dart';
 import 'package:makanspot/features/discover/controllers/discover_state.dart';
 import 'package:makanspot/features/discover/views/discover_screen.dart';
 import 'package:makanspot/features/discover/views/restaurant_details_screen.dart';
@@ -150,6 +151,10 @@ GoRouter createAppRouter({
           GoRoute(
             path: '/my-posts',
             builder: (context, state) => const MyPostsScreen(),
+          ),
+          GoRoute(
+            path: '/saved-posts',
+            builder: (context, state) => const SavedPostsScreen(),
           ),
           GoRoute(
             path: AppRoutes.journey,
