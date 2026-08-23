@@ -2,22 +2,290 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'dart:async';
 
 import 'package:makanspot/core/theme/app_theme.dart';
-
-import 'dart:typed_data';
-import 'package:flutter/services.dart' show rootBundle;
-import 'dart:async';
+import 'package:makanspot/shared/widgets/makan_network_image.dart';
 
 import '../controllers/discover_controller.dart';
 import '../controllers/discover_state.dart';
+import '../models/discover_restaurant.dart';
 import 'widgets/discover_filter_strip.dart';
 import 'widgets/discover_restaurant_card.dart';
 
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:geolocator/geolocator.dart' as gl;
 
+class _MapActionButton extends StatelessWidget {
+  const _MapActionButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface,
+      elevation: 2,
+      shape: const CircleBorder(),
+      child: IconButton(
+        icon: Icon(icon, size: 20),
+        tooltip: tooltip,
+        onPressed: onPressed,
+      ),
+    );
+  }
+}
+
+class _MapPullUp extends StatefulWidget {
+  const _MapPullUp({
+    required this.state,
+    required this.scrollController,
+    required this.onSearchChanged,
+    required this.onToggleFilter,
+    required this.onToggleCuisine,
+    required this.onToggleBudget,
+    required this.onSelectSort,
+    required this.onOpenRestaurant,
+  });
+
+  final DiscoverState state;
+  final ScrollController scrollController;
+  final ValueChanged<String> onSearchChanged;
+  final ValueChanged<String> onToggleFilter;
+  final ValueChanged<String> onToggleCuisine;
+  final ValueChanged<String> onToggleBudget;
+  final ValueChanged<String> onSelectSort;
+  final ValueChanged<String> onOpenRestaurant;
+
+  @override
+  State<_MapPullUp> createState() => _MapPullUpState();
+}
+
+class _MapPullUpState extends State<_MapPullUp> {
+  late final TextEditingController _searchController = TextEditingController(
+    text: widget.state.searchQuery,
+  );
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final restaurants = widget.state.restaurants;
+    return Material(
+      color: AppColors.surface,
+      elevation: 12,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      clipBehavior: Clip.antiAlias,
+      child: CustomScrollView(
+        controller: widget.scrollController,
+        slivers: [
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: Column(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.secondary,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Text(
+                        'Explore nearby',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${restaurants.length} found',
+                        style: const TextStyle(color: AppColors.mutedForeground),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    key: const Key('map-search'),
+                    controller: _searchController,
+                    onChanged: widget.onSearchChanged,
+                    textInputAction: TextInputAction.search,
+                    decoration: const InputDecoration(
+                      hintText: 'Search restaurants, food, or areas',
+                      prefixIcon: Icon(LucideIcons.search, size: 20),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DiscoverFilterStrip(
+                    options: _DiscoverHeader._filters,
+                    selected: widget.state.selectedFilters,
+                    onToggle: widget.onToggleFilter,
+                  ),
+                  const SizedBox(height: 9),
+                  DiscoverFilterStrip(
+                    options: _DiscoverHeader._cuisines,
+                    selected: widget.state.selectedCuisines,
+                    onToggle: widget.onToggleCuisine,
+                  ),
+                  const SizedBox(height: 9),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: DiscoverFilterStrip(
+                          options: _DiscoverHeader._budgets,
+                          selected: widget.state.selectedBudgets,
+                          onToggle: widget.onToggleBudget,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        width: 155,
+                        child: _SortControl(
+                          value: widget.state.sortBy,
+                          options: _DiscoverHeader._sortOptions,
+                          onChanged: widget.onSelectSort,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Text(
+                        'Recommended for you',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const Spacer(),
+                      const Icon(LucideIcons.sparkles, size: 17, color: AppColors.accent),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                ],
+              ),
+            ),
+          ),
+          if (restaurants.isEmpty)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(16, 12, 16, 32),
+                child: Text(
+                  'No restaurants match these filters.',
+                  style: TextStyle(color: AppColors.mutedForeground),
+                ),
+              ),
+            )
+          else
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: 214,
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: restaurants.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 12),
+                  itemBuilder: (context, index) => _MapRecommendationCard(
+                    restaurant: restaurants[index],
+                    onTap: () => widget.onOpenRestaurant(restaurants[index].id),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MapRecommendationCard extends StatelessWidget {
+  const _MapRecommendationCard({required this.restaurant, required this.onTap});
+
+  final DiscoverRestaurant restaurant;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 188,
+      child: Material(
+        color: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadii.card),
+          side: const BorderSide(color: AppColors.secondary),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                height: 105,
+                width: double.infinity,
+                child: MakanNetworkImage(
+                  url: restaurant.imageUrl,
+                  semanticLabel: restaurant.name,
+                  fallbackKey: Key('map-image-${restaurant.id}'),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(11, 9, 11, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      restaurant.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      restaurant.cuisine,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.mutedForeground,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    Row(
+                      children: [
+                        const Icon(LucideIcons.star, size: 14, color: AppColors.accent),
+                        const SizedBox(width: 3),
+                        Text(restaurant.rating?.toStringAsFixed(1) ?? '-'),
+                        const SizedBox(width: 8),
+                        Text(
+                          restaurant.distanceKm == null
+                              ? restaurant.budget
+                              : '${restaurant.distanceKm!.toStringAsFixed(1)} km',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.mutedForeground,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 class DiscoverScreen extends ConsumerStatefulWidget {
   const DiscoverScreen({required this.arguments, super.key});
 
@@ -32,6 +300,7 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
     text: widget.arguments.query,
   );
 
+  @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
@@ -67,6 +336,7 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
             onToggleCuisine: controller.toggleCuisine,
             onToggleBudget: controller.toggleBudget,
             onSelectSort: controller.selectSort,
+            onViewMap: () => _openMap(context),
           ),
           Expanded(
             child: _DiscoverResults(
@@ -81,6 +351,27 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _openMap(BuildContext context) async {
+    final permission = await gl.Geolocator.requestPermission();
+    if (!context.mounted) {
+      return;
+    }
+    if (permission == gl.LocationPermission.denied ||
+        permission == gl.LocationPermission.deniedForever) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Location permission is required to view the map.'),
+        ),
+      );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => DiscoverMapScreen(arguments: widget.arguments),
       ),
     );
   }
@@ -99,6 +390,7 @@ class _DiscoverHeader extends StatelessWidget {
     required this.onToggleCuisine,
     required this.onToggleBudget,
     required this.onSelectSort,
+    required this.onViewMap,
   });
 
   static const _filters = [
@@ -139,6 +431,7 @@ class _DiscoverHeader extends StatelessWidget {
   final ValueChanged<String> onToggleCuisine;
   final ValueChanged<String> onToggleBudget;
   final ValueChanged<String> onSelectSort;
+  final VoidCallback onViewMap;
 
   @override
   Widget build(BuildContext context) {
@@ -221,120 +514,189 @@ class _DiscoverHeader extends StatelessWidget {
               ],
             ),
             ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const _MapView()),
-                );
-              },
-              child: const Text('View Map'),
+              key: const Key('discover-view-map'),
+              onPressed: onViewMap,
+              child: const Text('Explore Map'),
             ),
           ],
         ),
       ),
     );
   }
+
 }
 
-class _MapView extends StatefulWidget {
-  const _MapView();
+class DiscoverMapScreen extends ConsumerStatefulWidget {
+  const DiscoverMapScreen({required this.arguments, super.key});
+
+  final DiscoverArguments arguments;
 
   @override
-  State<_MapView> createState() => _MapViewState();
+  ConsumerState<DiscoverMapScreen> createState() => _DiscoverMapScreenState();
 }
 
-class _MapViewState extends State<_MapView> {
-  StreamSubscription? userPositionStream;
+class _DiscoverMapScreenState extends ConsumerState<DiscoverMapScreen> {
+  StreamSubscription? _userPositionStream;
+  mp.MapboxMap? _mapboxMap;
+  mp.CircleAnnotationManager? _markerManager;
 
   @override
   void initState() {
     super.initState();
-    _setupPositionTracking();
-  } 
+    unawaited(_setupPositionTracking());
+  }
 
   @override
   void dispose() { 
-    userPositionStream?.cancel();
+    _userPositionStream?.cancel();
     super.dispose();
   }
 
-  mp.MapboxMap? mapboxMapController;
-
   @override
-  Widget build(BuildContext contedxt){
+  Widget build(BuildContext context) {
+    final state = ref.watch(discoverControllerProvider(widget.arguments));
+    ref.listen(discoverControllerProvider(widget.arguments), (_, next) {
+      unawaited(_renderMarkers(next.restaurants));
+    });
     return Scaffold(
-      body: mp.MapWidget(
-        onMapCreated: _onMapCreated,
-        styleUri: mp.MapboxStyles.DARK,
+      body: Stack(
+        children: [
+          mp.MapWidget(
+            key: const Key('discover-map'),
+            onMapCreated: _onMapCreated,
+            styleUri: mp.MapboxStyles.STANDARD,
+          ),
+          Positioned(
+            top: 48,
+            left: 16,
+            child: _MapActionButton(
+              icon: LucideIcons.chevronLeft,
+              tooltip: 'Back',
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ),
+          DraggableScrollableSheet(
+            initialChildSize: 0.32,
+            minChildSize: 0.18,
+            maxChildSize: 0.82,
+            snap: true,
+            snapSizes: const [0.32, 0.82],
+            builder: (context, scrollController) => _MapPullUp(
+              state: state,
+              scrollController: scrollController,
+              onSearchChanged: ref
+                  .read(discoverControllerProvider(widget.arguments).notifier)
+                  .updateSearch,
+              onToggleFilter: ref
+                  .read(discoverControllerProvider(widget.arguments).notifier)
+                  .toggleFilter,
+              onToggleCuisine: ref
+                  .read(discoverControllerProvider(widget.arguments).notifier)
+                  .toggleCuisine,
+              onToggleBudget: ref
+                  .read(discoverControllerProvider(widget.arguments).notifier)
+                  .toggleBudget,
+              onSelectSort: ref
+                  .read(discoverControllerProvider(widget.arguments).notifier)
+                  .selectSort,
+              onOpenRestaurant: (id) => context.push('/restaurant/$id'),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  void _onMapCreated(mp.MapboxMap controller) async {
-    setState(() {
-      mapboxMapController = controller;
-    });  
+  Future<void> _onMapCreated(mp.MapboxMap controller) async {
+    try {
+      _mapboxMap = controller;
+      await _mapboxMap?.location.updateSettings(
+        mp.LocationComponentSettings(enabled: true),
+      );
+      _markerManager = await controller.annotations.createCircleAnnotationManager();
+      final state = ref.read(discoverControllerProvider(widget.arguments));
+      await _renderMarkers(state.restaurants);
+    } catch (error) {
+      debugPrint('Unable to initialize map: $error');
+    }
+  }
 
-    mapboxMapController?.location.updateSettings(
-      mp.LocationComponentSettings(
-        enabled: true,
-      ),
+  Future<void> _renderMarkers(List<DiscoverRestaurant> restaurants) async {
+    final manager = _markerManager;
+    final map = _mapboxMap;
+    if (manager == null || map == null) {
+      return;
+    }
+    final located = restaurants
+        .where((restaurant) => restaurant.latitude != null && restaurant.longitude != null)
+        .toList();
+    await manager.deleteAll();
+    await manager.createMulti(
+      located.map((restaurant) {
+        return mp.CircleAnnotationOptions(
+          geometry: mp.Point(
+            coordinates: mp.Position(restaurant.longitude!, restaurant.latitude!),
+          ),
+          circleColor: AppColors.primary.toARGB32(),
+          circleRadius: 8,
+          circleStrokeColor: AppColors.surface.toARGB32(),
+          circleStrokeWidth: 3,
+        );
+      }).toList(),
     );
-
-    final pointAnnotationManager = await mapboxMapController?.annotations.createPointAnnotationManager();
-    final Uint8List imageData = await loadRestMarkerImage();
-    mp.PointAnnotationOptions pointAnnotationOptions = mp.PointAnnotationOptions(
-      geometry: mp.Point(coordinates: mp.Position(103.851959, 1.290270)),
-      image: imageData,
-      iconSize: 1.0,
-    );
-
-    pointAnnotationManager?.create(pointAnnotationOptions);
+    if (located.isNotEmpty) {
+      await map.setCamera(
+        mp.CameraOptions(
+          center: mp.Point(
+            coordinates: mp.Position(located.first.longitude!, located.first.latitude!),
+          ),
+          zoom: 12.5,
+        ),
+      );
+    }
   }
 
   Future<void> _setupPositionTracking() async {
-    bool serviceEnabled;
-    gl.LocationPermission permission;
-    serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
-
-    if(!serviceEnabled){
-      return Future.error('Location services are disabled.');
-    }
-    permission = await gl.Geolocator.checkPermission();
-    if(permission == gl.LocationPermission.denied){
-      permission = await gl.Geolocator.requestPermission();
-      if(permission == gl.LocationPermission.denied){
-        return Future.error('Location permissions are denied');
+    try {
+      final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        return;
       }
-    }
+      final permission = await gl.Geolocator.checkPermission();
+      if (permission == gl.LocationPermission.denied ||
+          permission == gl.LocationPermission.deniedForever) {
+        return;
+      }
 
-    if(permission == gl.LocationPermission.deniedForever){
-      return Future.error('Location permissions are permanently denied, we cannot request permissions.');
-    }
-
-    gl.LocationSettings locationSettings = gl.LocationSettings(
-      accuracy: gl.LocationAccuracy.high, 
-      distanceFilter: 10
-    );
-
-    userPositionStream?.cancel();
-    userPositionStream = gl.Geolocator.getPositionStream(locationSettings: locationSettings).listen(
-      (
-        gl.Position? position,
-      ) {
-        if (position != null && mapboxMapController != null) {
-          mapboxMapController?.setCamera(mp.CameraOptions(
-            zoom: 14.0,
-            center: mp.Point(coordinates: mp.Position(position.longitude, position.latitude)),
-          ));
+      _userPositionStream?.cancel();
+      _userPositionStream = gl.Geolocator.getPositionStream(
+        locationSettings: const gl.LocationSettings(
+          accuracy: gl.LocationAccuracy.high,
+          distanceFilter: 10,
+        ),
+      ).listen((position) {
+        final map = _mapboxMap;
+        if (map != null) {
+          map.setCamera(
+            mp.CameraOptions(
+              zoom: 14.0,
+              center: mp.Point(
+                coordinates: mp.Position(
+                  position.longitude,
+                  position.latitude,
+                ),
+              ),
+            ),
+          );
         }
-      },);
-    }  
-    
-    Future<Uint8List> loadRestMarkerImage() async {
-      var byteData = await rootBundle.load('assets/images/restaurant_marker.png');
-      return byteData.buffer.asUint8List();
+      }, onError: (Object error, StackTrace stackTrace) {
+        debugPrint('Location stream error: $error');
+      });
+    } catch (error) {
+      debugPrint('Unable to track location: $error');
     }
+  }
+
 }
 class _SortControl extends StatelessWidget {
   const _SortControl({
