@@ -6,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:makanspot/core/theme/app_theme.dart';
 
 import '../controllers/admin_dashboard_controller.dart';
+import '../controllers/admin_action_log_controller.dart';
 import '../models/admin_models.dart';
 import 'widgets/admin_page_header.dart';
 import 'widgets/admin_skeletons.dart';
@@ -82,8 +83,79 @@ class _DashboardContent extends StatelessWidget {
       children: [
         _StatGrid(data: data, loading: loading),
         const SizedBox(height: 24),
+        const _AdminActionLogBlock(),
+        const SizedBox(height: 24),
         _RecentModeration(data: data, loading: loading),
       ],
+    );
+  }
+}
+
+class _AdminActionLogBlock extends ConsumerWidget {
+  const _AdminActionLogBlock();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(adminActionLogControllerProvider);
+    final loading = state.status == AdminActionLogStatus.loading;
+    final count = state.entries.length;
+    return InkWell(
+      key: const Key('admin-action-log-link'),
+      onTap: () => context.go('/admin/action-log'),
+      borderRadius: BorderRadius.circular(AppRadii.card),
+      child: Container(
+        height: 136,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppRadii.card),
+          border: Border.all(color: AppColors.secondary),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (loading)
+              const AdminSkeletonBox(height: 40, width: 40, radius: 12)
+            else
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppColors.accent.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(AppRadii.control),
+                ),
+                child: const Icon(
+                  LucideIcons.scrollText,
+                  size: 20,
+                  color: AppColors.foreground,
+                ),
+              ),
+            const SizedBox(height: 12),
+            if (loading)
+              const AdminSkeletonBox(height: 24, width: 64, radius: 6)
+            else
+              Text(
+                '$count',
+                style: const TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  height: 1.1,
+                  color: AppColors.foreground,
+                ),
+              ),
+            const SizedBox(height: 4),
+            Text(
+              'Admin Action Logs',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: AppColors.mutedForeground),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
