@@ -296,16 +296,26 @@ class DiscoverScreen extends ConsumerStatefulWidget {
 }
 
 class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
+  StreamSubscription? _userPositionStream;
+  mp.MapboxMap? _mapboxMap;
+  mp.CircleAnnotationManager? _markerManager;
+
   late final TextEditingController _searchController = TextEditingController(
     text: widget.arguments.query,
   );
 
   @override
+  void initState() {
+    super.initState();
+    unawaited(_setupPositionTracking());
+  }
+
+  @override
   void dispose() {
+    _userPositionStream?.cancel();
     _searchController.dispose();
     super.dispose();
   }
-  
 
   @override
   Widget build(BuildContext context) {
@@ -313,41 +323,46 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
     final controller = ref.read(
       discoverControllerProvider(widget.arguments).notifier,
     );
-    return SafeArea(
-      bottom: false,
-      child: Column(
+    return Scaffold(
+      body: Stack(
         children: [
-          _DiscoverHeader(
-            searchController: _searchController,
-            state: state,
-            onBack: () {
-              if (context.canPop()) {
-                context.pop();
-              } else {
-                context.go('/');
-              }
-            },
-            onSearchChanged: controller.updateSearch,
-            onClearSearch: () {
-              _searchController.clear();
-              controller.updateSearch('');
-            },
-            onToggleFilter: controller.toggleFilter,
-            onToggleCuisine: controller.toggleCuisine,
-            onToggleBudget: controller.toggleBudget,
-            onSelectSort: controller.selectSort,
-            onViewMap: () => _openMap(context),
+          Positioned.fill(
+            child: mp.MapWidget(
+              key: const Key('discover-map'),
+              onMapCreated: _onMapCreated,
+              styleUri: mp.MapboxStyles.STANDARD,
+            ),
           ),
-          Expanded(
-            child: _DiscoverResults(
-              state: state,
-              onRetry: controller.load,
-              onClear: () {
-                _searchController.clear();
-                controller.clearFilters();
+          Positioned(
+            top: 48,
+            left: 16,
+            child: _MapActionButton(
+              icon: LucideIcons.chevronLeft,
+              tooltip: 'Back',
+              onPressed: () {
+                if (context.canPop()) {
+                  context.pop();
+                } else {
+                  context.go('/');
+                }
               },
-              onBookmark: controller.toggleBookmark,
-              onOpen: (id) => context.go('/restaurant/$id'),
+            ),
+          ),
+          DraggableScrollableSheet(
+            initialChildSize: 0.32,
+            minChildSize: 0.18,
+            maxChildSize: 0.82,
+            snap: true,
+            snapSizes: const [0.32, 0.82],
+            builder: (context, scrollController) => _MapPullUp(
+              state: state,
+              scrollController: scrollController,
+              onSearchChanged: controller.updateSearch,
+              onToggleFilter: controller.toggleFilter,
+              onToggleCuisine: controller.toggleCuisine,
+              onToggleBudget: controller.toggleBudget,
+              onSelectSort: controller.selectSort,
+              onOpenRestaurant: (id) => context.push('/restaurant/$id'),
             ),
           ),
         ],
@@ -355,29 +370,107 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
     );
   }
 
-  Future<void> _openMap(BuildContext context) async {
-    final permission = await gl.Geolocator.requestPermission();
-    if (!context.mounted) {
+  Future<void> _onMapCreated(mp.MapboxMap controller) async {
+    try {
+      _mapboxMap = controller;
+      await _mapboxMap?.location.updateSettings(
+        mp.LocationComponentSettings(enabled: true),
+      );
+      _markerManager = await controller.annotations
+          .createCircleAnnotationManager();
+      final state = ref.read(discoverControllerProvider(widget.arguments));
+      await _renderMarkers(state.restaurants);
+    } catch (error) {
+      debugPrint('Unable to initialize map: $error');
+    }
+  }
+
+  Future<void> _renderMarkers(List<DiscoverRestaurant> restaurants) async {
+    final manager = _markerManager;
+    final map = _mapboxMap;
+    if (manager == null || map == null) {
       return;
     }
-    if (permission == gl.LocationPermission.denied ||
-        permission == gl.LocationPermission.deniedForever) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Location permission is required to view the map.'),
+    final located = restaurants
+        .where(
+          (restaurant) =>
+              restaurant.latitude != null && restaurant.longitude != null,
+        )
+        .toList();
+    await manager.deleteAll();
+    await manager.createMulti(
+      located.map((restaurant) {
+        return mp.CircleAnnotationOptions(
+          geometry: mp.Point(
+            coordinates: mp.Position(
+              restaurant.longitude!,
+              restaurant.latitude!,
+            ),
+          ),
+          circleColor: AppColors.primary.toARGB32(),
+          circleRadius: 8,
+          circleStrokeColor: AppColors.surface.toARGB32(),
+          circleStrokeWidth: 3,
+        );
+      }).toList(),
+    );
+    if (located.isNotEmpty) {
+      await map.setCamera(
+        mp.CameraOptions(
+          center: mp.Point(
+            coordinates: mp.Position(
+              located.first.longitude!,
+              located.first.latitude!,
+            ),
+          ),
+          zoom: 12.5,
         ),
       );
-      return;
     }
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => DiscoverMapScreen(arguments: widget.arguments),
-      ),
-    );
   }
+
+  Future<void> _setupPositionTracking() async {
+    try {
+      final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        return;
+      }
+      final permission = await gl.Geolocator.checkPermission();
+      if (permission == gl.LocationPermission.denied ||
+          permission == gl.LocationPermission.deniedForever) {
+        return;
+      }
+
+      _userPositionStream?.cancel();
+      _userPositionStream = gl.Geolocator.getPositionStream(
+        locationSettings: const gl.LocationSettings(
+          accuracy: gl.LocationAccuracy.high,
+          distanceFilter: 10,
+        ),
+      ).listen((position) {
+        final map = _mapboxMap;
+        if (map != null) {
+          map.setCamera(
+            mp.CameraOptions(
+              zoom: 14.0,
+              center: mp.Point(
+                coordinates: mp.Position(
+                  position.longitude,
+                  position.latitude,
+                ),
+              ),
+            ),
+          );
+        }
+      }, onError: (Object error, StackTrace stackTrace) {
+        debugPrint('Location stream error: $error');
+      });
+    } catch (error) {
+      debugPrint('Unable to track location: $error');
+    }
+  }
+
 }
-
-
 
 class _DiscoverHeader extends StatelessWidget {
   const _DiscoverHeader({
@@ -523,7 +616,6 @@ class _DiscoverHeader extends StatelessWidget {
       ),
     );
   }
-
 }
 
 class DiscoverMapScreen extends ConsumerStatefulWidget {
@@ -547,7 +639,7 @@ class _DiscoverMapScreenState extends ConsumerState<DiscoverMapScreen> {
   }
 
   @override
-  void dispose() { 
+  void dispose() {
     _userPositionStream?.cancel();
     super.dispose();
   }
@@ -613,7 +705,7 @@ class _DiscoverMapScreenState extends ConsumerState<DiscoverMapScreen> {
       await _mapboxMap?.location.updateSettings(
         mp.LocationComponentSettings(enabled: true),
       );
-      _markerManager = await controller.annotations.createCircleAnnotationManager();
+        _markerManager = await controller.annotations.createCircleAnnotationManager();
       final state = ref.read(discoverControllerProvider(widget.arguments));
       await _renderMarkers(state.restaurants);
     } catch (error) {
@@ -628,8 +720,8 @@ class _DiscoverMapScreenState extends ConsumerState<DiscoverMapScreen> {
       return;
     }
     final located = restaurants
-        .where((restaurant) => restaurant.latitude != null && restaurant.longitude != null)
-        .toList();
+      .where((restaurant) => restaurant.latitude != null && restaurant.longitude != null)
+      .toList();
     await manager.deleteAll();
     await manager.createMulti(
       located.map((restaurant) {
@@ -696,8 +788,8 @@ class _DiscoverMapScreenState extends ConsumerState<DiscoverMapScreen> {
       debugPrint('Unable to track location: $error');
     }
   }
-
 }
+
 class _SortControl extends StatelessWidget {
   const _SortControl({
     required this.value,
