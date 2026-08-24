@@ -966,7 +966,7 @@ A desktop dashboard layout is recommended for this module.
 
 - View reported posts.
 - View reported comments.
-- Search and filter reports.
+- Filter reports by status.
 - View pending, removed, or dismissed reports.
 - Open a report for review.
 
@@ -975,7 +975,6 @@ A desktop dashboard layout is recommended for this module.
 - Reported Posts tab.
 - Reported Comments tab.
 - Status filter.
-- Search control.
 - Report queue.
 - Content preview.
 - Content owner.
