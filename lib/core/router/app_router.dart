@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:makanspot/core/router/not_migrated_screen.dart';
-import 'package:makanspot/features/admin/views/admin_dashboard_screen.dart';
 import 'package:makanspot/features/admin/views/admin_shell.dart';
 import 'package:makanspot/features/admin/views/moderation_details_screen.dart';
 import 'package:makanspot/features/admin/views/moderation_screen.dart';
@@ -12,7 +11,7 @@ import 'package:makanspot/features/admin/views/restaurant_details_screen.dart'
 import 'package:makanspot/features/admin/views/restaurant_management_screen.dart';
 import 'package:makanspot/features/admin/views/user_details_screen.dart';
 import 'package:makanspot/features/admin/views/user_management_screen.dart';
-import 'package:makanspot/features/admin/views/v2_data_scraper_screen.dart';
+import 'package:makanspot/features/admin/views/data_scraper_screen.dart';
 import 'package:makanspot/features/auth/controllers/auth_controller.dart';
 import 'package:makanspot/features/auth/controllers/auth_state.dart';
 import 'package:makanspot/features/auth/views/change_password_screen.dart';
@@ -48,7 +47,6 @@ abstract final class AppRoutes {
   static const forgotPassword = '/forgot-password';
   static const resetPassword = '/reset-password';
   static const changePassword = '/profile/change-password';
-  static const adminDashboard = '/admin';
   static const adminUsers = '/admin/users';
   static const adminRestaurants = '/admin/restaurants';
   static const adminNewRestaurant = '/admin/restaurants/new';
@@ -88,9 +86,9 @@ GoRouter createAppRouter({
         return AppRoutes.login;
       }
       if (_publicRoutes.contains(location)) {
-        return session.isAdmin ? AppRoutes.adminDashboard : AppRoutes.home;
+        return session.isAdmin ? AppRoutes.adminScraper : AppRoutes.home;
       }
-      if (location.startsWith(AppRoutes.adminDashboard) && !session.isAdmin) {
+      if (location.startsWith('/admin') && !session.isAdmin) {
         return AppRoutes.home;
       }
       return null;
@@ -203,8 +201,8 @@ GoRouter createAppRouter({
         },
         routes: [
           GoRoute(
-            path: AppRoutes.adminDashboard,
-            builder: (context, state) => const AdminDashboardScreen(),
+            path: AppRoutes.adminScraper,
+            builder: (context, state) => const V2DataScraperScreen(),
           ),
           GoRoute(
             path: AppRoutes.adminUsers,
@@ -242,10 +240,6 @@ GoRouter createAppRouter({
                 state.uri.queryParameters['type'],
               ),
             ),
-          ),
-          GoRoute(
-            path: AppRoutes.adminScraper,
-            builder: (context, state) => const V2DataScraperScreen(),
           ),
         ],
       ),

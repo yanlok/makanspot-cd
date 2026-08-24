@@ -22,7 +22,7 @@ import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 type DbClient = SupabaseClient<any, any, any, any, any>;
 
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
-import { isServiceRoleRequest } from "../_shared/v2-auth.ts";
+import { isServiceRoleRequest } from "../_shared/auth.ts";
 import {
   type IgRecord,
   toV2PlaceCandidate,
@@ -35,7 +35,7 @@ import {
   v2PlacePostsToRows,
   v2ShouldQueueLocationPosts,
   type V2StagingRow,
-} from "../_shared/v2-apify.ts";
+} from "../_shared/apify.ts";
 import {
   v2DeriveCategories,
   v2ExtractVenue,
@@ -49,7 +49,7 @@ import {
   v2SelectBestImageCandidate,
   v2SumComponentCosts,
   v2TrendScore,
-} from "../_shared/v2-enrich.ts";
+} from "../_shared/enrich.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -108,7 +108,7 @@ function nextBusinessHour(dateMs: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Pipeline state stored in pipeline_jobs.result JSONB
+// Pipeline state stored in v2_scrape_runs.result JSONB
 // ---------------------------------------------------------------------------
 
 interface V2PipelineState {
@@ -181,30 +181,24 @@ Deno.serve(async (req: Request) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
-  // --- Read current job state ---
-  const { data: job, error: readErr } = await supabase
-    .from("pipeline_jobs")
+  // --- Read current scrape-run state ---
+  const { data: scrapeRun, error: readErr } = await supabase
+    .from("scrape_runs")
     .select("id, status, result")
     .eq("id", jobId)
     .single();
 
-  if (readErr || !job) {
-    console.error(`[v2-continue] Job ${jobId} not found:`, readErr?.message);
-    await failOnlyActiveScrapeRun(
-      supabase,
-      `Continuation job ${jobId} could not be read: ${
-        readErr?.message ?? "not found"
-      }`,
-    );
-    return jsonResponse({ error: "Job not found" }, 404);
+  if (readErr || !scrapeRun) {
+    console.error(`[v2-continue] Scrape run ${jobId} not found:`, readErr?.message);
+    return jsonResponse({ error: "Scrape run not found" }, 404);
   }
 
-  if (job.status !== "running") {
-    console.log(`[v2-continue] Job ${jobId} is ${job.status} — skipping`);
+  if (scrapeRun.status !== "running") {
+    console.log(`[v2-continue] Scrape run ${jobId} is ${scrapeRun.status} — skipping`);
     return jsonResponse({ ok: true, skipped: true });
   }
 
-  const state: V2PipelineState = (job.result as V2PipelineState) ?? {
+  const state: V2PipelineState = (scrapeRun.result as V2PipelineState) ?? {
     stats: {
       posts_received: 0,
       new_posts: 0,
@@ -331,7 +325,7 @@ async function handleScrape(
     await updateState(supabase, jobId, state);
     if (state.active_component_id) {
       const { error: componentError } = await supabase
-        .from("v2_scrape_run_components").update({
+        .from("scrape_run_components").update({
           status: "completed",
           dataset_id: datasetId,
           cost_usd: state.cost_usd,
@@ -344,7 +338,7 @@ async function handleScrape(
       }
     }
     if (state.v2_scrape_run_id) {
-      const { error: traceError } = await supabase.from("v2_scrape_runs")
+      const { error: traceError } = await supabase.from("scrape_runs")
         .update({ dataset_id: datasetId, cost_usd: state.cost_usd })
         .eq("id", state.v2_scrape_run_id);
       if (traceError) {
@@ -423,7 +417,7 @@ async function handleIngest(
     // post processing; a replay therefore reports new_posts=0 and cannot reset
     // previously promoted/skipped/failed rows.
     if (state.active_component_id) {
-      const { error } = await supabase.from("v2_scrape_run_components")
+      const { error } = await supabase.from("scrape_run_components")
         .update({ item_count: state.component_item_count ?? 0 })
         .eq("id", state.active_component_id);
       if (error) {
@@ -535,7 +529,7 @@ async function maybeQueueLocationPosts(
   place: V2PlaceCandidate,
 ) {
   if (!place.external_id) return;
-  const { data: primary, error } = await supabase.from("v2_restaurant_images")
+  const { data: primary, error } = await supabase.from("restaurant_images")
     .select("id").eq("restaurant_id", restaurantId).eq("is_primary", true)
     .limit(1).maybeSingle();
   if (error) throw new Error(`Primary image check failed: ${error.message}`);
@@ -573,7 +567,7 @@ async function startLocationPostsComponent(
   const token = Deno.env.get("APIFY_TOKEN");
   if (!runId || !token) throw new Error("Cannot start location-post component");
   const { data: component, error } = await supabase
-    .from("v2_scrape_run_components").insert({
+    .from("scrape_run_components").insert({
       scrape_run_id: runId,
       component_type: "location_posts",
       status: "pending",
@@ -618,7 +612,7 @@ async function startLocationPostsComponent(
     state.current_step = "location_posts_scrape";
     state.batch_index = 0;
     const [componentUpdate] = await Promise.all([
-      supabase.from("v2_scrape_run_components").update({
+      supabase.from("scrape_run_components").update({
         status: "running",
         apify_run_id: actorRunId,
         started_at: new Date().toISOString(),
@@ -633,7 +627,7 @@ async function startLocationPostsComponent(
   } catch (error) {
     if (actorRunId) await abortActorRun(token, actorRunId);
     const message = error instanceof Error ? error.message : String(error);
-    await supabase.from("v2_scrape_run_components").update({
+    await supabase.from("scrape_run_components").update({
       status: "failed",
       error: message,
       completed_at: new Date().toISOString(),
@@ -679,7 +673,7 @@ async function handleLocationPostsScrape(
   state.location_posts_dataset_id = actor.defaultDatasetId;
   state.current_step = "location_posts_ingest";
   state.batch_index = 0;
-  const { error } = await supabase.from("v2_scrape_run_components").update({
+  const { error } = await supabase.from("scrape_run_components").update({
     status: "completed",
     dataset_id: actor.defaultDatasetId,
     cost_usd: actor.usageTotalUsd ?? 0,
@@ -753,7 +747,7 @@ async function finishLocationPostsIngest(
   jobId: string,
   state: V2PipelineState,
 ) {
-  const { error } = await supabase.from("v2_scrape_run_components")
+  const { error } = await supabase.from("scrape_run_components")
     .update({ item_count: Math.min(3, state.component_item_count ?? 0) })
     .eq("id", state.active_component_id);
   if (error) {
@@ -789,7 +783,7 @@ async function markComponentFailed(
   message: string,
 ) {
   if (!componentId) return;
-  await supabase.from("v2_scrape_run_components").update({
+  await supabase.from("scrape_run_components").update({
     status: "failed",
     error: message,
     completed_at: new Date().toISOString(),
@@ -801,7 +795,7 @@ async function insertNewPost(
   row: V2StagingRow,
 ): Promise<number | null> {
   const { data, error } = await supabase
-    .from("v2_scraped_posts")
+    .from("scraped_posts")
     .insert(row)
     .select("id")
     .maybeSingle();
@@ -833,7 +827,7 @@ async function findPlaceRestaurant(
 ): Promise<number | null> {
   if (place.external_id) {
     const { data, error } = await supabase
-      .from("v2_restaurant_sources")
+      .from("restaurant_sources")
       .select("restaurant_id")
       .eq("platform", "instagram")
       .eq("source_type", "location_id")
@@ -849,7 +843,7 @@ async function findPlaceRestaurant(
   }
   const tolerance = 0.002; // roughly 200m in Malaysia; name must also match.
   const { data, error } = await supabase
-    .from("v2_restaurants")
+    .from("restaurants")
     .select("id")
     .eq("normalized_name", normalized)
     .gte("latitude", place.latitude - tolerance)
@@ -873,7 +867,7 @@ async function upsertPlaceRestaurant(
   let address = place.address;
   let city = place.city;
   if (existingId && (!address || !city)) {
-    const { data, error } = await supabase.from("v2_restaurants")
+    const { data, error } = await supabase.from("restaurants")
       .select("address, city").eq("id", existingId).single();
     if (error) throw new Error(`Place address lookup failed: ${error.message}`);
     address ??= data.address;
@@ -900,7 +894,7 @@ async function upsertPlaceRestaurant(
     if (place.phone) patch.phone = place.phone;
     if (place.external_id) patch.instagram_location_id = place.external_id;
     if (categories.length) patch.categories = categories;
-    const { error } = await supabase.from("v2_restaurants").update(patch).eq(
+    const { error } = await supabase.from("restaurants").update(patch).eq(
       "id",
       restaurantId,
     );
@@ -909,7 +903,7 @@ async function upsertPlaceRestaurant(
     }
   } else {
     if (!place.name) return null;
-    const { data, error } = await supabase.from("v2_restaurants").insert({
+    const { data, error } = await supabase.from("restaurants").insert({
       name: place.name,
       normalized_name: v2NormalizeName(place.name),
       address,
@@ -933,7 +927,7 @@ async function upsertPlaceRestaurant(
   }
 
   if (place.external_id) {
-    const { error } = await supabase.from("v2_restaurant_sources").upsert({
+    const { error } = await supabase.from("restaurant_sources").upsert({
       restaurant_id: restaurantId,
       platform: "instagram",
       source_type: "location_id",
@@ -959,7 +953,7 @@ async function findRestaurantForPostCandidate(
   const name = v2NormalizeName(candidate.name);
   if (!name) return null;
 
-  let query = supabase.from("v2_restaurants")
+  let query = supabase.from("restaurants")
     .select("id, normalized_name, address, city")
     .limit(10);
   if (latitude !== null && longitude !== null) {
@@ -1025,7 +1019,7 @@ async function handleDetect(
   }
   // Fetch pending posts in batch
   const { data: posts, error: fetchErr } = await supabase
-    .from("v2_scraped_posts")
+    .from("scraped_posts")
     .select(
       "id, caption, hashtags, location_id, location_name, author_username, likes, comments, views",
     )
@@ -1077,7 +1071,7 @@ async function handleDetect(
     if (v2IsLikelyNotRestaurant(caption, hashtags)) {
       // Mark as skipped
       await supabase
-        .from("v2_scraped_posts")
+        .from("scraped_posts")
         .update({ status: "skipped" })
         .eq("id", post.id);
       state.stats.posts_skipped++;
@@ -1088,7 +1082,7 @@ async function handleDetect(
     // Derive categories from existing data
     // Mark as candidate_extracted (ready for resolve + enrich)
     await supabase
-      .from("v2_scraped_posts")
+      .from("scraped_posts")
       .update({
         status: "candidate_extracted",
       })
@@ -1120,7 +1114,7 @@ async function handleResolve(
   state: V2PipelineState,
 ) {
   const { data: posts, error: fetchErr } = await supabase
-    .from("v2_scraped_posts")
+    .from("scraped_posts")
     .select(
       "id, post_url, location_id, author_username, likes, comments, views, caption, hashtags, cover_url",
     )
@@ -1163,7 +1157,7 @@ async function handleResolve(
 
     if (post.post_url) {
       const { data: postSource, error: postSourceError } = await supabase
-        .from("v2_restaurant_sources")
+        .from("restaurant_sources")
         .select("restaurant_id")
         .eq("platform", "instagram")
         .eq("source_type", "post_url")
@@ -1180,7 +1174,7 @@ async function handleResolve(
     // Try location_id match
     if (!matchedRestaurantId && post.location_id) {
       const { data: locSource, error: locError } = await supabase
-        .from("v2_restaurant_sources")
+        .from("restaurant_sources")
         .select("restaurant_id")
         .eq("platform", "instagram")
         .eq("source_type", "location_id")
@@ -1202,7 +1196,7 @@ async function handleResolve(
         resolved++;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        await supabase.from("v2_scraped_posts").update({
+        await supabase.from("scraped_posts").update({
           status: "failed",
           error: message,
         })
@@ -1211,7 +1205,7 @@ async function handleResolve(
       }
     } else {
       // Explicit hand-off avoids repeatedly selecting the same unmatched rows.
-      const { error } = await supabase.from("v2_scraped_posts")
+      const { error } = await supabase.from("scraped_posts")
         .update({ status: "processing" }).eq("id", post.id);
       if (error) {
         throw new Error(
@@ -1244,7 +1238,7 @@ async function linkPostAndRefreshRestaurant(
     views?: number;
   },
 ) {
-  const { error: linkError } = await supabase.from("v2_restaurant_social_posts")
+  const { error: linkError } = await supabase.from("restaurant_social_posts")
     .upsert(
       { restaurant_id: restaurantId, post_id: post.id },
       { onConflict: "restaurant_id,post_id", ignoreDuplicates: true },
@@ -1253,7 +1247,7 @@ async function linkPostAndRefreshRestaurant(
     throw new Error(`Social post link failed: ${linkError.message}`);
   }
   if (post.post_url) {
-    const { error: sourceError } = await supabase.from("v2_restaurant_sources")
+    const { error: sourceError } = await supabase.from("restaurant_sources")
       .upsert({
         restaurant_id: restaurantId,
         platform: "instagram",
@@ -1270,12 +1264,12 @@ async function linkPostAndRefreshRestaurant(
 
   const [{ count, error: countError }, { data: restaurant, error: readError }] =
     await Promise.all([
-      supabase.from("v2_restaurant_social_posts")
+      supabase.from("restaurant_social_posts")
         .select("id", { count: "exact", head: true }).eq(
           "restaurant_id",
           restaurantId,
         ),
-      supabase.from("v2_restaurants").select("popularity_score").eq(
+      supabase.from("restaurants").select("popularity_score").eq(
         "id",
         restaurantId,
       ).single(),
@@ -1292,7 +1286,7 @@ async function linkPostAndRefreshRestaurant(
     post.comments ?? 0,
     post.views ?? 0,
   );
-  const { error: updateError } = await supabase.from("v2_restaurants").update({
+  const { error: updateError } = await supabase.from("restaurants").update({
     source_post_count: count ?? 0,
     popularity_score: Math.max(restaurant?.popularity_score ?? 0, popularity),
     last_scraped_at: new Date().toISOString(),
@@ -1304,7 +1298,7 @@ async function linkPostAndRefreshRestaurant(
     );
   }
 
-  const { error: postError } = await supabase.from("v2_scraped_posts")
+  const { error: postError } = await supabase.from("scraped_posts")
     .update({ status: "resolved", error: null }).eq("id", post.id);
   if (postError) {
     throw new Error(`Post resolution update failed: ${postError.message}`);
@@ -1322,7 +1316,7 @@ async function handleEnrich(
 ) {
   // Fetch unresolved candidates for LLM enrichment
   const { data: posts, error: fetchErr } = await supabase
-    .from("v2_scraped_posts")
+    .from("scraped_posts")
     .select(
       "id, post_url, caption, hashtags, author_username, cover_url, location_id, location_name, likes, comments, views",
     )
@@ -1377,7 +1371,7 @@ async function handleEnrich(
 
       if (!extraction.is_restaurant || extraction.confidence < 0.5) {
         await supabase
-          .from("v2_scraped_posts")
+          .from("scraped_posts")
           .update({ status: "skipped" })
           .eq("id", post.id);
         state.stats.posts_skipped++;
@@ -1392,7 +1386,7 @@ async function handleEnrich(
       if (post.location_id) {
         // We have an IG location — check if we can get coords from the source
         const { data: locSource } = await supabase
-          .from("v2_restaurant_sources")
+          .from("restaurant_sources")
           .select("restaurant_id")
           .eq("platform", "instagram")
           .eq("source_type", "location_id")
@@ -1444,7 +1438,7 @@ async function handleEnrich(
       }
 
       const { data: newRestaurant, error: insertErr } = await supabase
-        .from("v2_restaurants")
+        .from("restaurants")
         .insert({
           name: extraction.name,
           normalized_name: normalizedName,
@@ -1476,7 +1470,7 @@ async function handleEnrich(
           `[v2-continue] Failed to insert restaurant for post ${post.id}:`,
           insertErr?.message,
         );
-        await supabase.from("v2_scraped_posts").update({
+        await supabase.from("scraped_posts").update({
           status: "failed",
           error: `restaurant_insert_failed: ${
             insertErr?.message ?? "unknown error"
@@ -1492,7 +1486,7 @@ async function handleEnrich(
       // Register sources
       if (post.location_id) {
         const { error: sourceError } = await supabase
-          .from("v2_restaurant_sources")
+          .from("restaurant_sources")
           .upsert(
             {
               restaurant_id: restaurantId,
@@ -1515,7 +1509,7 @@ async function handleEnrich(
 
       // Link post to new restaurant
       await linkPostAndRefreshRestaurant(supabase, restaurantId, post);
-      const { error: promotedError } = await supabase.from("v2_scraped_posts")
+      const { error: promotedError } = await supabase.from("scraped_posts")
         .update({ status: "promoted" }).eq(
           "id",
           post.id,
@@ -1534,7 +1528,7 @@ async function handleEnrich(
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[v2-continue] Enrich error for post ${post.id}:`, msg);
       await supabase
-        .from("v2_scraped_posts")
+        .from("scraped_posts")
         .update({ status: "failed", error: msg })
         .eq("id", post.id);
       state.stats.posts_failed++;
@@ -1581,7 +1575,7 @@ async function handleMetrics(
 
   for (const restaurantId of ids) {
     const { data: links, error: linkError } = await supabase
-      .from("v2_restaurant_social_posts")
+      .from("restaurant_social_posts")
       .select("post_id")
       .eq("restaurant_id", restaurantId);
     if (linkError) {
@@ -1591,7 +1585,7 @@ async function handleMetrics(
 
     let posts: MetricPost[] = [];
     if (postIds.length > 0) {
-      const { data, error } = await supabase.from("v2_scraped_posts")
+      const { data, error } = await supabase.from("scraped_posts")
         .select(
           "author_username, likes, comments, views, posted_at, scraped_at, cover_url, caption, hashtags",
         )
@@ -1640,7 +1634,7 @@ async function handleMetrics(
     });
 
     const { error: metricError } = await supabase.from(
-      "v2_restaurant_social_metrics",
+      "restaurant_social_metrics",
     ).upsert({
       restaurant_id: restaurantId,
       mention_count_7d: mention7,
@@ -1667,7 +1661,7 @@ async function handleMetrics(
         max,
         v2PopularityScore(post.likes ?? 0, post.comments ?? 0, post.views ?? 0),
       ), 0);
-    const { error: restaurantError } = await supabase.from("v2_restaurants")
+    const { error: restaurantError } = await supabase.from("restaurants")
       .update({
         source_post_count: posts.length,
         popularity_score: maxPopularity,
@@ -1719,10 +1713,10 @@ async function handleComplete(
 
   state.cost_usd = await settleComponentCosts(supabase, state);
 
-  // Update v2_scrape_runs with totals
+  // Update v2_scrape_runs with totals and final result
   if (state.v2_scrape_run_id) {
     const { error } = await supabase
-      .from("v2_scrape_runs")
+      .from("scrape_runs")
       .update({
         status: "completed",
         completed_at: new Date().toISOString(),
@@ -1731,6 +1725,24 @@ async function handleComplete(
         restaurant_candidates: state.stats.candidates_detected,
         new_restaurants: state.stats.restaurants_created,
         cost_usd: state.cost_usd ?? 0,
+        result: {
+          mode: "v2",
+          current_step: "complete",
+          dataset_kind: state.dataset_kind,
+          result_limit: state.result_limit,
+          new_posts: state.stats.new_posts,
+          new_restaurants: state.stats.restaurants_created,
+          candidates_detected: state.stats.candidates_detected,
+          candidates_enriched: state.stats.candidates_enriched,
+          skipped: state.stats.posts_skipped,
+          failed: state.stats.posts_failed,
+          cost_usd: state.cost_usd ?? 0,
+          posts_received: state.stats.posts_received,
+          places_received: state.stats.places_received ?? 0,
+          places_filtered: state.stats.places_filtered ?? 0,
+          location_posts_received: state.stats.location_posts_received ?? 0,
+          duration_seconds: duration,
+        },
       })
       .eq("id", state.v2_scrape_run_id);
     if (error) {
@@ -1759,7 +1771,7 @@ async function handleComplete(
 
     for (const sourceId of state.source_ids) {
       const { data: source, error: sourceReadError } = await supabase
-        .from("v2_discovery_sources")
+        .from("discovery_sources")
         .select(
           "scrape_count, posts_scraped, new_posts, restaurant_candidates, new_restaurants, verified_restaurants, total_cost_usd",
         )
@@ -1817,7 +1829,7 @@ async function handleComplete(
         sourceUpdate.status = "paused";
       }
       const { error: sourceUpdateError } = await supabase
-        .from("v2_discovery_sources")
+        .from("discovery_sources")
         .update(sourceUpdate)
         .eq("id", sourceId);
       if (sourceUpdateError) {
@@ -1828,40 +1840,11 @@ async function handleComplete(
     }
   }
 
-  // Mark pipeline_jobs as completed
-  const { error: completeErr } = await supabase.from("pipeline_jobs").update({
-    status: "completed",
-    completed_at: new Date().toISOString(),
-    duration_seconds: duration,
-    result: {
-      mode: "v2",
-      current_step: "complete",
-      dataset_kind: state.dataset_kind,
-      result_limit: state.result_limit,
-      new_posts: state.stats.new_posts,
-      new_restaurants: state.stats.restaurants_created,
-      candidates_detected: state.stats.candidates_detected,
-      candidates_enriched: state.stats.candidates_enriched,
-      skipped: state.stats.posts_skipped,
-      failed: state.stats.posts_failed,
-      cost_usd: state.cost_usd ?? 0,
-      posts_received: state.stats.posts_received,
-      places_received: state.stats.places_received ?? 0,
-      places_filtered: state.stats.places_filtered ?? 0,
-      location_posts_received: state.stats.location_posts_received ?? 0,
-      duration_seconds: duration,
-    },
-  }).eq("id", jobId);
-
-  if (completeErr) {
-    throw new Error(`Pipeline-job completion failed: ${completeErr.message}`);
-  } else {
-    console.log(
-      `[v2-continue] Job ${jobId}: completed successfully ` +
-        `(cost=$${state.cost_usd ?? 0}, new_posts=${state.stats.new_posts}, ` +
-        `restaurants=${state.stats.restaurants_created}, duration=${duration}s)`,
-    );
-  }
+  console.log(
+    `[v2-continue] Job ${jobId}: completed successfully ` +
+      `(cost=$${state.cost_usd ?? 0}, new_posts=${state.stats.new_posts}, ` +
+      `restaurants=${state.stats.restaurants_created}, duration=${duration}s)`,
+  );
 }
 
 async function settleComponentCosts(
@@ -1871,7 +1854,7 @@ async function settleComponentCosts(
   const legacyCost = state.cost_usd ?? 0;
   if (!state.v2_scrape_run_id) return legacyCost;
   const { data: components, error } = await supabase
-    .from("v2_scrape_run_components")
+    .from("scrape_run_components")
     .select("id, apify_run_id, cost_usd")
     .eq("scrape_run_id", state.v2_scrape_run_id);
   if (error) throw new Error(`Component cost query failed: ${error.message}`);
@@ -1886,7 +1869,7 @@ async function settleComponentCosts(
       Number(component.cost_usd ?? 0),
     );
     const { error: updateError } = await supabase.from(
-      "v2_scrape_run_components",
+      "scrape_run_components",
     )
       .update({ cost_usd: settled }).eq("id", component.id);
     if (updateError) {
@@ -1938,7 +1921,7 @@ async function updateState(
   state: V2PipelineState,
 ) {
   const { error } = await supabase
-    .from("pipeline_jobs")
+    .from("scrape_runs")
     .update({ result: state })
     .eq("id", jobId);
   if (error) {
@@ -1953,11 +1936,11 @@ async function markFailed(
   message: string,
 ) {
   const completedAt = new Date().toISOString();
-  // Also update v2_scrape_runs if we have one
+  // Update v2_scrape_runs
   let runError: { message: string } | null = null;
   if (state.v2_scrape_run_id) {
     const result = await supabase
-      .from("v2_scrape_runs")
+      .from("scrape_runs")
       .update({
         status: "failed",
         error: message,
@@ -1965,7 +1948,7 @@ async function markFailed(
       })
       .eq("id", state.v2_scrape_run_id);
     runError = result.error;
-    await supabase.from("v2_scrape_run_components").update({
+    await supabase.from("scrape_run_components").update({
       status: "failed",
       error: message,
       completed_at: completedAt,
@@ -1973,16 +1956,10 @@ async function markFailed(
       .in("status", ["pending", "running"]);
   }
 
-  const { error } = await supabase.from("pipeline_jobs").update({
-    status: "failed",
-    completed_at: completedAt,
-    error: message,
-  }).eq("id", jobId);
-  if (error || runError) {
+  if (runError) {
     console.error(
-      `[v2-continue] Failed to fully release lifecycle for ${jobId}:`,
-      error?.message,
-      runError?.message,
+      `[v2-continue] Failed to release lifecycle for ${jobId}:`,
+      runError.message,
     );
   }
 }
@@ -1992,7 +1969,7 @@ function scheduleContinue(jobId: string, delayMs: number) {
     new Promise((r) => setTimeout(r, delayMs))
       .then(() =>
         fetch(
-          `${Deno.env.get("SUPABASE_URL")}/functions/v1/v2-pipeline-continue`,
+          `${Deno.env.get("SUPABASE_URL")}/functions/v1/pipeline-continue`,
           {
             method: "POST",
             headers: {
@@ -2017,12 +1994,12 @@ function scheduleContinue(jobId: string, delayMs: number) {
             Deno.env.get("SUPABASE_URL")!,
             Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
           );
-          const { data: job } = await supabase.from("pipeline_jobs")
+          const { data: scrapeRun } = await supabase.from("scrape_runs")
             .select("result").eq("id", jobId).maybeSingle();
           const state =
-            (job?.result ?? { stats: emptyStats() }) as V2PipelineState;
+            (scrapeRun?.result ?? { stats: emptyStats() }) as V2PipelineState;
           if (!state.v2_scrape_run_id) {
-            const { data: activeRun } = await supabase.from("v2_scrape_runs")
+            const { data: activeRun } = await supabase.from("scrape_runs")
               .select("id").in("status", ["pending", "running"])
               .order("created_at", { ascending: false }).limit(1).maybeSingle();
             state.v2_scrape_run_id = activeRun?.id;
@@ -2053,11 +2030,11 @@ function scheduleContinue(jobId: string, delayMs: number) {
 }
 
 async function failOnlyActiveScrapeRun(supabase: DbClient, message: string) {
-  const { data: activeRun } = await supabase.from("v2_scrape_runs")
+  const { data: activeRun } = await supabase.from("scrape_runs")
     .select("id").in("status", ["pending", "running"])
     .order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (!activeRun) return;
-  const { error } = await supabase.from("v2_scrape_runs").update({
+  const { error } = await supabase.from("scrape_runs").update({
     status: "failed",
     error: message,
     completed_at: new Date().toISOString(),

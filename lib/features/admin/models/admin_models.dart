@@ -51,72 +51,83 @@ class AdminRestaurant {
   const AdminRestaurant({
     required this.id,
     required this.name,
-    required this.cuisine,
-    required this.address,
+    required this.categories,
     required this.imageUrl,
-    required this.operatingHours,
-    required this.contact,
-    required this.budget,
-    required this.description,
-    required this.sourcePlatform,
-    required this.isVerified,
-    this.rating,
+    required this.isApproved,
+    this.description,
+    this.address,
+    this.city,
+    this.state,
     this.latitude,
     this.longitude,
+    this.phone,
+    this.website,
+    this.priceRange,
+    this.businessHours,
+    this.instagramUsername,
+    this.instagramLocationId,
+    this.verificationConfidence,
+    this.sourcePostCount,
+    this.popularityScore,
   });
 
   final String id;
   final String name;
-  final String cuisine;
-  final String address;
+  final List<String> categories;
   final String imageUrl;
-  final String operatingHours;
-  final String contact;
-  final String budget;
-  final String description;
-  final String sourcePlatform;
-  final bool isVerified;
-  final double? rating;
+  final bool isApproved;
+  final String? description;
+  final String? address;
+  final String? city;
+  final String? state;
   final double? latitude;
   final double? longitude;
+  final String? phone;
+  final String? website;
+  final String? priceRange;
+  final Map<String, dynamic>? businessHours;
+  final String? instagramUsername;
+  final String? instagramLocationId;
+  final double? verificationConfidence;
+  final int? sourcePostCount;
+  final int? popularityScore;
 
-  String get ratingDisplay {
-    final value = rating;
-    if (value == null) return '—';
-    return value.toStringAsFixed(1);
-  }
+  String get categoriesDisplay =>
+      categories.isEmpty ? 'Uncategorized' : categories.join(', ');
 }
 
 class AdminRestaurantDraft {
   const AdminRestaurantDraft({
     required this.name,
-    required this.cuisine,
-    required this.address,
-    required this.operatingHours,
-    required this.contact,
-    required this.budget,
-    required this.description,
-    required this.imageUrl,
-    required this.sourcePlatform,
-    required this.isVerified,
-    this.rating,
+    required this.categories,
+    this.description,
+    this.address,
+    this.city,
+    this.state,
     this.latitude,
     this.longitude,
+    this.phone,
+    this.website,
+    this.priceRange,
+    this.businessHours,
+    this.instagramUsername,
+    this.imageUrl,
   });
 
   final String name;
-  final String cuisine;
-  final String address;
-  final String operatingHours;
-  final String contact;
-  final String budget;
-  final String description;
-  final String imageUrl;
-  final String sourcePlatform;
-  final bool isVerified;
-  final double? rating;
+  final List<String> categories;
+  final String? description;
+  final String? address;
+  final String? city;
+  final String? state;
   final double? latitude;
   final double? longitude;
+  final String? phone;
+  final String? website;
+  final String? priceRange;
+  final Map<String, dynamic>? businessHours;
+  final String? instagramUsername;
+  final String? imageUrl;
 }
 
 /// An individual report submitted by a single user.
@@ -194,22 +205,4 @@ class ReportedContent {
   /// Snippet of the parent post, shown when the reported content is a
   /// comment so the moderator can see which post it belongs to.
   final String? postPreview;
-}
-
-class AdminDashboardData {
-  const AdminDashboardData({
-    required this.userCount,
-    required this.restaurantCount,
-    required this.postCount,
-    required this.commentCount,
-    required this.pendingReportCount,
-    required this.recentReports,
-  });
-
-  final int userCount;
-  final int restaurantCount;
-  final int postCount;
-  final int commentCount;
-  final int pendingReportCount;
-  final List<ReportedContentGroup> recentReports;
 }

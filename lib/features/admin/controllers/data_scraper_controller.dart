@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../models/v2_admin_models.dart';
+import '../models/data_scraper_models.dart';
 
 // ---------------------------------------------------------------------------
 // Controller
@@ -122,24 +122,24 @@ class V2DataScraperController extends StateNotifier<V2PipelineState> {
   Future<void> _loadStats() async {
     try {
       final restaurantCount = await _supabase
-          .from('v2_restaurants')
+          .from('restaurants')
           .select('id')
           .count();
       final postCount = await _supabase
-          .from('v2_scraped_posts')
+          .from('scraped_posts')
           .select('id')
           .count();
       final costRows = await _supabase
-          .from('v2_scrape_runs')
+          .from('scrape_runs')
           .select('cost_usd')
           .eq('status', 'completed');
       final sources = await _supabase
-          .from('v2_discovery_sources')
+          .from('discovery_sources')
           .select()
           .order('priority_score', ascending: false)
           .limit(20);
       final runs = await _supabase
-          .from('v2_scrape_runs')
+          .from('scrape_runs')
           .select()
           .order('created_at', ascending: false)
           .limit(10);
@@ -175,7 +175,7 @@ class V2DataScraperController extends StateNotifier<V2PipelineState> {
   Future<void> _checkForActiveRuns() async {
     try {
       final resp = await _supabase.functions.invoke(
-        'v2-pipeline-status',
+        'pipeline-status',
         body: {},
       );
       final data = resp.data as Map<String, dynamic>?;
@@ -224,7 +224,7 @@ class V2DataScraperController extends StateNotifier<V2PipelineState> {
 
     try {
       final triggerResp = await _supabase.functions.invoke(
-        'v2-trigger-pipeline',
+        'trigger-pipeline',
         body: {'result_limit': state.resultLimit},
       );
 
@@ -300,7 +300,7 @@ class V2DataScraperController extends StateNotifier<V2PipelineState> {
   Future<Map<String, dynamic>?> _checkRunStatus(String runId) async {
     try {
       final resp = await _supabase.functions.invoke(
-        'v2-pipeline-status',
+        'pipeline-status',
         body: {'run_id': runId},
       );
 

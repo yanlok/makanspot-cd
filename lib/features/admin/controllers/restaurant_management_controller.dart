@@ -80,8 +80,8 @@ class RestaurantManagementController
         .where((restaurant) {
           return query.isEmpty ||
               restaurant.name.toLowerCase().contains(query) ||
-              restaurant.cuisine.toLowerCase().contains(query) ||
-              restaurant.address.toLowerCase().contains(query);
+              restaurant.categoriesDisplay.toLowerCase().contains(query) ||
+              (restaurant.address ?? '').toLowerCase().contains(query);
         })
         .toList(growable: false);
     state = state.copyWith(

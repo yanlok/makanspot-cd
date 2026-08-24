@@ -106,78 +106,6 @@ class SupabaseAdminRepository implements AdminRepository {
     }
   }
 
-  // ── Dashboard ────────────────────────────────────────────────────
-
-  @override
-  Future<AdminDashboardData> loadDashboard() async {
-    final counts = await Future.wait([
-      _client.from('users').select('id').count(),
-      _client.from('restaurants').select('id').count(),
-      _client.from('posts').select('id').count(),
-      _client.from('comments').select('id').count(),
-    ]);
-    final pendingCount = await _countPendingReports();
-
-    final allGroups = await loadReportedContentGroups();
-    final pendingGroups = allGroups.where((g) => !g.isRemoved).take(5).toList();
-
-    return AdminDashboardData(
-      userCount: counts[0].count,
-      restaurantCount: counts[1].count,
-      postCount: counts[2].count,
-      commentCount: counts[3].count,
-      pendingReportCount: pendingCount,
-      recentReports: pendingGroups,
-    );
-  }
-
-  Future<int> _countPendingReports() async {
-    // Count distinct post_ids that have active (non-dismissed) reports
-    // and are not hidden.
-    final postRows = await _client
-        .from('reports')
-        .select('post_id')
-        .not('post_id', 'is', null)
-        .isFilter('dismissed_at', null);
-
-    final commentRows = await _client
-        .from('reports')
-        .select('comment_id')
-        .not('comment_id', 'is', null)
-        .isFilter('dismissed_at', null);
-
-    final postIds = <int>{};
-    for (final row in postRows) {
-      final id = row['post_id'] as int?;
-      if (id != null) postIds.add(id);
-    }
-
-    final commentIds = <int>{};
-    for (final row in commentRows) {
-      final id = row['comment_id'] as int?;
-      if (id != null) commentIds.add(id);
-    }
-
-    int count = 0;
-    if (postIds.isNotEmpty) {
-      final result = await _client
-          .from('posts')
-          .select('id')
-          .inFilter('id', postIds.toList())
-          .eq('is_hidden', false);
-      count += result.length;
-    }
-    if (commentIds.isNotEmpty) {
-      final result = await _client
-          .from('comments')
-          .select('id')
-          .inFilter('id', commentIds.toList())
-          .eq('is_hidden', false);
-      count += result.length;
-    }
-    return count;
-  }
-
   // ── Users ────────────────────────────────────────────────────────
 
   @override
@@ -224,14 +152,23 @@ class SupabaseAdminRepository implements AdminRepository {
               name,
               description,
               address,
+              city,
+              state,
               latitude,
               longitude,
               price_range,
-              rating,
-              operating_hours,
-              phone_number,
-              social_media_source,
-              is_verified,
+              phone,
+              website,
+              instagram_username,
+              instagram_location_id,
+              categories,
+              business_hours,
+              verification_confidence,
+              is_approved,
+              source_post_count,
+              popularity_score,
+              created_at,
+              updated_at,
               restaurant_images!inner(image_url, is_primary)
             ''')
         .order('name');
@@ -247,14 +184,23 @@ class SupabaseAdminRepository implements AdminRepository {
               name,
               description,
               address,
+              city,
+              state,
               latitude,
               longitude,
               price_range,
-              rating,
-              operating_hours,
-              phone_number,
-              social_media_source,
-              is_verified,
+              phone,
+              website,
+              instagram_username,
+              instagram_location_id,
+              categories,
+              business_hours,
+              verification_confidence,
+              is_approved,
+              source_post_count,
+              popularity_score,
+              created_at,
+              updated_at,
               restaurant_images!inner(image_url, is_primary)
             ''')
         .eq('id', id)
@@ -416,32 +362,38 @@ class SupabaseAdminRepository implements AdminRepository {
     );
     final imageUrl = primaryImage?['image_url'] as String? ?? '';
 
-    final hours = row['operating_hours'];
-    String operatingHours;
-    if (hours is Map) {
-      operatingHours = hours.values
-          .whereType<String>()
-          .where((s) => s.isNotEmpty)
-          .join(', ');
-    } else {
-      operatingHours = hours?.toString() ?? '';
-    }
+    final categoriesRaw = row['categories'];
+    final categories = categoriesRaw is List
+        ? categoriesRaw.cast<String>()
+        : <String>[];
+
+    final businessHoursRaw = row['business_hours'];
+    final businessHours = businessHoursRaw is Map<String, dynamic>
+        ? businessHoursRaw
+        : null;
 
     return AdminRestaurant(
       id: '${row['id']}',
       name: _stringOrEmpty(row['name']),
-      cuisine: row['social_media_source'] as String? ?? '',
-      address: _stringOrEmpty(row['address']),
+      categories: categories,
       imageUrl: imageUrl,
-      operatingHours: operatingHours,
-      contact: row['phone_number'] as String? ?? '',
-      budget: row['price_range'] as String? ?? '',
-      description: row['description'] as String? ?? '',
-      sourcePlatform: row['social_media_source'] as String? ?? 'Manual',
-      isVerified: row['is_verified'] as bool? ?? false,
-      rating: (row['rating'] as num?)?.toDouble(),
+      isApproved: row['is_approved'] as bool? ?? false,
+      description: row['description'] as String?,
+      address: row['address'] as String?,
+      city: row['city'] as String?,
+      state: row['state'] as String?,
       latitude: (row['latitude'] as num?)?.toDouble(),
       longitude: (row['longitude'] as num?)?.toDouble(),
+      phone: row['phone'] as String?,
+      website: row['website'] as String?,
+      priceRange: row['price_range'] as String?,
+      businessHours: businessHours,
+      instagramUsername: row['instagram_username'] as String?,
+      instagramLocationId: row['instagram_location_id'] as String?,
+      verificationConfidence:
+          (row['verification_confidence'] as num?)?.toDouble(),
+      sourcePostCount: row['source_post_count'] as int?,
+      popularityScore: row['popularity_score'] as int?,
     );
   }
 

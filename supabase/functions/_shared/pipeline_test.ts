@@ -7,7 +7,7 @@ import {
   v2IsLikelyFoodPlace,
   v2PlacePostsToRows,
   v2ShouldQueueLocationPosts,
-} from "./v2-apify.ts";
+} from "./apify.ts";
 import {
   v2DeriveCategories,
   v2IsLikelyNotRestaurant,
@@ -17,7 +17,7 @@ import {
   v2SelectBestImageCandidate,
   v2SumComponentCosts,
   v2TrendScore,
-} from "./v2-enrich.ts";
+} from "./enrich.ts";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);

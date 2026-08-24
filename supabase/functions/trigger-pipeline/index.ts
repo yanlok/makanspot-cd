@@ -13,7 +13,7 @@
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 type DbClient = SupabaseClient<any, any, any, any, any>;
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
-import { isAdminRequest } from "../_shared/v2-auth.ts";
+import { isAdminRequest } from "../_shared/auth.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,7 +69,7 @@ Deno.serve(async (req: Request) => {
 
   // --- Guard: no active v2_scrape_runs ---
   const { data: activeRun, error: activeRunError } = await supabase
-    .from("v2_scrape_runs")
+    .from("scrape_runs")
     .select("id")
     .in("status", ["pending", "running"])
     .limit(1)
@@ -87,32 +87,12 @@ Deno.serve(async (req: Request) => {
     }, 409);
   }
 
-  // Also check v1 pipeline_jobs for active jobs (shared lock)
-  const { data: activeJob, error: activeJobError } = await supabase
-    .from("pipeline_jobs")
-    .select("id")
-    .in("status", ["pending", "running"])
-    .limit(1)
-    .maybeSingle();
-  if (activeJobError) {
-    return jsonResponse({
-      error: `Failed to check pipeline-job lock: ${activeJobError.message}`,
-    }, 500);
-  }
-
-  if (activeJob) {
-    return jsonResponse({
-      error: "job_already_running",
-      message: "A pipeline job is already in progress. Wait for it to finish.",
-    }, 409);
-  }
-
   // --- Pick sources ---
   let sources: DiscoverySource[] = [];
 
   if (sourceIds && sourceIds.length > 0) {
     const { data, error } = await supabase
-      .from("v2_discovery_sources")
+      .from("discovery_sources")
       .select(
         "id, source_type, source_value, priority_score, next_scrape_at, status",
       )
@@ -132,7 +112,7 @@ Deno.serve(async (req: Request) => {
     sources = (data ?? []) as DiscoverySource[];
   } else {
     const { data, error } = await supabase
-      .from("v2_discovery_sources")
+      .from("discovery_sources")
       .select(
         "id, source_type, source_value, priority_score, next_scrape_at, status",
       )
@@ -223,25 +203,10 @@ Deno.serve(async (req: Request) => {
     }, 409);
   }
 
-  // Acquire the shared database lock before making the paid request. The
-  // partial unique index makes this insert the atomic race arbiter.
-  const jobId = crypto.randomUUID();
-  const { error: jobInsertErr } = await supabase.from("pipeline_jobs").insert({
-    id: jobId,
-    status: "pending",
-    mode: "v2",
-  });
-  if (jobInsertErr) {
-    if (jobInsertErr.code === "23505") {
-      return jsonResponse({ error: "job_already_running" }, 409);
-    }
-    return jsonResponse({
-      error: `Failed to acquire pipeline lock: ${jobInsertErr.message}`,
-    }, 500);
-  }
-
+  // Create the scrape run. The active-run check above serves as the
+  // concurrency guard.
   const { data: scrapeRun, error: runInsertErr } = await supabase
-    .from("v2_scrape_runs")
+    .from("scrape_runs")
     .insert({
       source_id: runSourceIds[0],
       status: "pending",
@@ -253,25 +218,13 @@ Deno.serve(async (req: Request) => {
     const message = `Failed to create pending scrape run: ${
       runInsertErr?.message ?? "unknown error"
     }`;
-    const { error: cleanupError } = await supabase.from("pipeline_jobs").update(
-      {
-        status: "failed",
-        error: message,
-        completed_at: new Date().toISOString(),
-      },
-    ).eq("id", jobId);
-    if (cleanupError) {
-      console.error(
-        `[${jobId}] Failed to release pipeline lock: ${cleanupError.message}`,
-      );
-    }
     return jsonResponse({
       error: message,
     }, 500);
   }
 
   const { data: component, error: componentError } = await supabase
-    .from("v2_scrape_run_components").insert({
+    .from("scrape_run_components").insert({
       scrape_run_id: scrapeRun.id,
       component_type: "discovery",
       status: "pending",
@@ -281,7 +234,7 @@ Deno.serve(async (req: Request) => {
     const message = `Failed to create discovery component: ${
       componentError?.message ?? "unknown error"
     }`;
-    await failTriggerLifecycle(supabase, jobId, scrapeRun.id, message);
+    await failTriggerLifecycle(supabase, scrapeRun.id, message);
     return jsonResponse({ error: message }, 500);
   }
 
@@ -289,7 +242,6 @@ Deno.serve(async (req: Request) => {
   if (!token) {
     await failTriggerLifecycle(
       supabase,
-      jobId,
       scrapeRun.id,
       "APIFY_TOKEN not configured",
     );
@@ -319,7 +271,7 @@ Deno.serve(async (req: Request) => {
     if (!apifyRunId) throw new Error("No run ID returned from Apify");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await failTriggerLifecycle(supabase, jobId, scrapeRun.id, message);
+    await failTriggerLifecycle(supabase, scrapeRun.id, message);
     return jsonResponse({ error: message }, 502);
   }
 
@@ -345,41 +297,35 @@ Deno.serve(async (req: Request) => {
     },
   };
 
-  const [jobStart, runStart, componentStart] = await Promise.all([
-    supabase.from("pipeline_jobs").update({
-      status: "running",
-      started_at: startedAt,
-      result,
-    }).eq("id", jobId),
-    supabase.from("v2_scrape_runs").update({
+  const [runStart, componentStart] = await Promise.all([
+    supabase.from("scrape_runs").update({
       status: "running",
       started_at: startedAt,
       apify_run_id: apifyRunId,
+      result,
     }).eq("id", scrapeRun.id),
-    supabase.from("v2_scrape_run_components").update({
+    supabase.from("scrape_run_components").update({
       status: "running",
       apify_run_id: apifyRunId,
       started_at: startedAt,
     }).eq("id", component.id),
   ]);
-  if (jobStart.error || runStart.error || componentStart.error) {
+  if (runStart.error || componentStart.error) {
     await abortApifyRun(token, apifyRunId);
     await failTriggerLifecycle(
       supabase,
-      jobId,
       scrapeRun.id,
       `Initial running-state write failed: ${
-        jobStart.error?.message ?? runStart.error?.message ??
-          componentStart.error?.message
+        runStart.error?.message ?? componentStart.error?.message
       }`,
     );
     return jsonResponse({ error: "Failed to initialize pipeline state" }, 500);
   }
 
-  // Chain to v2-pipeline-continue
+  // Chain to pipeline-continue
   EdgeRuntime.waitUntil(
     fetch(
-      `${Deno.env.get("SUPABASE_URL")}/functions/v1/v2-pipeline-continue`,
+      `${Deno.env.get("SUPABASE_URL")}/functions/v1/pipeline-continue`,
       {
         method: "POST",
         headers: {
@@ -388,7 +334,7 @@ Deno.serve(async (req: Request) => {
           }`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ job_id: jobId }),
+        body: JSON.stringify({ job_id: scrapeRun.id }),
       },
     ).then(async (resp) => {
       if (!resp.ok) {
@@ -396,7 +342,6 @@ Deno.serve(async (req: Request) => {
         await abortApifyRun(token, apifyRunId);
         await failTriggerLifecycle(
           supabase,
-          jobId,
           scrapeRun.id,
           `Initial chain failed (${resp.status}): ${text}`,
         );
@@ -405,7 +350,6 @@ Deno.serve(async (req: Request) => {
       await abortApifyRun(token, apifyRunId);
       await failTriggerLifecycle(
         supabase,
-        jobId,
         scrapeRun.id,
         `Initial chain error: ${
           error instanceof Error ? error.message : String(error)
@@ -415,7 +359,7 @@ Deno.serve(async (req: Request) => {
   );
 
   return jsonResponse({
-    job_id: jobId,
+    job_id: scrapeRun.id,
     run_id: scrapeRun.id,
     status: "pending",
   });
@@ -441,32 +385,25 @@ async function abortApifyRun(token: string, runId: string | null) {
 
 async function failTriggerLifecycle(
   supabase: DbClient,
-  jobId: string,
   runId: string,
   message: string,
 ) {
   const completedAt = new Date().toISOString();
-  const [jobResult, runResult] = await Promise.all([
-    supabase.from("pipeline_jobs").update({
-      status: "failed",
-      error: message,
-      completed_at: completedAt,
-    }).eq("id", jobId),
-    supabase.from("v2_scrape_runs").update({
+  const [runResult] = await Promise.all([
+    supabase.from("scrape_runs").update({
       status: "failed",
       error: message,
       completed_at: completedAt,
     }).eq("id", runId),
   ]);
   const { error: componentError } = await supabase
-    .from("v2_scrape_run_components")
+    .from("scrape_run_components")
     .update({ status: "failed", error: message, completed_at: completedAt })
     .eq("scrape_run_id", runId)
     .in("status", ["pending", "running"]);
-  if (jobResult.error || runResult.error || componentError) {
+  if (runResult.error || componentError) {
     console.error(
-      `[${jobId}] Lifecycle cleanup incomplete:`,
-      jobResult.error?.message,
+      `[${runId}] Lifecycle cleanup incomplete:`,
       runResult.error?.message,
       componentError?.message,
     );

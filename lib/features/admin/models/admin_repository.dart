@@ -11,8 +11,6 @@ final adminRepositoryProvider = Provider<AdminRepository>((ref) {
 
 /// Data-source boundary for the MakanSpot administrator console.
 abstract interface class AdminRepository {
-  Future<AdminDashboardData> loadDashboard();
-
   Future<List<AdminUser>> loadUsers();
 
   Future<AdminUser?> loadUser(String id);

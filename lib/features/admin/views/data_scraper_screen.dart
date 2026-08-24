@@ -4,8 +4,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:makanspot/core/theme/app_theme.dart';
 
-import '../controllers/v2_data_scraper_controller.dart';
-import '../models/v2_admin_models.dart';
+import '../controllers/data_scraper_controller.dart';
+import '../models/data_scraper_models.dart';
 import 'widgets/admin_page_header.dart';
 
 /// V2 Data Scraper screen — trigger and monitor the v2 Instagram pipeline.

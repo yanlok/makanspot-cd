@@ -5,7 +5,7 @@
 // Read-only status endpoint for the v2 pipeline. Returns aggregate stats from
 // v2_scraped_posts, active/recent v2_scrape_runs, and discovery source health.
 //
-// POST body: { job_id?: string }
+// POST body: { run_id?: string, job_id?: string }
 //
 // Response:
 // {
@@ -27,7 +27,7 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
-import { isAdminRequest } from "../_shared/v2-auth.ts";
+import { isAdminRequest } from "../_shared/auth.ts";
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -44,8 +44,9 @@ Deno.serve(async (req: Request) => {
     // Empty body is fine
   }
 
-  const jobId = body.job_id as string | undefined;
-  const runId = body.run_id as string | undefined;
+  // After the pipeline_jobs removal, job_id is the scrape_run_id.
+  const runId = (body.run_id as string | undefined) ??
+    (body.job_id as string | undefined);
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -61,10 +62,10 @@ Deno.serve(async (req: Request) => {
   const [activeRunResult, recentRunsResult, specificRunResult] = await Promise
     .all([
       runId
-        ? supabase.from("v2_scrape_runs").select("*").eq("id", runId)
+        ? supabase.from("scrape_runs").select("*").eq("id", runId)
           .maybeSingle()
         : supabase
-          .from("v2_scrape_runs")
+          .from("scrape_runs")
           .select(
             "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, verified_restaurants, cost_usd, error, created_at",
           )
@@ -73,7 +74,7 @@ Deno.serve(async (req: Request) => {
           .limit(1)
           .maybeSingle(),
       supabase
-        .from("v2_scrape_runs")
+        .from("scrape_runs")
         .select(
           "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, cost_usd, error, created_at",
         )
@@ -83,7 +84,7 @@ Deno.serve(async (req: Request) => {
       // If run_id provided, also fetch it separately for the response
       runId
         ? supabase
-          .from("v2_scrape_runs")
+          .from("scrape_runs")
           .select(
             "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, cost_usd, error, created_at",
           )
@@ -91,20 +92,6 @@ Deno.serve(async (req: Request) => {
           .maybeSingle()
         : Promise.resolve({ data: null }),
     ]);
-
-  // If a specific job_id was requested, also check pipeline_jobs
-  let jobData: Record<string, unknown> | null = null;
-  if (jobId) {
-    const { data } = await supabase
-      .from("pipeline_jobs")
-      .select(
-        "id, status, result, error, started_at, completed_at, duration_seconds, mode",
-      )
-      .eq("id", jobId)
-      .eq("mode", "v2")
-      .maybeSingle();
-    jobData = data;
-  }
 
   // Aggregate stats from v2_scraped_posts
   const statusCounts = await Promise.all(
@@ -118,7 +105,7 @@ Deno.serve(async (req: Request) => {
     ].map(
       async (status) => {
         const { count } = await supabase
-          .from("v2_scraped_posts")
+          .from("scraped_posts")
           .select("id", { count: "exact", head: true })
           .eq("status", status);
         return [status, count ?? 0] as const;
@@ -130,7 +117,7 @@ Deno.serve(async (req: Request) => {
 
   // Total restaurants
   const { count: totalRestaurants } = await supabase
-    .from("v2_restaurants")
+    .from("restaurants")
     .select("id", { count: "exact", head: true });
 
   // Total cost from recent runs
@@ -141,7 +128,7 @@ Deno.serve(async (req: Request) => {
 
   // Discovery sources summary
   const { data: sources } = await supabase
-    .from("v2_discovery_sources")
+    .from("discovery_sources")
     .select(
       "id, source_type, source_value, status, scrape_count, posts_scraped, new_posts, restaurant_candidates, new_restaurants, verified_restaurants, total_cost_usd, yield_rate, cost_per_new_restaurant, priority_score, last_scraped_at, next_scrape_at",
     )
@@ -158,16 +145,8 @@ Deno.serve(async (req: Request) => {
       specificRun.status === "running" || specificRun.status === "pending"
         ? "running"
         : specificRun.status;
-  } else if (
-    jobData && (jobData.status === "running" || jobData.status === "pending")
-  ) {
-    status = "running";
   } else if (activeRun) {
     status = "running";
-  } else if (jobData && jobData.status === "failed") {
-    status = "failed";
-  } else if (jobData && jobData.status === "completed") {
-    status = "completed";
   }
 
   const totalPosts = (counts.pending ?? 0) + (counts.candidate_extracted ?? 0) +
@@ -175,7 +154,7 @@ Deno.serve(async (req: Request) => {
     (counts.resolved ?? 0);
 
   console.log(
-    `[v2-pipeline-status] jobId=${jobId ?? "(none)"} runId=${
+    `[v2-pipeline-status] runId=${
       runId ?? "(none)"
     } → status=${status}, ` +
       `posts=${totalPosts}, restaurants=${totalRestaurants ?? 0}`,
@@ -210,15 +189,5 @@ Deno.serve(async (req: Request) => {
       cost_usd: run.cost_usd,
       error: run.error,
     })),
-    job: jobData
-      ? {
-        id: jobData.id,
-        status: jobData.status,
-        result: jobData.result,
-        error: jobData.error,
-        duration_seconds: jobData.duration_seconds,
-        completed_at: jobData.completed_at,
-      }
-      : null,
   });
 });
