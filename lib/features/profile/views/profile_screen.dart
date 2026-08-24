@@ -57,7 +57,10 @@ class ProfileScreen extends ConsumerWidget {
           _ProgressCard(score: data.profile.communityScore),
           if (data.earnedBadges.isNotEmpty) _BadgeSection(data: data),
           const SizedBox(height: 18),
-          _ProfileMenu(onLogout: () => _confirmLogout(context, ref)),
+          _ProfileMenu(
+            onLogout: () => _confirmLogout(context, ref),
+            onDeleteAccount: () => _confirmDeleteAccount(context, ref),
+          ),
         ],
       ),
     );
@@ -86,6 +89,46 @@ class ProfileScreen extends ConsumerWidget {
     if ((shouldLogout ?? false) && context.mounted) {
       ref.read(authControllerProvider.notifier).logout();
       // The router redirect sends the signed-out user to the login screen.
+    }
+  }
+
+  Future<void> _confirmDeleteAccount(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Account?'),
+        content: const Text(
+          'This action is permanent and cannot be undone. All your data, '
+          'posts, and reviews will be permanently removed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => context.pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.destructive,
+            ),
+            onPressed: () => context.pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if ((shouldDelete ?? false) && context.mounted) {
+      final error = await ref
+          .read(authControllerProvider.notifier)
+          .deleteAccount();
+      if (error != null && context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error)));
+      }
+      // On success the router redirect sends the user to the login screen.
     }
   }
 }
@@ -352,9 +395,10 @@ class _BadgeSection extends StatelessWidget {
 }
 
 class _ProfileMenu extends StatelessWidget {
-  const _ProfileMenu({required this.onLogout});
+  const _ProfileMenu({required this.onLogout, required this.onDeleteAccount});
 
   final VoidCallback onLogout;
+  final VoidCallback onDeleteAccount;
 
   @override
   Widget build(BuildContext context) {
@@ -385,6 +429,14 @@ class _ProfileMenu extends StatelessWidget {
             label: 'Logout',
             destructive: true,
             onTap: onLogout,
+          ),
+          const SizedBox(height: 8),
+          _MenuTile(
+            key: const Key('profile-delete-account'),
+            icon: LucideIcons.trash2,
+            label: 'Delete Account',
+            destructive: true,
+            onTap: onDeleteAccount,
           ),
         ],
       ),

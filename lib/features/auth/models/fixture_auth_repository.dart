@@ -162,6 +162,20 @@ class FixtureAuthRepository implements AuthRepository {
     );
   }
 
+  @override
+  Future<void> deleteAccount() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_sessionKey);
+    if (raw == null) {
+      throw const AuthFailure('No signed-in account to delete.');
+    }
+    final json = jsonDecode(raw) as Map<String, dynamic>;
+    final email = _normalize(json['email'] as String);
+    _accounts.remove(email);
+    _resetTokensByEmail.remove(email);
+    await prefs.remove(_sessionKey);
+  }
+
   Future<void> _persist(AuthSession session) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(

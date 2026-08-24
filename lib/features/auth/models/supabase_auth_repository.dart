@@ -102,6 +102,21 @@ class SupabaseAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<void> deleteAccount() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) {
+        throw const AuthFailure('No signed-in account to delete.');
+      }
+      // Call a server-side function that cleans up public data then deletes
+      // the auth user (which requires elevated privileges).
+      await Supabase.instance.client.rpc('delete_current_user');
+    } on AuthException catch (error) {
+      throw AuthFailure(authErrorMessage(error));
+    }
+  }
+
+  @override
   Future<void> changePassword({
     required String email,
     required String currentPassword,
