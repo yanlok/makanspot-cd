@@ -18,11 +18,35 @@ abstract interface class AdminRepository {
   Future<AdminUser?> updateUser({
     required String id,
     required String username,
-    required String profileTitle,
+    required String email,
+    required String phone,
+    required AdminUserRole role,
     required int communityScore,
   });
 
   Future<AdminUser?> setUserAccountStatus(String id, AdminAccountStatus status);
+
+  /// True when another user already holds [username] (excluding [excludeUserId]).
+  Future<bool> usernameExists(String username, String excludeUserId);
+
+  /// True when another user already holds [email] (excluding [excludeUserId]).
+  Future<bool> emailExists(String email, String excludeUserId);
+
+  /// True when another user already holds [phone] (excluding [excludeUserId]).
+  Future<bool> phoneExists(String phone, String excludeUserId);
+
+  /// Records an audit-trail entry for an administrative action.
+  Future<void> logAdminAction({
+    required String adminUserId,
+    required String adminUsername,
+    required String action,
+    required String targetUserId,
+    required String targetUsername,
+    Map<String, Map<String, Object?>>? fieldChanges,
+  });
+
+  /// Returns administrative actions in reverse chronological order.
+  Future<List<AdminAuditLog>> loadAdminActionLogs();
 
   Future<List<AdminRestaurant>> loadRestaurants();
 

@@ -225,7 +225,16 @@ class _RestaurantDetailsScreenState
         key: const Key('restaurant-details-scroll'),
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
-          AdminBackButton(label: 'Back to Restaurants', onPressed: context.pop),
+          AdminBackButton(
+            label: widget.restaurantId == 'new'
+                ? 'Back to Restaurants'
+                : 'Back to Restaurant Information',
+            onPressed: () => context.go(
+              widget.restaurantId == 'new'
+                  ? '/admin/restaurants'
+                  : '/admin/restaurants/${widget.restaurantId}',
+            ),
+          ),
           const SizedBox(height: 16),
           if (state.status == RestaurantDetailsStatus.loading)
             const _RestaurantDetailsSkeleton()
@@ -244,6 +253,10 @@ class _RestaurantDetailsScreenState
               imageUrl: _imageUrl,
             ),
             const SizedBox(height: 24),
+            if (!isCreate) ...[
+              _RestaurantInformationCard(restaurant: restaurant),
+              const SizedBox(height: 24),
+            ],
             _FormCard(
               nameController: _nameController,
               addressController: _addressController,
@@ -294,6 +307,108 @@ class _RestaurantDetailsScreenState
               ),
             ],
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _RestaurantInformationCard extends StatelessWidget {
+  const _RestaurantInformationCard({required this.restaurant});
+
+  final AdminRestaurant restaurant;
+
+  static String _formatBusinessHours(Map<String, dynamic>? hours) {
+    if (hours == null || hours.isEmpty) return '';
+    final entries = hours.entries.map((e) => '${e.key}: ${e.value}').join(', ');
+    return entries;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.secondary),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Restaurant Information',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 16),
+          _infoRow(context, 'Restaurant Name', restaurant.name),
+          _infoRow(
+            context,
+            'Location',
+            (restaurant.address ?? '').isEmpty
+                ? 'Not provided'
+                : restaurant.address!,
+          ),
+          _infoRow(
+            context,
+            'Business Hours',
+            _formatBusinessHours(restaurant.businessHours).isEmpty
+                ? 'Not provided'
+                : _formatBusinessHours(restaurant.businessHours),
+          ),
+          _infoRow(
+            context,
+            'Instagram',
+            (restaurant.instagramUsername ?? '').isEmpty
+                ? 'Not provided'
+                : restaurant.instagramUsername!,
+          ),
+          _infoRow(
+            context,
+            'Phone',
+            (restaurant.phone ?? '').isEmpty
+                ? 'Not provided'
+                : restaurant.phone!,
+          ),
+          _infoRow(
+            context,
+            'Status',
+            restaurant.isApproved ? 'Approved' : 'Pending',
+            isLast: true,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(
+    BuildContext context,
+    String label,
+    String value, {
+    bool isLast = false,
+  }) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: isLast ? 0 : 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 112,
+            child: Text(
+              label,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: AppColors.mutedForeground),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: AppColors.foreground),
+            ),
+          ),
         ],
       ),
     );
