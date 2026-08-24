@@ -90,6 +90,8 @@ GoRouter createAppRouter({
         return AppRoutes.login;
       }
       if (_publicRoutes.contains(location)) {
+        // Allow /reset-password during password recovery (session is temporary).
+        if (location == AppRoutes.resetPassword) return null;
         return session.isAdmin ? AppRoutes.adminScraper : AppRoutes.home;
       }
       if (location.startsWith('/admin') && !session.isAdmin) {
@@ -196,7 +198,7 @@ GoRouter createAppRouter({
       GoRoute(
         path: AppRoutes.resetPassword,
         builder: (context, state) {
-          return ResetPasswordScreen(token: state.uri.queryParameters['token']);
+          return const ResetPasswordScreen();
         },
       ),
       ShellRoute(

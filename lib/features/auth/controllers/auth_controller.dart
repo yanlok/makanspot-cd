@@ -196,10 +196,9 @@ class AuthController extends StateNotifier<AuthState> {
     state = state.copyWith(isSubmitting: true, errorMessage: null);
     try {
       await _repository.resetPassword(token: token, newPassword: password);
-      state = state.copyWith(
-        isSubmitting: false,
-        passwordError: null,
-        confirmPasswordError: null,
+      state = const AuthState(
+        status: AuthStatus.unauthenticated,
+        passwordResetSucceeded: true,
       );
       return true;
     } on AuthFailure catch (failure) {
