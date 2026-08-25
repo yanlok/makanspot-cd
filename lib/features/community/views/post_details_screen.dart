@@ -41,7 +41,10 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
       bottom: false,
       child: Column(
         children: [
-          CommunityPageHeader(title: 'Post', onBack: context.pop),
+          CommunityPageHeader(
+            title: 'Post',
+            onBack: () => context.go('/community'),
+          ),
           Expanded(child: _buildBody(context, state, controller)),
         ],
       ),
@@ -79,7 +82,11 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
           key: const Key('post-details-scroll'),
           padding: const EdgeInsets.all(16),
           children: [
-            _DetailedPostCard(post: post, controller: controller),
+            _DetailedPostCard(
+              post: post,
+              controller: controller,
+              isLikePending: state.isLikePending,
+            ),
             const SizedBox(height: 16),
             Text(
               'Comments (${state.comments.length})',
@@ -150,10 +157,15 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
 }
 
 class _DetailedPostCard extends StatelessWidget {
-  const _DetailedPostCard({required this.post, required this.controller});
+  const _DetailedPostCard({
+    required this.post,
+    required this.controller,
+    required this.isLikePending,
+  });
 
   final CommunityPost post;
   final PostDetailsController controller;
+  final bool isLikePending;
 
   @override
   Widget build(BuildContext context) {
@@ -258,17 +270,30 @@ class _DetailedPostCard extends StatelessWidget {
             const Divider(height: 1),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: TextButton.icon(
-                key: const Key('details-like'),
-                onPressed: controller.toggleLike,
-                icon: Icon(
-                  LucideIcons.heart,
-                  size: 20,
-                  color: post.isLiked
-                      ? AppColors.destructive
-                      : AppColors.mutedForeground,
-                ),
-                label: Text('${post.likes}'),
+              child: Row(
+                children: [
+                  TextButton.icon(
+                    key: const Key('details-like'),
+                    onPressed: isLikePending ? null : controller.toggleLike,
+                    icon: Icon(
+                      LucideIcons.heart,
+                      size: 20,
+                      color: post.isLiked
+                          ? AppColors.destructive
+                          : AppColors.mutedForeground,
+                    ),
+                    label: Text('${post.likes}'),
+                  ),
+                  TextButton.icon(
+                    onPressed: () {},
+                    icon: const Icon(
+                      LucideIcons.messageCircle,
+                      size: 20,
+                      color: AppColors.mutedForeground,
+                    ),
+                    label: Text('${post.commentCount}'),
+                  ),
+                ],
               ),
             ),
           ],
@@ -389,12 +414,21 @@ class _CommentCard extends StatelessWidget {
             ),
           ),
         ClipOval(
-          child: Image.asset(
-            'assets/images/default_icon.jpg',
-            width: isReply ? 28 : 32,
-            height: isReply ? 28 : 32,
-            fit: BoxFit.cover,
-          ),
+          child: comment.userAvatar.isEmpty
+              ? Image.asset(
+                  'assets/images/default_icon.jpg',
+                  width: isReply ? 28 : 32,
+                  height: isReply ? 28 : 32,
+                  fit: BoxFit.cover,
+                )
+              : SizedBox.square(
+                  dimension: isReply ? 28 : 32,
+                  child: MakanNetworkImage(
+                    url: comment.userAvatar,
+                    semanticLabel: comment.username,
+                    fallbackKey: Key('comment-avatar-fallback-${comment.id}'),
+                  ),
+                ),
         ),
         const SizedBox(width: 8),
         Expanded(

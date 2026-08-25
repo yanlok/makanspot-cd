@@ -9,6 +9,7 @@ class AdminFilterDropdown<T> extends StatelessWidget {
     required this.options,
     required this.onChanged,
     this.label,
+    this.width = 132,
     super.key,
   });
 
@@ -19,10 +20,13 @@ class AdminFilterDropdown<T> extends StatelessWidget {
   final ValueChanged<T> onChanged;
   final String? label;
 
+  /// Fixed width; set to null to let the parent constrain it.
+  final double? width;
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 132,
+      width: width,
       height: 44,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(

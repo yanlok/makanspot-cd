@@ -13,17 +13,19 @@ class ModerationState {
   const ModerationState({
     required this.status,
     this.groups = const [],
-    this.searchQuery = '',
     this.filter = ReportFilter.all,
     this.tab = ReportTab.post,
     this.errorMessage,
   });
 
-  const ModerationState.loading() : this(status: ModerationStatus.loading);
+  const ModerationState.loading({this.tab = ReportTab.post})
+    : status = ModerationStatus.loading,
+      groups = const [],
+      filter = ReportFilter.all,
+      errorMessage = null;
 
   final ModerationStatus status;
   final List<ReportedContentGroup> groups;
-  final String searchQuery;
   final ReportFilter filter;
   final ReportTab tab;
   final String? errorMessage;
@@ -35,16 +37,9 @@ class ModerationState {
       _filteredFor(ReportContentType.comment);
 
   List<ReportedContentGroup> _filteredFor(ReportContentType contentType) {
-    final query = searchQuery.trim().toLowerCase();
     return groups
         .where((group) {
           if (group.contentType != contentType) return false;
-
-          final matchesSearch =
-              query.isEmpty ||
-              group.contentPreview.toLowerCase().contains(query) ||
-              group.contentOwner.toLowerCase().contains(query) ||
-              group.reports.any((r) => r.reason.toLowerCase().contains(query));
 
           final matchesFilter = switch (filter) {
             ReportFilter.all => true,
@@ -52,7 +47,7 @@ class ModerationState {
             ReportFilter.removed => group.isRemoved,
           };
 
-          return matchesSearch && matchesFilter;
+          return matchesFilter;
         })
         .toList(growable: false);
   }
@@ -60,7 +55,6 @@ class ModerationState {
   ModerationState copyWith({
     ModerationStatus? status,
     List<ReportedContentGroup>? groups,
-    String? searchQuery,
     ReportFilter? filter,
     ReportTab? tab,
     String? errorMessage,
@@ -68,7 +62,6 @@ class ModerationState {
     return ModerationState(
       status: status ?? this.status,
       groups: groups ?? this.groups,
-      searchQuery: searchQuery ?? this.searchQuery,
       filter: filter ?? this.filter,
       tab: tab ?? this.tab,
       errorMessage: errorMessage,
@@ -76,49 +69,60 @@ class ModerationState {
   }
 }
 
-final moderationControllerProvider =
-    StateNotifierProvider.autoDispose<ModerationController, ModerationState>((
-      ref,
-    ) {
+/// Family keyed by the initial tab so the moderation list can open
+/// directly on the Reported Comments tab (via `?tab=comment`) without
+/// first rendering the posts tab.
+final moderationControllerProvider = StateNotifierProvider.autoDispose
+    .family<ModerationController, ModerationState, ReportTab>((ref, tab) {
       final controller = ModerationController(
         ref.watch(adminRepositoryProvider),
+        tab,
       );
       controller.load();
       return controller;
     });
 
 class ModerationController extends StateNotifier<ModerationState> {
-  ModerationController(this._repository)
-    : super(const ModerationState.loading());
+  ModerationController(
+    this._repository, [
+    ReportTab initialTab = ReportTab.post,
+  ]) : super(ModerationState.loading(tab: initialTab));
 
   final AdminRepository _repository;
 
   Future<void> load() async {
-    state = const ModerationState.loading();
+    // Keep the current content visible while refreshing so a pull-to-
+    // refresh or tab switch does not flash a loading skeleton.
+    if (state.status != ModerationStatus.content) {
+      state = ModerationState.loading(tab: state.tab);
+    }
     try {
+      final groups = await _repository.loadReportedContentGroups();
       state = ModerationState(
         status: ModerationStatus.content,
-        groups: List.unmodifiable(
-          await _repository.loadReportedContentGroups(),
-        ),
+        groups: List.unmodifiable(groups),
+        filter: state.filter,
+        tab: state.tab,
       );
     } on Object {
-      state = const ModerationState(
+      state = state.copyWith(
         status: ModerationStatus.error,
         errorMessage: 'We could not load reports right now.',
       );
     }
   }
 
-  void updateSearch(String value) {
-    state = state.copyWith(searchQuery: value);
-  }
-
   void selectFilter(ReportFilter filter) {
     state = state.copyWith(filter: filter);
   }
 
-  void selectTab(ReportTab tab) {
+  /// Switches the active tab and reloads the reports so newly reported
+  /// content appears without leaving the page.
+  Future<void> selectTab(ReportTab tab) async {
+    if (tab == state.tab) {
+      return;
+    }
     state = state.copyWith(tab: tab);
+    await load();
   }
 }

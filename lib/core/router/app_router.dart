@@ -3,15 +3,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:makanspot/core/router/not_migrated_screen.dart';
-import 'package:makanspot/features/admin/views/admin_dashboard_screen.dart';
+import 'package:makanspot/features/admin/views/admin_action_log_screen.dart';
 import 'package:makanspot/features/admin/views/admin_shell.dart';
+import 'package:makanspot/features/admin/views/edit_user_screen.dart';
 import 'package:makanspot/features/admin/views/moderation_details_screen.dart';
 import 'package:makanspot/features/admin/views/moderation_screen.dart';
 import 'package:makanspot/features/admin/views/restaurant_details_screen.dart'
     as admin;
+import 'package:makanspot/features/admin/views/restaurant_information_screen.dart';
 import 'package:makanspot/features/admin/views/restaurant_management_screen.dart';
 import 'package:makanspot/features/admin/views/user_details_screen.dart';
 import 'package:makanspot/features/admin/views/user_management_screen.dart';
+import 'package:makanspot/features/admin/views/data_scraper_screen.dart';
 import 'package:makanspot/features/auth/controllers/auth_controller.dart';
 import 'package:makanspot/features/auth/controllers/auth_state.dart';
 import 'package:makanspot/features/auth/views/change_password_screen.dart';
@@ -47,11 +50,12 @@ abstract final class AppRoutes {
   static const forgotPassword = '/forgot-password';
   static const resetPassword = '/reset-password';
   static const changePassword = '/profile/change-password';
-  static const adminDashboard = '/admin';
   static const adminUsers = '/admin/users';
+  static const adminActionLog = '/admin/action-log';
   static const adminRestaurants = '/admin/restaurants';
   static const adminNewRestaurant = '/admin/restaurants/new';
   static const adminModeration = '/admin/moderation';
+  static const adminScraper = '/admin/scraper';
 }
 
 /// Routes that can be visited without signing in.
@@ -86,9 +90,9 @@ GoRouter createAppRouter({
         return AppRoutes.login;
       }
       if (_publicRoutes.contains(location)) {
-        return session.isAdmin ? AppRoutes.adminDashboard : AppRoutes.home;
+        return session.isAdmin ? AppRoutes.adminScraper : AppRoutes.home;
       }
-      if (location.startsWith(AppRoutes.adminDashboard) && !session.isAdmin) {
+      if (location.startsWith('/admin') && !session.isAdmin) {
         return AppRoutes.home;
       }
       return null;
@@ -201,17 +205,26 @@ GoRouter createAppRouter({
         },
         routes: [
           GoRoute(
-            path: AppRoutes.adminDashboard,
-            builder: (context, state) => const AdminDashboardScreen(),
+            path: AppRoutes.adminScraper,
+            builder: (context, state) => const V2DataScraperScreen(),
           ),
           GoRoute(
             path: AppRoutes.adminUsers,
             builder: (context, state) => const UserManagementScreen(),
           ),
           GoRoute(
+            path: AppRoutes.adminActionLog,
+            builder: (context, state) => const AdminActionLogScreen(),
+          ),
+          GoRoute(
             path: '/admin/users/:id',
             builder: (context, state) =>
                 UserDetailsScreen(userId: state.pathParameters['id']!),
+          ),
+          GoRoute(
+            path: '/admin/users/:id/edit',
+            builder: (context, state) =>
+                EditUserScreen(userId: state.pathParameters['id']!),
           ),
           GoRoute(
             path: AppRoutes.adminRestaurants,
@@ -223,8 +236,14 @@ GoRouter createAppRouter({
                 const admin.RestaurantDetailsScreen(restaurantId: 'new'),
           ),
           GoRoute(
-            path: '/admin/restaurants/:id',
+            path: '/admin/restaurants/:id/edit',
             builder: (context, state) => admin.RestaurantDetailsScreen(
+              restaurantId: state.pathParameters['id']!,
+            ),
+          ),
+          GoRoute(
+            path: '/admin/restaurants/:id',
+            builder: (context, state) => RestaurantInformationScreen(
               restaurantId: state.pathParameters['id']!,
             ),
           ),
@@ -234,8 +253,12 @@ GoRouter createAppRouter({
           ),
           GoRoute(
             path: '/admin/moderation/:id',
-            builder: (context, state) =>
-                ModerationDetailsScreen(contentId: state.pathParameters['id']!),
+            builder: (context, state) => ModerationDetailsScreen(
+              contentId: state.pathParameters['id']!,
+              contentType: ModerationDetailsScreen.contentTypeFromQuery(
+                state.uri.queryParameters['type'],
+              ),
+            ),
           ),
         ],
       ),

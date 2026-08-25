@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:makanspot/core/theme/app_theme.dart';
@@ -67,6 +68,8 @@ class AdminInputField extends StatelessWidget {
     this.keyboardType,
     this.enabled = true,
     this.onChanged,
+    this.helperText,
+    this.inputFormatters,
     super.key,
   });
 
@@ -76,10 +79,12 @@ class AdminInputField extends StatelessWidget {
   final TextInputType? keyboardType;
   final bool enabled;
   final ValueChanged<String>? onChanged;
+  final String? helperText;
+  final List<TextInputFormatter>? inputFormatters;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    final input = SizedBox(
       height: 44,
       child: TextField(
         key: fieldKey,
@@ -87,6 +92,7 @@ class AdminInputField extends StatelessWidget {
         keyboardType: keyboardType,
         enabled: enabled,
         onChanged: onChanged,
+        inputFormatters: inputFormatters,
         decoration: InputDecoration(
           hintText: hint,
           filled: true,
@@ -101,6 +107,22 @@ class AdminInputField extends StatelessWidget {
           focusedBorder: _border(AppColors.primary, width: 2),
         ),
       ),
+    );
+    if (helperText == null) {
+      return input;
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        input,
+        const SizedBox(height: 4),
+        Text(
+          helperText!,
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: AppColors.mutedForeground),
+        ),
+      ],
     );
   }
 

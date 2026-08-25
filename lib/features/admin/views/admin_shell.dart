@@ -163,7 +163,7 @@ class _AdminNavigation extends StatelessWidget {
   final ValueChanged<String> onDestinationSelected;
 
   static const _destinations = <_AdminDestination>[
-    _AdminDestination('Dashboard', LucideIcons.layoutDashboard, '/admin'),
+    _AdminDestination('Pipeline', LucideIcons.scan, '/admin/scraper'),
     _AdminDestination('Users', LucideIcons.users, '/admin/users'),
     _AdminDestination('Restaurants', LucideIcons.store, '/admin/restaurants'),
     _AdminDestination('Reports', LucideIcons.flag, '/admin/moderation'),
@@ -198,8 +198,8 @@ class _AdminNavigation extends StatelessWidget {
   }
 
   bool _isActive(String path) {
-    if (path == '/admin') {
-      return currentPath == '/admin';
+    if (path == '/admin/scraper') {
+      return currentPath == '/admin/scraper';
     }
     return currentPath.startsWith(path);
   }
