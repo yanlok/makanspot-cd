@@ -3,13 +3,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/discover_repository.dart';
 import '../models/discover_restaurant.dart';
 import '../models/fixture_discover_repository.dart';
+import '../models/supabase_discover_repository.dart';
 import 'discover_state.dart';
 
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 final discoverRepositoryProvider = Provider<DiscoverRepository>((ref) {
-  return const FixtureDiscoverRepository();
+  try {
+    return SupabaseDiscoverRepository(Supabase.instance.client);
+  } on Object {
+    return const FixtureDiscoverRepository();
+  }
 });
 
 final discoverControllerProvider = StateNotifierProvider.autoDispose
@@ -124,6 +130,7 @@ class DiscoverController extends StateNotifier<DiscoverState> {
     }
     for (final filter in state.selectedFilters) {
       final matches = switch (filter) {
+        'Saved' => state.bookmarkedIds.contains(restaurant.id),
         'Hidden Gems' => restaurant.isHiddenGem,
         'Open Now' => restaurant.labels.contains('Open Now'),
         'Budget' => restaurant.budget == 'Low',
@@ -169,10 +176,8 @@ class DiscoverController extends StateNotifier<DiscoverState> {
     return Set.unmodifiable(result);
   }
 
-  Future<void> setup() async{
-  await dotenv.load(fileName: ".env");
-  MapboxOptions.setAccessToken(dotenv.env['MAP_ACCESS_TOKEN']!);
+  Future<void> setup() async {
+    await dotenv.load(fileName: ".env");
+    MapboxOptions.setAccessToken(dotenv.env['MAP_ACCESS_TOKEN']!);
   }
-
-  
 }

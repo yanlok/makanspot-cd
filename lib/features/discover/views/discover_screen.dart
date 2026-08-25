@@ -71,10 +71,13 @@ class _MapPullUpState extends State<_MapPullUp> {
   late final TextEditingController _searchController = TextEditingController(
     text: widget.state.searchQuery,
   );
+  late final ScrollController _recommendationsScrollController =
+      ScrollController();
 
   @override
   void dispose() {
     _searchController.dispose();
+    _recommendationsScrollController.dispose();
     super.dispose();
   }
 
@@ -190,14 +193,19 @@ class _MapPullUpState extends State<_MapPullUp> {
             SliverToBoxAdapter(
               child: SizedBox(
                 height: 214,
-                child: ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                  scrollDirection: Axis.horizontal,
-                  itemCount: restaurants.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 12),
-                  itemBuilder: (context, index) => _MapRecommendationCard(
-                    restaurant: restaurants[index],
-                    onTap: () => widget.onOpenRestaurant(restaurants[index].id),
+                child: Scrollbar(
+                  controller: _recommendationsScrollController,
+                  thumbVisibility: true,
+                  child: ListView.separated(
+                    controller: _recommendationsScrollController,
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: restaurants.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 12),
+                    itemBuilder: (context, index) => _MapRecommendationCard(
+                      restaurant: restaurants[index],
+                      onTap: () => widget.onOpenRestaurant(restaurants[index].id),
+                    ),
                   ),
                 ),
               ),
@@ -348,12 +356,21 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
               },
             ),
           ),
+          Positioned(
+            top: 48,
+            right: 16,
+            child: _MapActionButton(
+              icon: LucideIcons.bookmark,
+              tooltip: 'Saved restaurants',
+              onPressed: () => controller.toggleFilter('Saved'),
+            ),
+          ),
           DraggableScrollableSheet(
-            initialChildSize: 0.32,
-            minChildSize: 0.18,
+            initialChildSize: 0.18,
+            minChildSize: 0.12,
             maxChildSize: 0.82,
             snap: true,
-            snapSizes: const [0.32, 0.82],
+            snapSizes: const [0.18, 0.82],
             builder: (context, scrollController) => _MapPullUp(
               state: state,
               scrollController: scrollController,
@@ -665,6 +682,17 @@ class _DiscoverMapScreenState extends ConsumerState<DiscoverMapScreen> {
               icon: LucideIcons.chevronLeft,
               tooltip: 'Back',
               onPressed: () => Navigator.of(context).pop(),
+            ),
+          ),
+          Positioned(
+            top: 48,
+            right: 16,
+            child: _MapActionButton(
+              icon: LucideIcons.bookmark,
+              tooltip: 'Saved restaurants',
+              onPressed: () => ref
+                  .read(discoverControllerProvider(widget.arguments).notifier)
+                  .toggleFilter('Saved'),
             ),
           ),
           DraggableScrollableSheet(
