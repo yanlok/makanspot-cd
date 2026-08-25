@@ -10,79 +10,86 @@ import '../models/admin_models.dart';
 import 'widgets/admin_empty_state.dart';
 import 'widgets/admin_filter_dropdown.dart';
 import 'widgets/admin_page_header.dart';
-import 'widgets/admin_search_field.dart';
 import 'widgets/admin_segmented_tabs.dart';
 import 'widgets/admin_skeletons.dart';
 import 'widgets/admin_status_badge.dart';
 
-class ContentModerationScreen extends ConsumerWidget {
+class ContentModerationScreen extends ConsumerStatefulWidget {
   const ContentModerationScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(moderationControllerProvider);
-    final controller = ref.read(moderationControllerProvider.notifier);
+  ConsumerState<ContentModerationScreen> createState() =>
+      _ContentModerationScreenState();
+}
+
+class _ContentModerationScreenState
+    extends ConsumerState<ContentModerationScreen> {
+  @override
+  Widget build(BuildContext context) {
+    // ?tab=comment links (e.g. after dismissing a comment) open directly
+    // on the comment tab, without first rendering the posts tab.
+    final requestedTab =
+        GoRouterState.of(context).uri.queryParameters['tab'] ==
+            ReportTab.comment.name
+        ? ReportTab.comment
+        : ReportTab.post;
+    final state = ref.watch(moderationControllerProvider(requestedTab));
+    final controller = ref.read(
+      moderationControllerProvider(requestedTab).notifier,
+    );
     return SafeArea(
       bottom: false,
-      child: ListView(
-        key: const Key('moderation-scroll'),
-        padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
-        children: [
-          const AdminPageHeader(
-            title: 'Content Moderation',
-            subtitle: 'Review reported posts and comments',
-          ),
-          const SizedBox(height: 20),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: AdminSearchField(
-                  hint: 'Search reports...',
-                  value: state.searchQuery,
-                  onChanged: controller.updateSearch,
-                  fieldKey: const Key('admin-moderation-search'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              AdminFilterDropdown<ReportFilter>(
-                value: state.filter,
-                options: const [
-                  ('All', ReportFilter.all),
-                  ('Pending', ReportFilter.pending),
-                  ('Removed', ReportFilter.removed),
-                ],
-                onChanged: controller.selectFilter,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          AdminSegmentedTabs<ReportTab>(
-            value: state.tab,
-            tabs: const [
-              ('Reported Posts', ReportTab.post),
-              ('Reported Comments', ReportTab.comment),
-            ],
-            onChanged: controller.selectTab,
-          ),
-          const SizedBox(height: 16),
-          if (state.status == ModerationStatus.error)
-            _ModerationError(onRetry: controller.load)
-          else if (state.status == ModerationStatus.loading)
-            const AdminListSkeleton(count: 3, cardHeight: 144)
-          else
-            state.tab == ReportTab.post
-                ? _ReportList(
-                    key: const Key('admin-post-reports'),
-                    groups: state.filteredPosts,
-                    emptyMessage: 'No reported posts found.',
-                  )
-                : _ReportList(
-                    key: const Key('admin-comment-reports'),
-                    groups: state.filteredComments,
-                    emptyMessage: 'No reported comments found.',
-                  ),
-        ],
+      child: RefreshIndicator(
+        onRefresh: controller.load,
+        child: ListView(
+          key: const Key('moderation-scroll'),
+          // Keep the list scrollable when it is empty so pull-to-refresh
+          // still works on the empty and error states.
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+          children: [
+            const AdminPageHeader(
+              title: 'Content Moderation',
+              subtitle: 'Review reported posts and comments',
+            ),
+            const SizedBox(height: 20),
+            AdminFilterDropdown<ReportFilter>(
+              value: state.filter,
+              options: const [
+                ('All', ReportFilter.all),
+                ('Pending', ReportFilter.pending),
+                ('Removed', ReportFilter.removed),
+              ],
+              onChanged: controller.selectFilter,
+            ),
+            const SizedBox(height: 16),
+            AdminSegmentedTabs<ReportTab>(
+              value: state.tab,
+              tabs: const [
+                ('Reported Posts', ReportTab.post),
+                ('Reported Comments', ReportTab.comment),
+              ],
+              onChanged: controller.selectTab,
+            ),
+            const SizedBox(height: 16),
+            if (state.status == ModerationStatus.error)
+              _ModerationError(onRetry: controller.load)
+            else if (state.status == ModerationStatus.loading)
+              const AdminListSkeleton(count: 3, cardHeight: 144)
+            else
+              state.tab == ReportTab.post
+                  ? _ReportList(
+                      key: const Key('admin-post-reports'),
+                      groups: state.filteredPosts,
+                      emptyMessage: 'No reported posts found.',
+                    )
+                  : _ReportList(
+                      key: const Key('admin-comment-reports'),
+                      groups: state.filteredComments,
+                      emptyMessage: 'No reported comments found.',
+                    ),
+          ],
+        ),
       ),
     );
   }
@@ -155,8 +162,12 @@ class _ReportCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      key: Key('admin-report-${group.contentId}'),
-      onTap: () => context.go('/admin/moderation/${group.contentId}'),
+      key: Key('admin-report-${group.contentType.name}-${group.contentId}'),
+      // The type is part of the URL because post and comment IDs come
+      // from separate identity sequences and can share the same number.
+      onTap: () => context.go(
+        '/admin/moderation/${group.contentId}?type=${group.contentType.name}',
+      ),
       borderRadius: BorderRadius.circular(AppRadii.card),
       child: Container(
         padding: const EdgeInsets.all(16),

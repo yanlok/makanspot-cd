@@ -189,15 +189,17 @@ class _RestaurantCard extends StatelessWidget {
                           ),
                           const SizedBox(width: 8),
                           AdminStatusBadge(
-                            label: restaurant.verificationStatus,
+                            label: restaurant.isApproved
+                                ? 'Approved'
+                                : 'Pending',
                           ),
                         ],
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        restaurant.ownerName.isEmpty
-                            ? 'Owner not provided'
-                            : 'Owner: ${restaurant.ownerName}',
+                        (restaurant.instagramUsername ?? '').isEmpty
+                            ? 'Instagram not provided'
+                            : 'IG: ${restaurant.instagramUsername}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -219,9 +221,9 @@ class _RestaurantCard extends StatelessWidget {
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
-                              restaurant.address.isEmpty
+                              (restaurant.address ?? '').isEmpty
                                   ? 'No address'
-                                  : restaurant.address,
+                                  : restaurant.address!,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: Theme.of(context).textTheme.bodySmall
@@ -245,35 +247,30 @@ class _RestaurantCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      restaurant.sourcePlatform.isEmpty
-                          ? 'Manual'
-                          : restaurant.sourcePlatform,
+                      restaurant.categoriesDisplay,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: AppColors.mutedForeground,
                       ),
                     ),
                   ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        LucideIcons.star,
-                        size: 14,
-                        color: AppColors.accent,
+                  if (restaurant.priceRange != null) ...[
+                    const Icon(
+                      LucideIcons.star,
+                      size: 14,
+                      color: AppColors.accent,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      restaurant.priceRange!,
+                      style: const TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.foreground,
                       ),
-                      const SizedBox(width: 4),
-                      Text(
-                        restaurant.ratingDisplay,
-                        style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.foreground,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(width: 12),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
                   const Text(
                     'Manage',
                     style: TextStyle(
