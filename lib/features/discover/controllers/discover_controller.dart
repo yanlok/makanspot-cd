@@ -6,14 +6,17 @@ import '../models/fixture_discover_repository.dart';
 import '../models/supabase_discover_repository.dart';
 import 'discover_state.dart';
 
-import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:makanspot/core/config/supabase_config.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 final discoverRepositoryProvider = Provider<DiscoverRepository>((ref) {
+  if (!SupabaseConfig.isConfigured) {
+    return const FixtureDiscoverRepository();
+  }
   try {
     return SupabaseDiscoverRepository(Supabase.instance.client);
-  } on Object {
+  } on StateError {
+    // Keeps previews and tests usable when main() has not initialized Supabase.
     return const FixtureDiscoverRepository();
   }
 });
@@ -174,10 +177,5 @@ class DiscoverController extends StateNotifier<DiscoverState> {
       result.remove(value);
     }
     return Set.unmodifiable(result);
-  }
-
-  Future<void> setup() async {
-    await dotenv.load(fileName: ".env");
-    MapboxOptions.setAccessToken(dotenv.env['MAP_ACCESS_TOKEN']!);
   }
 }

@@ -85,7 +85,10 @@ class V2DataScraperController extends StateNotifier<V2PipelineState> {
   Future<(String?, String?)> _loadActiveJob() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      return (prefs.getString(_persistedJobId), prefs.getString(_persistedRunId));
+      return (
+        prefs.getString(_persistedJobId),
+        prefs.getString(_persistedRunId),
+      );
     } catch (e) {
       return (null, null);
     }

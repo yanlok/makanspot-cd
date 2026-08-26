@@ -13,8 +13,8 @@ import '../models/discover_restaurant.dart';
 import 'widgets/discover_filter_strip.dart';
 import 'widgets/discover_restaurant_card.dart';
 
-import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 import 'package:geolocator/geolocator.dart' as gl;
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 
 class _MapActionButton extends StatelessWidget {
   const _MapActionButton({
@@ -115,7 +115,9 @@ class _MapPullUpState extends State<_MapPullUp> {
                       const Spacer(),
                       Text(
                         '${restaurants.length} found',
-                        style: const TextStyle(color: AppColors.mutedForeground),
+                        style: const TextStyle(
+                          color: AppColors.mutedForeground,
+                        ),
                       ),
                     ],
                   ),
@@ -171,7 +173,11 @@ class _MapPullUpState extends State<_MapPullUp> {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const Spacer(),
-                      const Icon(LucideIcons.sparkles, size: 17, color: AppColors.accent),
+                      const Icon(
+                        LucideIcons.sparkles,
+                        size: 17,
+                        color: AppColors.accent,
+                      ),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -204,7 +210,8 @@ class _MapPullUpState extends State<_MapPullUp> {
                     separatorBuilder: (_, _) => const SizedBox(width: 12),
                     itemBuilder: (context, index) => _MapRecommendationCard(
                       restaurant: restaurants[index],
-                      onTap: () => widget.onOpenRestaurant(restaurants[index].id),
+                      onTap: () =>
+                          widget.onOpenRestaurant(restaurants[index].id),
                     ),
                   ),
                 ),
@@ -269,7 +276,11 @@ class _MapRecommendationCard extends StatelessWidget {
                     const SizedBox(height: 7),
                     Row(
                       children: [
-                        const Icon(LucideIcons.star, size: 14, color: AppColors.accent),
+                        const Icon(
+                          LucideIcons.star,
+                          size: 14,
+                          color: AppColors.accent,
+                        ),
                         const SizedBox(width: 3),
                         Text(restaurant.rating?.toStringAsFixed(1) ?? '-'),
                         const SizedBox(width: 8),
@@ -294,6 +305,7 @@ class _MapRecommendationCard extends StatelessWidget {
     );
   }
 }
+
 class DiscoverScreen extends ConsumerStatefulWidget {
   const DiscoverScreen({required this.arguments, super.key});
 
@@ -304,23 +316,36 @@ class DiscoverScreen extends ConsumerStatefulWidget {
 }
 
 class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
-  StreamSubscription? _userPositionStream;
+  static final mp.Point _malaysiaCenter = mp.Point(
+    coordinates: mp.Position(102.25, 4.2),
+  );
+  static const double _malaysiaZoom = 6;
+  static const double _userLocationZoom = 13.5;
+  static const Duration _freshLocationTimeout = Duration(seconds: 6);
+  static const Duration _maximumCachedLocationAge = Duration(minutes: 10);
+
   mp.MapboxMap? _mapboxMap;
   mp.CircleAnnotationManager? _markerManager;
+  Future<void> _markerRenderQueue = Future<void>.value();
+  int _markerRenderGeneration = 0;
+  Future<void>? _locationRequest;
+  mp.Point? _userLocation;
+  bool _keepUserLocationCamera = false;
+  bool _nativeMapLoaded = false;
+  bool _mapSetupComplete = false;
+  bool _mapInitializationCompleting = false;
+  bool _isMapReady = false;
+  bool _mapLoadFailed = false;
 
   late final TextEditingController _searchController = TextEditingController(
     text: widget.arguments.query,
   );
 
   @override
-  void initState() {
-    super.initState();
-    unawaited(_setupPositionTracking());
-  }
-
-  @override
   void dispose() {
-    _userPositionStream?.cancel();
+    _markerRenderGeneration++;
+    _mapboxMap = null;
+    _markerManager = null;
     _searchController.dispose();
     super.dispose();
   }
@@ -328,6 +353,16 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(discoverControllerProvider(widget.arguments));
+    ref.listen<List<DiscoverRestaurant>>(
+      discoverControllerProvider(
+        widget.arguments,
+      ).select((state) => state.restaurants),
+      (_, restaurants) {
+        if (_isMapReady) {
+          _scheduleMarkerRender(restaurants);
+        }
+      },
+    );
     final controller = ref.read(
       discoverControllerProvider(widget.arguments).notifier,
     );
@@ -338,9 +373,80 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
             child: mp.MapWidget(
               key: const Key('discover-map'),
               onMapCreated: _onMapCreated,
-              styleUri: mp.MapboxStyles.STANDARD,
+              onMapLoadedListener: (_) {
+                if (!mounted) {
+                  return;
+                }
+                setState(() {
+                  _nativeMapLoaded = true;
+                  _mapLoadFailed = false;
+                });
+                final map = _mapboxMap;
+                if (map != null) {
+                  unawaited(_completeMapInitialization(map));
+                }
+              },
+              onMapLoadErrorListener: (event) {
+                debugPrint('Unable to load map: ${event.message}');
+                if (!mounted) {
+                  return;
+                }
+                setState(() {
+                  _nativeMapLoaded = false;
+                  _isMapReady = false;
+                  _mapLoadFailed = true;
+                });
+              },
+              styleUri: mp.MapboxStyles.MAPBOX_STREETS,
+              // Creation-time camera avoids a Mapbox lifecycle race that can
+              // discard viewport updates before the platform map is registered.
+              // ignore: deprecated_member_use
+              cameraOptions: mp.CameraOptions(
+                center: _malaysiaCenter,
+                zoom: _malaysiaZoom,
+              ),
             ),
           ),
+          if (!_isMapReady)
+            Positioned.fill(
+              child: ColoredBox(
+                color: AppColors.background,
+                child: Center(
+                  child: _mapLoadFailed
+                      ? const Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              LucideIcons.mapPinned,
+                              size: 38,
+                              color: AppColors.primary,
+                            ),
+                            SizedBox(height: 12),
+                            Text(
+                              'Could not load the map',
+                              style: TextStyle(
+                                color: AppColors.foreground,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        )
+                      : const Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(color: AppColors.primary),
+                            SizedBox(height: 12),
+                            Text(
+                              'Loading map…',
+                              style: TextStyle(
+                                color: AppColors.mutedForeground,
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+              ),
+            ),
           Positioned(
             top: 48,
             left: 16,
@@ -363,6 +469,15 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
               icon: LucideIcons.bookmark,
               tooltip: 'Saved restaurants',
               onPressed: () => controller.toggleFilter('Saved'),
+            ),
+          ),
+          Positioned(
+            top: 104,
+            right: 16,
+            child: _MapActionButton(
+              icon: LucideIcons.locateFixed,
+              tooltip: 'Use current location',
+              onPressed: () => unawaited(_centerOnCurrentLocation()),
             ),
           ),
           DraggableScrollableSheet(
@@ -388,24 +503,249 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
   }
 
   Future<void> _onMapCreated(mp.MapboxMap controller) async {
+    _nativeMapLoaded = false;
+    _mapSetupComplete = false;
+    _mapInitializationCompleting = false;
+    _isMapReady = false;
+    _mapLoadFailed = false;
     try {
+      _markerRenderGeneration++;
       _mapboxMap = controller;
-      await _mapboxMap?.location.updateSettings(
-        mp.LocationComponentSettings(enabled: true),
-      );
-      _markerManager = await controller.annotations
+      _markerManager = null;
+      await Future.wait([
+        controller.compass.updateSettings(mp.CompassSettings(enabled: false)),
+        controller.scaleBar.updateSettings(mp.ScaleBarSettings(enabled: false)),
+        controller.logo.updateSettings(
+          mp.LogoSettings(
+            enabled: true,
+            position: mp.OrnamentPosition.TOP_LEFT,
+            marginLeft: 16,
+            marginTop: 104,
+          ),
+        ),
+        controller.attribution.updateSettings(
+          mp.AttributionSettings(
+            enabled: true,
+            position: mp.OrnamentPosition.TOP_LEFT,
+            marginLeft: 108,
+            marginTop: 104,
+            clickable: true,
+          ),
+        ),
+      ]);
+      if (!mounted || !identical(_mapboxMap, controller)) {
+        return;
+      }
+      final markerManager = await controller.annotations
           .createCircleAnnotationManager();
-      final state = ref.read(discoverControllerProvider(widget.arguments));
-      await _renderMarkers(state.restaurants);
-    } catch (error) {
+      if (!mounted || !identical(_mapboxMap, controller)) {
+        return;
+      }
+      _markerManager = markerManager;
+      _mapSetupComplete = true;
+      await _completeMapInitialization(controller);
+    } catch (error, stackTrace) {
       debugPrint('Unable to initialize map: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted || !identical(_mapboxMap, controller)) {
+        return;
+      }
+      setState(() {
+        _mapSetupComplete = false;
+        _isMapReady = false;
+        _mapLoadFailed = true;
+      });
     }
   }
 
-  Future<void> _renderMarkers(List<DiscoverRestaurant> restaurants) async {
+  Future<void> _completeMapInitialization(mp.MapboxMap controller) async {
+    if (!_nativeMapLoaded ||
+        !_mapSetupComplete ||
+        _mapInitializationCompleting ||
+        !mounted ||
+        !identical(_mapboxMap, controller)) {
+      return;
+    }
+
+    _mapInitializationCompleting = true;
+    try {
+      await controller.setCamera(
+        mp.CameraOptions(center: _malaysiaCenter, zoom: _malaysiaZoom),
+      );
+      if (!mounted || !identical(_mapboxMap, controller)) {
+        return;
+      }
+      var renderedGeneration = 0;
+      do {
+        final state = ref.read(discoverControllerProvider(widget.arguments));
+        final render = _scheduleMarkerRender(
+          state.restaurants,
+          fitCamera: false,
+        );
+        renderedGeneration = _markerRenderGeneration;
+        await render;
+      } while (mounted &&
+          identical(_mapboxMap, controller) &&
+          renderedGeneration != _markerRenderGeneration);
+      if (!mounted || !identical(_mapboxMap, controller)) {
+        return;
+      }
+      setState(() {
+        _isMapReady = true;
+        _mapLoadFailed = false;
+      });
+    } catch (error, stackTrace) {
+      debugPrint('Unable to finish map initialization: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (!mounted || !identical(_mapboxMap, controller)) {
+        return;
+      }
+      setState(() {
+        _isMapReady = false;
+        _mapLoadFailed = true;
+      });
+    } finally {
+      if (identical(_mapboxMap, controller)) {
+        _mapInitializationCompleting = false;
+      }
+    }
+  }
+
+  Future<void> _centerOnCurrentLocation() {
+    final inFlight = _locationRequest;
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    final operation = _centerOnCurrentLocationInternal();
+    _locationRequest = operation;
+    return operation.whenComplete(() {
+      if (identical(_locationRequest, operation)) {
+        _locationRequest = null;
+      }
+    });
+  }
+
+  Future<void> _centerOnCurrentLocationInternal() async {
+    final map = _mapboxMap;
+    if (map == null || !mounted) {
+      return;
+    }
+
+    try {
+      final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
+      if (!mounted || !identical(_mapboxMap, map)) {
+        return;
+      }
+      if (!serviceEnabled) {
+        await _useMalaysiaCamera(map);
+        return;
+      }
+
+      var permission = await gl.Geolocator.checkPermission();
+      if (!mounted || !identical(_mapboxMap, map)) {
+        return;
+      }
+      if (permission == gl.LocationPermission.denied) {
+        permission = await gl.Geolocator.requestPermission();
+        if (!mounted || !identical(_mapboxMap, map)) {
+          return;
+        }
+      }
+      if (permission == gl.LocationPermission.denied ||
+          permission == gl.LocationPermission.deniedForever) {
+        await _useMalaysiaCamera(map);
+        return;
+      }
+
+      final lastKnownPosition = await gl.Geolocator.getLastKnownPosition();
+      if (!mounted || !identical(_mapboxMap, map)) {
+        return;
+      }
+      final cachedPosition =
+          lastKnownPosition != null &&
+              DateTime.now().difference(lastKnownPosition.timestamp) <=
+                  _maximumCachedLocationAge
+          ? lastKnownPosition
+          : null;
+      if (cachedPosition != null) {
+        await _useUserLocation(map, cachedPosition);
+      }
+
+      try {
+        final freshPosition = await gl.Geolocator.getCurrentPosition(
+          locationSettings: const gl.LocationSettings(
+            accuracy: gl.LocationAccuracy.medium,
+            timeLimit: _freshLocationTimeout,
+          ),
+        );
+        if (!mounted || !identical(_mapboxMap, map)) {
+          return;
+        }
+        await _useUserLocation(map, freshPosition);
+      } catch (error) {
+        debugPrint('Unable to refresh current location: $error');
+        if (cachedPosition == null) {
+          await _useMalaysiaCamera(map);
+        }
+      }
+    } catch (error) {
+      debugPrint('Unable to use current location: $error');
+      await _useMalaysiaCamera(map);
+    }
+  }
+
+  Future<void> _useUserLocation(mp.MapboxMap map, gl.Position position) async {
+    if (!mounted || !identical(_mapboxMap, map)) {
+      return;
+    }
+    final point = mp.Point(
+      coordinates: mp.Position(position.longitude, position.latitude),
+    );
+    _userLocation = point;
+    _keepUserLocationCamera = true;
+    await map.location.updateSettings(
+      mp.LocationComponentSettings(enabled: true),
+    );
+    if (!mounted || !identical(_mapboxMap, map)) {
+      return;
+    }
+    await map.setCamera(
+      mp.CameraOptions(center: point, zoom: _userLocationZoom),
+    );
+  }
+
+  Future<void> _useMalaysiaCamera(mp.MapboxMap map) async {
+    if (!mounted || !identical(_mapboxMap, map)) {
+      return;
+    }
+    try {
+      _keepUserLocationCamera = false;
+      _userLocation = null;
+      await map.location.updateSettings(
+        mp.LocationComponentSettings(enabled: false),
+      );
+      if (!mounted || !identical(_mapboxMap, map)) {
+        return;
+      }
+      await map.setCamera(
+        mp.CameraOptions(center: _malaysiaCenter, zoom: _malaysiaZoom),
+      );
+    } catch (error) {
+      debugPrint('Unable to use Malaysia map fallback: $error');
+    }
+  }
+
+  Future<void> _renderMarkers(
+    List<DiscoverRestaurant> restaurants,
+    int generation,
+    bool fitCamera,
+  ) async {
     final manager = _markerManager;
     final map = _mapboxMap;
-    if (manager == null || map == null) {
+    if (manager == null ||
+        map == null ||
+        !_isActiveMarkerRender(map, manager, generation)) {
       return;
     }
     final located = restaurants
@@ -415,6 +755,9 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
         )
         .toList();
     await manager.deleteAll();
+    if (!_isActiveMarkerRender(map, manager, generation)) {
+      return;
+    }
     await manager.createMulti(
       located.map((restaurant) {
         return mp.CircleAnnotationOptions(
@@ -431,7 +774,16 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
         );
       }).toList(),
     );
-    if (located.isNotEmpty) {
+    if (!_isActiveMarkerRender(map, manager, generation) ||
+        !fitCamera ||
+        (_keepUserLocationCamera && _userLocation != null)) {
+      return;
+    }
+    if (located.isEmpty) {
+      await map.setCamera(
+        mp.CameraOptions(center: _malaysiaCenter, zoom: _malaysiaZoom),
+      );
+    } else if (located.length == 1) {
       await map.setCamera(
         mp.CameraOptions(
           center: mp.Point(
@@ -443,50 +795,59 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
           zoom: 12.5,
         ),
       );
-    }
-  }
-
-  Future<void> _setupPositionTracking() async {
-    try {
-      final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        return;
-      }
-      final permission = await gl.Geolocator.checkPermission();
-      if (permission == gl.LocationPermission.denied ||
-          permission == gl.LocationPermission.deniedForever) {
-        return;
-      }
-
-      _userPositionStream?.cancel();
-      _userPositionStream = gl.Geolocator.getPositionStream(
-        locationSettings: const gl.LocationSettings(
-          accuracy: gl.LocationAccuracy.high,
-          distanceFilter: 10,
-        ),
-      ).listen((position) {
-        final map = _mapboxMap;
-        if (map != null) {
-          map.setCamera(
-            mp.CameraOptions(
-              zoom: 14.0,
-              center: mp.Point(
+    } else {
+      final camera = await map.cameraForCoordinatesPadding(
+        located
+            .map(
+              (restaurant) => mp.Point(
                 coordinates: mp.Position(
-                  position.longitude,
-                  position.latitude,
+                  restaurant.longitude!,
+                  restaurant.latitude!,
                 ),
               ),
-            ),
-          );
-        }
-      }, onError: (Object error, StackTrace stackTrace) {
-        debugPrint('Location stream error: $error');
-      });
-    } catch (error) {
-      debugPrint('Unable to track location: $error');
+            )
+            .toList(growable: false),
+        mp.CameraOptions(),
+        mp.MbxEdgeInsets(top: 80, left: 48, bottom: 260, right: 48),
+        13,
+        null,
+      );
+      if (!_isActiveMarkerRender(map, manager, generation) ||
+          (_keepUserLocationCamera && _userLocation != null)) {
+        return;
+      }
+      await map.setCamera(camera);
     }
   }
 
+  bool _isActiveMarkerRender(
+    mp.MapboxMap map,
+    mp.CircleAnnotationManager manager,
+    int generation,
+  ) {
+    return mounted &&
+        generation == _markerRenderGeneration &&
+        identical(_mapboxMap, map) &&
+        identical(_markerManager, manager);
+  }
+
+  Future<void> _scheduleMarkerRender(
+    List<DiscoverRestaurant> restaurants, {
+    bool fitCamera = true,
+  }) {
+    final snapshot = List<DiscoverRestaurant>.of(restaurants);
+    final generation = ++_markerRenderGeneration;
+    final operation = _markerRenderQueue.then((_) async {
+      if (generation != _markerRenderGeneration) {
+        return;
+      }
+      await _renderMarkers(snapshot, generation, fitCamera);
+    });
+    _markerRenderQueue = operation.onError((error, stackTrace) {
+      debugPrint('Unable to update restaurant markers: $error');
+    });
+    return operation;
+  }
 }
 
 class _DiscoverHeader extends StatelessWidget {
@@ -632,189 +993,6 @@ class _DiscoverHeader extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class DiscoverMapScreen extends ConsumerStatefulWidget {
-  const DiscoverMapScreen({required this.arguments, super.key});
-
-  final DiscoverArguments arguments;
-
-  @override
-  ConsumerState<DiscoverMapScreen> createState() => _DiscoverMapScreenState();
-}
-
-class _DiscoverMapScreenState extends ConsumerState<DiscoverMapScreen> {
-  StreamSubscription? _userPositionStream;
-  mp.MapboxMap? _mapboxMap;
-  mp.CircleAnnotationManager? _markerManager;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_setupPositionTracking());
-  }
-
-  @override
-  void dispose() {
-    _userPositionStream?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final state = ref.watch(discoverControllerProvider(widget.arguments));
-    ref.listen(discoverControllerProvider(widget.arguments), (_, next) {
-      unawaited(_renderMarkers(next.restaurants));
-    });
-    return Scaffold(
-      body: Stack(
-        children: [
-          mp.MapWidget(
-            key: const Key('discover-map'),
-            onMapCreated: _onMapCreated,
-            styleUri: mp.MapboxStyles.STANDARD,
-          ),
-          Positioned(
-            top: 48,
-            left: 16,
-            child: _MapActionButton(
-              icon: LucideIcons.chevronLeft,
-              tooltip: 'Back',
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-          ),
-          Positioned(
-            top: 48,
-            right: 16,
-            child: _MapActionButton(
-              icon: LucideIcons.bookmark,
-              tooltip: 'Saved restaurants',
-              onPressed: () => ref
-                  .read(discoverControllerProvider(widget.arguments).notifier)
-                  .toggleFilter('Saved'),
-            ),
-          ),
-          DraggableScrollableSheet(
-            initialChildSize: 0.32,
-            minChildSize: 0.18,
-            maxChildSize: 0.82,
-            snap: true,
-            snapSizes: const [0.32, 0.82],
-            builder: (context, scrollController) => _MapPullUp(
-              state: state,
-              scrollController: scrollController,
-              onSearchChanged: ref
-                  .read(discoverControllerProvider(widget.arguments).notifier)
-                  .updateSearch,
-              onToggleFilter: ref
-                  .read(discoverControllerProvider(widget.arguments).notifier)
-                  .toggleFilter,
-              onToggleCuisine: ref
-                  .read(discoverControllerProvider(widget.arguments).notifier)
-                  .toggleCuisine,
-              onToggleBudget: ref
-                  .read(discoverControllerProvider(widget.arguments).notifier)
-                  .toggleBudget,
-              onSelectSort: ref
-                  .read(discoverControllerProvider(widget.arguments).notifier)
-                  .selectSort,
-              onOpenRestaurant: (id) => context.push('/restaurant/$id'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _onMapCreated(mp.MapboxMap controller) async {
-    try {
-      _mapboxMap = controller;
-      await _mapboxMap?.location.updateSettings(
-        mp.LocationComponentSettings(enabled: true),
-      );
-        _markerManager = await controller.annotations.createCircleAnnotationManager();
-      final state = ref.read(discoverControllerProvider(widget.arguments));
-      await _renderMarkers(state.restaurants);
-    } catch (error) {
-      debugPrint('Unable to initialize map: $error');
-    }
-  }
-
-  Future<void> _renderMarkers(List<DiscoverRestaurant> restaurants) async {
-    final manager = _markerManager;
-    final map = _mapboxMap;
-    if (manager == null || map == null) {
-      return;
-    }
-    final located = restaurants
-      .where((restaurant) => restaurant.latitude != null && restaurant.longitude != null)
-      .toList();
-    await manager.deleteAll();
-    await manager.createMulti(
-      located.map((restaurant) {
-        return mp.CircleAnnotationOptions(
-          geometry: mp.Point(
-            coordinates: mp.Position(restaurant.longitude!, restaurant.latitude!),
-          ),
-          circleColor: AppColors.primary.toARGB32(),
-          circleRadius: 8,
-          circleStrokeColor: AppColors.surface.toARGB32(),
-          circleStrokeWidth: 3,
-        );
-      }).toList(),
-    );
-    if (located.isNotEmpty) {
-      await map.setCamera(
-        mp.CameraOptions(
-          center: mp.Point(
-            coordinates: mp.Position(located.first.longitude!, located.first.latitude!),
-          ),
-          zoom: 12.5,
-        ),
-      );
-    }
-  }
-
-  Future<void> _setupPositionTracking() async {
-    try {
-      final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        return;
-      }
-      final permission = await gl.Geolocator.checkPermission();
-      if (permission == gl.LocationPermission.denied ||
-          permission == gl.LocationPermission.deniedForever) {
-        return;
-      }
-
-      _userPositionStream?.cancel();
-      _userPositionStream = gl.Geolocator.getPositionStream(
-        locationSettings: const gl.LocationSettings(
-          accuracy: gl.LocationAccuracy.high,
-          distanceFilter: 10,
-        ),
-      ).listen((position) {
-        final map = _mapboxMap;
-        if (map != null) {
-          map.setCamera(
-            mp.CameraOptions(
-              zoom: 14.0,
-              center: mp.Point(
-                coordinates: mp.Position(
-                  position.longitude,
-                  position.latitude,
-                ),
-              ),
-            ),
-          );
-        }
-      }, onError: (Object error, StackTrace stackTrace) {
-        debugPrint('Location stream error: $error');
-      });
-    } catch (error) {
-      debugPrint('Unable to track location: $error');
-    }
   }
 }
 

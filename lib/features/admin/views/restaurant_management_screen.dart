@@ -12,7 +12,6 @@ import 'widgets/admin_filter_dropdown.dart';
 import 'widgets/admin_page_header.dart';
 import 'widgets/admin_search_field.dart';
 import 'widgets/admin_skeletons.dart';
-import 'widgets/admin_status_badge.dart';
 
 class RestaurantManagementScreen extends ConsumerWidget {
   const RestaurantManagementScreen({super.key});
@@ -186,12 +185,6 @@ class _RestaurantCard extends StatelessWidget {
                                 color: AppColors.foreground,
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          AdminStatusBadge(
-                            label: restaurant.isApproved
-                                ? 'Approved'
-                                : 'Pending',
                           ),
                         ],
                       ),

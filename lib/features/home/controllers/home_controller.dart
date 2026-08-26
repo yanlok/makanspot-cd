@@ -1,13 +1,24 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:makanspot/core/config/supabase_config.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/fixture_home_repository.dart';
 import '../models/home_repository.dart';
+import '../models/supabase_home_repository.dart';
 import 'home_state.dart';
 
 typedef Now = DateTime Function();
 
 final homeRepositoryProvider = Provider<HomeRepository>((ref) {
-  return const FixtureHomeRepository();
+  if (!SupabaseConfig.isConfigured) {
+    return const FixtureHomeRepository();
+  }
+  try {
+    return SupabaseHomeRepository(Supabase.instance.client);
+  } on StateError {
+    // Keeps previews and tests usable when main() has not initialized Supabase.
+    return const FixtureHomeRepository();
+  }
 });
 
 final homeControllerProvider =

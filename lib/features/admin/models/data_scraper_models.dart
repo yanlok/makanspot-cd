@@ -71,22 +71,23 @@ class V2DiscoverySourceSummary {
   final DateTime? lastScrapedAt;
 
   factory V2DiscoverySourceSummary.fromMap(Map<String, dynamic> m) =>
-    V2DiscoverySourceSummary(
-      id: m['id'] as int,
-      sourceType: m['source_type'] as String? ?? 'unknown',
-      sourceValue: m['source_value'] as String? ?? '',
-      area: m['area'] as String?,
-      status: m['status'] as String? ?? 'active',
-      postsScraped: m['posts_scraped'] as int? ?? 0,
-      newRestaurants: m['new_restaurants'] as int? ?? 0,
-      yieldRate: (m['yield_rate'] as num?)?.toDouble() ?? 0,
-      totalCostUsd: (m['total_cost_usd'] as num?)?.toDouble() ?? 0,
-      costPerNewRestaurant: (m['cost_per_new_restaurant'] as num?)?.toDouble(),
-      priorityScore: (m['priority_score'] as num?)?.toDouble() ?? 0.5,
-      lastScrapedAt: m['last_scraped_at'] != null
-          ? DateTime.tryParse(m['last_scraped_at'] as String)
-          : null,
-    );
+      V2DiscoverySourceSummary(
+        id: m['id'] as int,
+        sourceType: m['source_type'] as String? ?? 'unknown',
+        sourceValue: m['source_value'] as String? ?? '',
+        area: m['area'] as String?,
+        status: m['status'] as String? ?? 'active',
+        postsScraped: m['posts_scraped'] as int? ?? 0,
+        newRestaurants: m['new_restaurants'] as int? ?? 0,
+        yieldRate: (m['yield_rate'] as num?)?.toDouble() ?? 0,
+        totalCostUsd: (m['total_cost_usd'] as num?)?.toDouble() ?? 0,
+        costPerNewRestaurant: (m['cost_per_new_restaurant'] as num?)
+            ?.toDouble(),
+        priorityScore: (m['priority_score'] as num?)?.toDouble() ?? 0.5,
+        lastScrapedAt: m['last_scraped_at'] != null
+            ? DateTime.tryParse(m['last_scraped_at'] as String)
+            : null,
+      );
 }
 
 class V2ScrapeRunSummary {
@@ -113,21 +114,21 @@ class V2ScrapeRunSummary {
   final String? error;
 
   factory V2ScrapeRunSummary.fromMap(Map<String, dynamic> m) =>
-    V2ScrapeRunSummary(
-      id: m['id'] as String,
-      status: m['status'] as String? ?? 'pending',
-      postsReceived: m['posts_received'] as int? ?? 0,
-      newPosts: m['new_posts'] as int? ?? 0,
-      newRestaurants: m['new_restaurants'] as int? ?? 0,
-      costUsd: (m['cost_usd'] as num?)?.toDouble() ?? 0,
-      startedAt: m['started_at'] != null
-          ? DateTime.tryParse(m['started_at'] as String)
-          : null,
-      completedAt: m['completed_at'] != null
-          ? DateTime.tryParse(m['completed_at'] as String)
-          : null,
-      error: m['error'] as String?,
-    );
+      V2ScrapeRunSummary(
+        id: m['id'] as String,
+        status: m['status'] as String? ?? 'pending',
+        postsReceived: m['posts_received'] as int? ?? 0,
+        newPosts: m['new_posts'] as int? ?? 0,
+        newRestaurants: m['new_restaurants'] as int? ?? 0,
+        costUsd: (m['cost_usd'] as num?)?.toDouble() ?? 0,
+        startedAt: m['started_at'] != null
+            ? DateTime.tryParse(m['started_at'] as String)
+            : null,
+        completedAt: m['completed_at'] != null
+            ? DateTime.tryParse(m['completed_at'] as String)
+            : null,
+        error: m['error'] as String?,
+      );
 }
 
 class V2PipelineState {

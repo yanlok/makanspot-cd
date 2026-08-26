@@ -80,7 +80,6 @@ class SupabaseCommunityRepository implements CommunityRepository {
         // Keep this query independent of optional category/image relationships.
         // A restaurant should still be reviewable before enrichment is complete.
         .select('id,name')
-        .eq('is_approved', true)
         .order('name');
     return rows
         .map<CommunityRestaurant>(

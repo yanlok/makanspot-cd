@@ -4,66 +4,55 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'discover_repository.dart';
 import 'discover_restaurant.dart';
-import 'fixture_discover_repository.dart';
 
 class SupabaseDiscoverRepository implements DiscoverRepository {
-  SupabaseDiscoverRepository(
-    this._client, {
-    DiscoverRepository fallback = const FixtureDiscoverRepository(),
-  }) : _fallback = fallback;
+  SupabaseDiscoverRepository(this._client);
 
   final SupabaseClient _client;
-  final DiscoverRepository _fallback;
 
   static const _restaurantSelect = '''
     id, name, description, address, city, state, latitude, longitude,
     phone, price_range, categories, business_hours, popularity_score,
-    is_approved, created_at,
+    created_at,
     restaurant_images(image_url, is_primary)
   ''';
 
   @override
   Future<List<DiscoverRestaurant>> loadRestaurants() async {
-    try {
-      final rows = await _client
-          .from('restaurants')
-          .select(_restaurantSelect)
-          .order('created_at', ascending: false);
+    final rows = await _client
+        .from('restaurants')
+        .select(_restaurantSelect)
+        .order('created_at', ascending: false);
 
-      if (rows.isEmpty) return _fallback.loadRestaurants();
-      return rows
-          .map<DiscoverRestaurant>(_restaurantFromRow)
-          .toList(growable: false);
-    } on Object {
-      return _fallback.loadRestaurants();
-    }
+    return rows
+        .map<DiscoverRestaurant>(_restaurantFromRow)
+        .toList(growable: false);
   }
 
   @override
   Future<RestaurantDetailsData?> loadRestaurant(String id) async {
-    try {
-      final row = await _client
-          .from('restaurants')
-          .select(_restaurantSelect)
-          .eq('id', id)
-          .maybeSingle();
-      if (row == null) return _fallback.loadRestaurant(id);
+    final row = await _client
+        .from('restaurants')
+        .select(_restaurantSelect)
+        .eq('id', id)
+        .maybeSingle();
+    if (row == null) return null;
 
-      final posts = await _client
-          .from('posts')
-          .select('id,content,media_urls,rating,users(username,avatar_url)')
-          .eq('restaurant_id', id)
-          .order('created_at', ascending: false);
+    final posts = await _client
+        .from('posts')
+        .select(
+          'id,content,media_urls,rating,'
+          'users!posts_user_id_fkey(username,avatar_url)',
+        )
+        .eq('restaurant_id', id)
+        .order('created_at', ascending: false);
 
-      return RestaurantDetailsData(
-        restaurant: _restaurantFromRow(row),
-        reviews: posts
-            .map<RestaurantReview>(_reviewFromRow)
-            .toList(growable: false),
-      );
-    } on Object {
-      return _fallback.loadRestaurant(id);
-    }
+    return RestaurantDetailsData(
+      restaurant: _restaurantFromRow(row),
+      reviews: posts
+          .map<RestaurantReview>(_reviewFromRow)
+          .toList(growable: false),
+    );
   }
 
   DiscoverRestaurant _restaurantFromRow(Map<String, dynamic> row) {
