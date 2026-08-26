@@ -86,4 +86,9 @@ class MyPostsController extends StateNotifier<MyPostsState> {
     await _repository.unarchivePost(id);
     await load();
   }
+
+  Future<void> toggleSave(String id) async {
+    await _repository.toggleSave(id);
+    await load();
+  }
 }
