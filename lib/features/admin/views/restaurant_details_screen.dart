@@ -12,7 +12,7 @@ import 'widgets/admin_form_widgets.dart';
 import 'widgets/admin_skeletons.dart';
 import 'widgets/admin_status_badge.dart';
 
-const _cuisines = <String>[
+const _categories = <String>[
   'Malay',
   'Chinese',
   'Indian',
@@ -25,7 +25,7 @@ const _cuisines = <String>[
   'Mamak',
 ];
 
-const _budgets = <String>['Low', 'Medium', 'High'];
+const _priceRanges = <String>['\$', '\$\$', '\$\$\$', '\$\$\$\$'];
 
 class RestaurantDetailsScreen extends ConsumerStatefulWidget {
   const RestaurantDetailsScreen({required this.restaurantId, super.key});
@@ -41,18 +41,18 @@ class _RestaurantDetailsScreenState
     extends ConsumerState<RestaurantDetailsScreen> {
   final _nameController = TextEditingController();
   final _addressController = TextEditingController();
-  final _hoursController = TextEditingController();
-  final _contactController = TextEditingController();
-  final _ownerNameController = TextEditingController();
-  final _ratingController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _websiteController = TextEditingController();
+  final _cityController = TextEditingController();
+  final _stateController = TextEditingController();
+  final _instagramController = TextEditingController();
   final _descriptionController = TextEditingController();
-  final _sourceController = TextEditingController();
   final _latitudeController = TextEditingController();
   final _longitudeController = TextEditingController();
 
-  String _cuisine = _cuisines.first;
-  String _budget = _budgets.first;
-  bool _isVerified = false;
+  final Set<String> _selectedCategories = {};
+  String _priceRange = _priceRanges.first;
+  bool _isApproved = false;
   String _imageUrl = '';
   bool _uploading = false;
   bool _seeded = false;
@@ -74,12 +74,12 @@ class _RestaurantDetailsScreenState
     _nameController.removeListener(_onNameChanged);
     _nameController.dispose();
     _addressController.dispose();
-    _hoursController.dispose();
-    _contactController.dispose();
-    _ownerNameController.dispose();
-    _ratingController.dispose();
+    _phoneController.dispose();
+    _websiteController.dispose();
+    _cityController.dispose();
+    _stateController.dispose();
+    _instagramController.dispose();
     _descriptionController.dispose();
-    _sourceController.dispose();
     _latitudeController.dispose();
     _longitudeController.dispose();
     super.dispose();
@@ -87,21 +87,21 @@ class _RestaurantDetailsScreenState
 
   void _seed(AdminRestaurant restaurant) {
     _nameController.text = restaurant.name;
-    _cuisine = _cuisines.contains(restaurant.cuisine)
-        ? restaurant.cuisine
-        : _cuisines.first;
-    _addressController.text = restaurant.address;
-    _hoursController.text = restaurant.operatingHours;
-    _contactController.text = restaurant.contact;
-    _ownerNameController.text = restaurant.ownerName;
-    _ratingController.text = restaurant.rating?.toString() ?? '';
-    _budget = _budgets.contains(restaurant.budget)
-        ? restaurant.budget
-        : _budgets.first;
-    _descriptionController.text = restaurant.description;
+    _selectedCategories
+      ..clear()
+      ..addAll(restaurant.categories.where(_categories.contains));
+    _addressController.text = restaurant.address ?? '';
+    _cityController.text = restaurant.city ?? '';
+    _stateController.text = restaurant.state ?? '';
+    _phoneController.text = restaurant.phone ?? '';
+    _websiteController.text = restaurant.website ?? '';
+    _instagramController.text = restaurant.instagramUsername ?? '';
+    _priceRange = _priceRanges.contains(restaurant.priceRange)
+        ? restaurant.priceRange!
+        : _priceRanges.first;
+    _descriptionController.text = restaurant.description ?? '';
     _imageUrl = restaurant.imageUrl;
-    _sourceController.text = restaurant.sourcePlatform;
-    _isVerified = restaurant.isVerified;
+    _isApproved = restaurant.isApproved;
     _latitudeController.text = restaurant.latitude?.toString() ?? '';
     _longitudeController.text = restaurant.longitude?.toString() ?? '';
     _seeded = true;
@@ -110,17 +110,16 @@ class _RestaurantDetailsScreenState
   AdminRestaurantDraft _draft() {
     return AdminRestaurantDraft(
       name: _nameController.text,
-      cuisine: _cuisine,
+      categories: _selectedCategories.toList(),
       address: _addressController.text,
-      operatingHours: _hoursController.text,
-      contact: _contactController.text,
-      ownerName: _ownerNameController.text,
-      budget: _budget,
+      city: _cityController.text,
+      state: _stateController.text,
+      phone: _phoneController.text,
+      website: _websiteController.text,
+      instagramUsername: _instagramController.text,
+      priceRange: _priceRange,
       description: _descriptionController.text,
       imageUrl: _imageUrl,
-      sourcePlatform: _sourceController.text,
-      isVerified: _isVerified,
-      rating: double.tryParse(_ratingController.text.trim()),
       latitude: double.tryParse(_latitudeController.text.trim()),
       longitude: double.tryParse(_longitudeController.text.trim()),
     );
@@ -250,7 +249,7 @@ class _RestaurantDetailsScreenState
             _DetailsHeader(
               isCreate: isCreate,
               name: _nameController.text,
-              isVerified: _isVerified,
+              isApproved: _isApproved,
               imageUrl: _imageUrl,
             ),
             const SizedBox(height: 24),
@@ -261,23 +260,30 @@ class _RestaurantDetailsScreenState
             _FormCard(
               nameController: _nameController,
               addressController: _addressController,
-              hoursController: _hoursController,
-              contactController: _contactController,
-              ownerNameController: _ownerNameController,
-              ratingController: _ratingController,
+              cityController: _cityController,
+              stateController: _stateController,
+              phoneController: _phoneController,
+              websiteController: _websiteController,
+              instagramController: _instagramController,
               descriptionController: _descriptionController,
-              sourceController: _sourceController,
               latitudeController: _latitudeController,
               longitudeController: _longitudeController,
-              cuisine: _cuisine,
-              budget: _budget,
-              isVerified: _isVerified,
+              selectedCategories: _selectedCategories,
+              priceRange: _priceRange,
+              isApproved: _isApproved,
               imageUrl: _imageUrl,
               uploading: _uploading,
-              onCuisineChanged: (value) => setState(() => _cuisine = value),
-              onBudgetChanged: (value) => setState(() => _budget = value),
-              onVerifiedChanged: () =>
-                  setState(() => _isVerified = !_isVerified),
+              onCategoryToggled: (category) => setState(() {
+                if (_selectedCategories.contains(category)) {
+                  _selectedCategories.remove(category);
+                } else {
+                  _selectedCategories.add(category);
+                }
+              }),
+              onPriceRangeChanged: (value) =>
+                  setState(() => _priceRange = value),
+              onApprovedChanged: () =>
+                  setState(() => _isApproved = !_isApproved),
               onUpload: _uploadImage,
             ),
             const SizedBox(height: 24),
@@ -312,6 +318,12 @@ class _RestaurantInformationCard extends StatelessWidget {
 
   final AdminRestaurant restaurant;
 
+  static String _formatBusinessHours(Map<String, dynamic>? hours) {
+    if (hours == null || hours.isEmpty) return '';
+    final entries = hours.entries.map((e) => '${e.key}: ${e.value}').join(', ');
+    return entries;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -333,31 +345,35 @@ class _RestaurantInformationCard extends StatelessWidget {
           _infoRow(
             context,
             'Location',
-            restaurant.address.isEmpty ? 'Not provided' : restaurant.address,
-          ),
-          _infoRow(
-            context,
-            'Operating Hours',
-            restaurant.operatingHours.isEmpty
+            (restaurant.address ?? '').isEmpty
                 ? 'Not provided'
-                : restaurant.operatingHours,
+                : restaurant.address!,
           ),
           _infoRow(
             context,
-            'Owner Name',
-            restaurant.ownerName.isEmpty
+            'Business Hours',
+            _formatBusinessHours(restaurant.businessHours).isEmpty
                 ? 'Not provided'
-                : restaurant.ownerName,
+                : _formatBusinessHours(restaurant.businessHours),
           ),
           _infoRow(
             context,
-            'Owner Phone',
-            restaurant.contact.isEmpty ? 'Not provided' : restaurant.contact,
+            'Instagram',
+            (restaurant.instagramUsername ?? '').isEmpty
+                ? 'Not provided'
+                : restaurant.instagramUsername!,
+          ),
+          _infoRow(
+            context,
+            'Phone',
+            (restaurant.phone ?? '').isEmpty
+                ? 'Not provided'
+                : restaurant.phone!,
           ),
           _infoRow(
             context,
             'Status',
-            restaurant.isVerified ? 'Verified' : 'Unverified',
+            restaurant.isApproved ? 'Approved' : 'Pending',
             isLast: true,
           ),
         ],
@@ -403,13 +419,13 @@ class _DetailsHeader extends StatelessWidget {
   const _DetailsHeader({
     required this.isCreate,
     required this.name,
-    required this.isVerified,
+    required this.isApproved,
     required this.imageUrl,
   });
 
   final bool isCreate;
   final String name;
-  final bool isVerified;
+  final bool isApproved;
   final String imageUrl;
 
   @override
@@ -454,7 +470,7 @@ class _DetailsHeader extends StatelessWidget {
               ),
               if (!isCreate) ...[
                 const SizedBox(height: 4),
-                AdminStatusBadge(label: isVerified ? 'Verified' : 'Pending'),
+                AdminStatusBadge(label: isApproved ? 'Approved' : 'Pending'),
               ],
             ],
           ),
@@ -468,43 +484,43 @@ class _FormCard extends StatelessWidget {
   const _FormCard({
     required this.nameController,
     required this.addressController,
-    required this.hoursController,
-    required this.contactController,
-    required this.ownerNameController,
-    required this.ratingController,
+    required this.cityController,
+    required this.stateController,
+    required this.phoneController,
+    required this.websiteController,
+    required this.instagramController,
     required this.descriptionController,
-    required this.sourceController,
     required this.latitudeController,
     required this.longitudeController,
-    required this.cuisine,
-    required this.budget,
-    required this.isVerified,
+    required this.selectedCategories,
+    required this.priceRange,
+    required this.isApproved,
     required this.imageUrl,
     required this.uploading,
-    required this.onCuisineChanged,
-    required this.onBudgetChanged,
-    required this.onVerifiedChanged,
+    required this.onCategoryToggled,
+    required this.onPriceRangeChanged,
+    required this.onApprovedChanged,
     required this.onUpload,
   });
 
   final TextEditingController nameController;
   final TextEditingController addressController;
-  final TextEditingController hoursController;
-  final TextEditingController contactController;
-  final TextEditingController ownerNameController;
-  final TextEditingController ratingController;
+  final TextEditingController cityController;
+  final TextEditingController stateController;
+  final TextEditingController phoneController;
+  final TextEditingController websiteController;
+  final TextEditingController instagramController;
   final TextEditingController descriptionController;
-  final TextEditingController sourceController;
   final TextEditingController latitudeController;
   final TextEditingController longitudeController;
-  final String cuisine;
-  final String budget;
-  final bool isVerified;
+  final Set<String> selectedCategories;
+  final String priceRange;
+  final bool isApproved;
   final String imageUrl;
   final bool uploading;
-  final ValueChanged<String> onCuisineChanged;
-  final ValueChanged<String> onBudgetChanged;
-  final VoidCallback onVerifiedChanged;
+  final ValueChanged<String> onCategoryToggled;
+  final ValueChanged<String> onPriceRangeChanged;
+  final VoidCallback onApprovedChanged;
   final VoidCallback onUpload;
 
   @override
@@ -535,11 +551,32 @@ class _FormCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _field(
-            label: 'Cuisine',
-            child: AdminSelectField<String>(
-              value: cuisine,
-              options: [for (final c in _cuisines) (c, c)],
-              onChanged: onCuisineChanged,
+            label: 'Categories',
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                for (final category in _categories)
+                  FilterChip(
+                    key: Key('admin-category-${category.toLowerCase()}'),
+                    label: Text(category),
+                    selected: selectedCategories.contains(category),
+                    onSelected: (_) => onCategoryToggled(category),
+                    selectedColor: AppColors.primary.withValues(alpha: 0.15),
+                    checkmarkColor: AppColors.primary,
+                    side: BorderSide(
+                      color: selectedCategories.contains(category)
+                          ? AppColors.primary
+                          : AppColors.secondary,
+                    ),
+                    labelStyle: TextStyle(
+                      color: selectedCategories.contains(category)
+                          ? AppColors.primary
+                          : AppColors.foreground,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                  ),
+              ],
             ),
           ),
           const SizedBox(height: 16),
@@ -552,63 +589,67 @@ class _FormCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _field(
-            label: 'Operating Hours',
+            label: 'City',
             child: AdminInputField(
-              controller: hoursController,
-              hint: 'e.g. 8am - 11pm',
+              controller: cityController,
+              hint: 'e.g. Kuala Lumpur',
             ),
           ),
           const SizedBox(height: 16),
           _field(
-            label: 'Owner Name',
+            label: 'State',
             child: AdminInputField(
-              controller: ownerNameController,
-              hint: 'Owner name',
+              controller: stateController,
+              hint: 'e.g. Selangor',
             ),
           ),
           const SizedBox(height: 16),
           _field(
-            label: 'Owner Phone Number',
+            label: 'Phone',
             child: AdminInputField(
-              controller: contactController,
-              hint: 'Owner phone number',
+              controller: phoneController,
+              hint: 'Phone number',
             ),
           ),
           const SizedBox(height: 16),
           _field(
-            label: 'Rating',
+            label: 'Website',
             child: AdminInputField(
-              controller: ratingController,
-              hint: '0.0',
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
+              controller: websiteController,
+              hint: 'e.g. https://example.com',
             ),
           ),
           const SizedBox(height: 16),
           _field(
-            label: 'Budget',
+            label: 'Instagram Username',
+            child: AdminInputField(
+              controller: instagramController,
+              hint: 'e.g. myrestaurant',
+            ),
+          ),
+          const SizedBox(height: 16),
+          _field(
+            label: 'Price Range',
             child: AdminSelectField<String>(
-              value: budget,
-              options: [for (final b in _budgets) (b, b)],
-              onChanged: onBudgetChanged,
+              value: priceRange,
+              options: [for (final p in _priceRanges) (p, p)],
+              onChanged: onPriceRangeChanged,
             ),
           ),
           const SizedBox(height: 16),
           _field(
-            label:
-                'Verification Status: ${isVerified ? 'Verified' : 'Pending'}',
+            label: 'Approved',
             child: AdminOutlineButton(
-              label: isVerified ? 'Verified' : 'Unverified',
-              borderColor: isVerified ? AppColors.success : AppColors.secondary,
-              foregroundColor: isVerified
+              label: isApproved ? 'Approved' : 'Not Approved',
+              borderColor: isApproved ? AppColors.success : AppColors.secondary,
+              foregroundColor: isApproved
                   ? AppColors.success
                   : AppColors.mutedForeground,
-              backgroundColor: isVerified
+              backgroundColor: isApproved
                   ? AppColors.success.withValues(alpha: 0.1)
                   : AppColors.surface,
-              buttonKey: const Key('admin-restaurant-verified'),
-              onPressed: onVerifiedChanged,
+              buttonKey: const Key('admin-restaurant-approved'),
+              onPressed: onApprovedChanged,
             ),
           ),
           const SizedBox(height: 16),
@@ -663,14 +704,6 @@ class _FormCard extends StatelessWidget {
                   ),
                 ),
               ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          _field(
-            label: 'Source Platform',
-            child: AdminInputField(
-              controller: sourceController,
-              hint: 'e.g. Google Maps, Manual',
             ),
           ),
         ],
