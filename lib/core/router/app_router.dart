@@ -30,6 +30,7 @@ import 'package:makanspot/features/community/views/saved_posts_screen.dart';
 import 'package:makanspot/features/discover/controllers/discover_state.dart';
 import 'package:makanspot/features/discover/views/discover_screen.dart';
 import 'package:makanspot/features/discover/views/restaurant_details_screen.dart';
+import 'package:makanspot/features/discover/views/saved_restaurant_screen.dart';
 import 'package:makanspot/features/home/views/home_screen.dart';
 import 'package:makanspot/features/journey/views/achievements_screen.dart';
 import 'package:makanspot/features/journey/views/exploration_map_screen.dart';
@@ -119,6 +120,10 @@ GoRouter createAppRouter({
                 ),
               );
             },
+          ),
+          GoRoute(
+            path: '/saved-restaurants',
+            builder: (context, state) => const SavedRestaurantScreen(),
           ),
           GoRoute(
             path: '/restaurant/:id',

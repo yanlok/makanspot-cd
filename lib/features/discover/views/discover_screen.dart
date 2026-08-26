@@ -468,7 +468,7 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
             child: _MapActionButton(
               icon: LucideIcons.bookmark,
               tooltip: 'Saved restaurants',
-              onPressed: () => controller.toggleFilter('Saved'),
+              onPressed: () => context.push('/saved-restaurants'),
             ),
           ),
           Positioned(
