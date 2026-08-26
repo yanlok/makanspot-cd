@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_models.dart';
@@ -365,6 +367,95 @@ class SupabaseAdminRepository implements AdminRepository {
 
   @override
   Future<AdminRestaurant?> updateRestaurant(
+    String id,
+    AdminRestaurantDraft draft, {
+    Set<String>? changedFields,
+  }) async {
+    final restaurantId = int.tryParse(id);
+    if (restaurantId == null) return null;
+
+    final response = await _runRestaurantUpdateRpc(
+      restaurantId,
+      _adminRestaurantChanges(draft, changedFields),
+    );
+    if (response is! List || response.isEmpty || response.first is! Map) {
+      throw StateError(
+        'update_restaurant_admin returned an invalid response for restaurant '
+        '$restaurantId',
+      );
+    }
+    final row = Map<String, dynamic>.from(response.first as Map);
+    final primaryImages = await _loadPrimaryImages([row['id']]);
+    final existingImageUrl = primaryImages['${row['id']}'] ?? '';
+    final requestedImageUrl = draft.imageUrl.trim();
+    if (requestedImageUrl.isNotEmpty &&
+        requestedImageUrl != existingImageUrl.trim()) {
+      await _persistPrimaryImage(row['id'], requestedImageUrl);
+    }
+    return _restaurantFromRow(
+      row,
+      primaryImageUrl: requestedImageUrl.isNotEmpty
+          ? requestedImageUrl
+          : primaryImages['${row['id']}'],
+    );
+  }
+
+  Future<dynamic> _runRestaurantUpdateRpc(
+    int restaurantId,
+    Map<String, Object?> changes,
+  ) async {
+    try {
+      return await _client.rpc(
+        'update_restaurant_admin',
+        params: {
+          'p_restaurant_id': restaurantId,
+          'p_changes': changes,
+        },
+      );
+    } on PostgrestException catch (error, stackTrace) {
+      developer.log(
+        'Supabase restaurant update RPC failed',
+        name: 'makanspot.admin.restaurant_update',
+        error: {
+          'restaurantId': restaurantId,
+          'code': error.code,
+          'message': error.message,
+          'details': error.details,
+          'hint': error.hint,
+        },
+        stackTrace: stackTrace,
+      );
+      rethrow;
+    }
+  }
+
+  Map<String, Object?> _adminRestaurantChanges(
+    AdminRestaurantDraft draft,
+    Set<String>? changedFields,
+  ) {
+    bool changed(String field) =>
+        changedFields == null || changedFields.contains(field);
+
+    return {
+      if (changed('name')) 'name': draft.name.trim(),
+      if (changed('description')) 'description': draft.description.trim(),
+      if (changed('address')) 'address': draft.address.trim(),
+      if (changed('latitude')) 'latitude': draft.latitude,
+      if (changed('longitude')) 'longitude': draft.longitude,
+      if (changed('contact')) 'phone_number': draft.contact.trim(),
+      if (changed('owner_name')) 'owner_name': draft.ownerName.trim(),
+      if (changed('budget')) 'price_range': _legacyPriceRange(draft.budget),
+      if (changed('rating')) 'rating': draft.rating,
+      if (changed('cuisine')) 'cuisine': _categoryValues(draft.cuisine),
+      if (changed('operating_hours'))
+        'operating_hours': {'status': draft.operatingHours.trim()},
+      if (changed('source_platform'))
+        'social_media_source': draft.sourcePlatform.trim(),
+      if (changed('verification_status')) 'is_approved': draft.isVerified,
+    };
+  }
+
+  Future<AdminRestaurant?> _updateRestaurantLegacy(
     String id,
     AdminRestaurantDraft draft, {
     Set<String>? changedFields,

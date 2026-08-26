@@ -183,9 +183,7 @@ class _RestaurantDetailsScreenState
       messenger.showSnackBar(SnackBar(content: Text(result.warning!)));
     } else {
       messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Changes Saved — Restaurant information updated.'),
-        ),
+        const SnackBar(content: Text('Restaurant updated successfully.')),
       );
     }
     context.go('/admin/restaurants/${widget.restaurantId}');

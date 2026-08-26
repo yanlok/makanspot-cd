@@ -46,6 +46,33 @@ void main() {
       expect(logs.first.fieldChanges, contains('description'));
     });
 
+    test('save calls the repository update and persists edited fields', () async {
+      final repository = FixtureAdminRepository();
+      final original = (await repository.loadRestaurants()).first;
+      final controller = RestaurantDetailsController(repository, original.id);
+      await controller.load();
+
+      final result = await controller.save(
+        _draftFrom(
+          original,
+          name: '${original.name} Saved',
+          ownerName: 'New Owner',
+          description: 'New description',
+          sourcePlatform: 'Website',
+        ),
+        rawRating: '${original.rating ?? 4.5}',
+        rawLatitude: '${original.latitude ?? 3.139}',
+        rawLongitude: '${original.longitude ?? 101.6869}',
+      );
+
+      expect(result.error, isNull);
+      final saved = await repository.loadRestaurant(original.id);
+      expect(saved?.name, '${original.name} Saved');
+      expect(saved?.ownerName, 'New Owner');
+      expect(saved?.description, 'New description');
+      expect(saved?.sourcePlatform, 'Website');
+    });
+
     test('rejects a duplicate normalized restaurant name', () async {
       final repository = FixtureAdminRepository();
       final restaurants = await repository.loadRestaurants();

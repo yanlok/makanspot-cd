@@ -352,14 +352,17 @@ class RestaurantDetailsController
 
   String _restaurantSaveError(PostgrestException error) {
     final message = error.message.toLowerCase();
+    if (error.code == 'PGRST202' || error.code == '42883') {
+      return 'Restaurant update service is not available. Please deploy the '
+          'latest Supabase migration.';
+    }
     if (error.code == '23505' || message.contains('duplicate key')) {
       return 'A restaurant with this name already exists.';
     }
     if (error.code == '42501' ||
         message.contains('permission denied') ||
         message.contains('row-level security')) {
-      return 'Restaurant updates are not enabled for this admin account. '
-          'Apply the admin restaurant UPDATE policy and try again.';
+      return 'You do not have permission to update this restaurant.';
     }
     return 'Could not save restaurant. Please try again.';
   }
