@@ -93,6 +93,31 @@ class PostDetailsController extends StateNotifier<PostDetailsState> {
     }
   }
 
+  Future<void> toggleSave() async {
+    final updated = await _repository.toggleSave(postId);
+    if (updated != null && mounted) state = state.copyWith(post: updated);
+  }
+
+  Future<void> reportPost(CommunityReportReason reason, {String? details}) {
+    return _repository.reportPost(
+      postId: postId,
+      reason: reason,
+      additionalInfo: details,
+    );
+  }
+
+  Future<void> reportComment(
+    String commentId,
+    CommunityReportReason reason, {
+    String? details,
+  }) {
+    return _repository.reportComment(
+      commentId: commentId,
+      reason: reason,
+      additionalInfo: details,
+    );
+  }
+
   Future<void> addComment(String text, {String? parentCommentId}) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) {
@@ -108,6 +133,47 @@ class PostDetailsController extends StateNotifier<PostDetailsState> {
         commentCount: (state.post?.commentCount ?? state.comments.length) + 1,
       ),
       comments: List.unmodifiable([comment, ...state.comments]),
+    );
+  }
+
+  Future<void> deleteComment(String id) async {
+    await _repository.deleteComment(id);
+    if (!mounted) return;
+    state = state.copyWith(
+      post: state.post?.copyWith(
+        commentCount: (state.post?.commentCount ?? state.comments.length) - 1,
+      ),
+      comments: List.unmodifiable(
+        state.comments.where((comment) => comment.id != id),
+      ),
+    );
+  }
+
+  Future<void> togglePinComment(CommunityComment comment) async {
+    await _repository.togglePinComment(
+      id: comment.id,
+      pinned: !comment.isPinned,
+    );
+    if (!mounted) return;
+    state = state.copyWith(
+      comments: List.unmodifiable(
+        state.comments.map((item) {
+          if (item.id != comment.id) return item;
+          return CommunityComment(
+            id: item.id,
+            postId: item.postId,
+            username: item.username,
+            userAvatar: item.userAvatar,
+            text: item.text,
+            userId: item.userId,
+            isOwn: item.isOwn,
+            canPin: item.canPin,
+            isPinned: !item.isPinned,
+            createdAt: item.createdAt,
+            parentCommentId: item.parentCommentId,
+          );
+        }),
+      ),
     );
   }
 }

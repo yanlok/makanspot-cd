@@ -27,6 +27,7 @@ class CommunityPost {
     required this.mediaUrls,
     required this.likes,
     required this.isLiked,
+    this.isSaved = false,
     this.commentCount = 0,
     required this.status,
     required this.createdAt,
@@ -45,6 +46,7 @@ class CommunityPost {
   final List<String> mediaUrls;
   final int likes;
   final bool isLiked;
+  final bool isSaved;
   final int commentCount;
   final String status;
   final DateTime createdAt;
@@ -55,6 +57,7 @@ class CommunityPost {
     List<String>? mediaUrls,
     int? likes,
     bool? isLiked,
+    bool? isSaved,
     int? commentCount,
     String? status,
   }) {
@@ -72,6 +75,7 @@ class CommunityPost {
       mediaUrls: mediaUrls ?? this.mediaUrls,
       likes: likes ?? this.likes,
       isLiked: isLiked ?? this.isLiked,
+      isSaved: isSaved ?? this.isSaved,
       commentCount: commentCount ?? this.commentCount,
       status: status ?? this.status,
       createdAt: createdAt,
@@ -100,6 +104,11 @@ class CommunityComment {
     required this.username,
     required this.userAvatar,
     required this.text,
+    this.userId = '',
+    this.isOwn = false,
+    this.canPin = false,
+    this.isPinned = false,
+    this.createdAt,
     this.parentCommentId,
   });
 
@@ -108,7 +117,24 @@ class CommunityComment {
   final String username;
   final String userAvatar;
   final String text;
+  final String userId;
+  final bool isOwn;
+  final bool canPin;
+  final bool isPinned;
+  final DateTime? createdAt;
   final String? parentCommentId;
+}
+
+enum CommunityReportReason {
+  spam('Spam or misleading promotion'),
+  harassment('Harassment or abusive language'),
+  inappropriate('Inappropriate or offensive content'),
+  misinformation('Misleading information'),
+  other('Other');
+
+  const CommunityReportReason(this.label);
+
+  final String label;
 }
 
 class CommunityPostDetails {

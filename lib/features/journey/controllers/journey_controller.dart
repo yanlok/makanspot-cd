@@ -157,6 +157,52 @@ class JourneyController extends StateNotifier<JourneyState> {
     }
   }
 
+  List<JourneyAchievementProgress> calculateAchievements([
+    JourneyData? journeyData,
+  ]) {
+    final data = journeyData ?? state.data;
+    return data?.achievementProgress ?? const [];
+  }
+
+  int calculateCommunityScore({
+    int? dailyLogins,
+    int? reviewsSubmitted,
+    int? likesReceived,
+  }) {
+    final data = state.data;
+    final reviews = reviewsSubmitted ?? data?.reviewCount ?? 0;
+    final likes = likesReceived ?? data?.totalLikes ?? 0;
+    final logins = dailyLogins ?? _dailyLoginCount(data?.scoreHistory ?? []);
+    return logins + (reviews * 2) + likes;
+  }
+
+  String assignProfileTitle({int? communityScore}) {
+    final score = communityScore ?? state.data?.user.communityScore ?? 0;
+    final hasMasterReviewer = calculateAchievements().any(
+      (item) => item.achievement.name == 'Review Regular' && item.earned,
+    );
+    if (score >= 500) return 'Food Master';
+    if (hasMasterReviewer) return 'Master Reviewer';
+    if (score >= 100) return 'Explorer';
+    return 'Food Explorer';
+  }
+
+  int _dailyLoginCount(List<JourneyScoreActivity> history) {
+    return history
+        .where(
+          (activity) => activity.description.toLowerCase().contains('login'),
+        )
+        .map(
+          (activity) => DateTime(
+            activity.date.year,
+            activity.date.month,
+            activity.date.day,
+          ),
+        )
+        .toSet()
+        .length;
+  }
+
   void updateVisitSearch(String value) {
     state = state.copyWith(visitSearch: value);
   }

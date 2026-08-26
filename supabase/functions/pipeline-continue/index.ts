@@ -914,7 +914,6 @@ async function upsertPlaceRestaurant(
       instagram_location_id: place.external_id,
       categories,
       verification_confidence: place.external_id ? 0.9 : 0.7,
-      is_approved: false,
       last_scraped_at: new Date().toISOString(),
     }).select("id").single();
     if (error || !data) {
@@ -1453,7 +1452,6 @@ async function handleEnrich(
           instagram_location_id: post.location_id,
           categories: extraction.categories,
           verification_confidence: extraction.confidence,
-          is_approved: false,
           source_post_count: 1,
           popularity_score: v2PopularityScore(
             post.likes ?? 0,

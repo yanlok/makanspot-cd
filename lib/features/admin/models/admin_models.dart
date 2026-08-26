@@ -135,7 +135,6 @@ class AdminRestaurant {
     required this.name,
     required this.categories,
     required this.imageUrl,
-    required this.isApproved,
     this.description,
     this.address,
     this.city,
@@ -157,7 +156,6 @@ class AdminRestaurant {
   final String name;
   final List<String> categories;
   final String imageUrl;
-  final bool isApproved;
   final String? description;
   final String? address;
   final String? city;
