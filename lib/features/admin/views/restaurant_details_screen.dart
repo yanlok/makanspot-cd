@@ -5,10 +5,13 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:makanspot/core/theme/app_theme.dart';
 
+import '../controllers/admin_action_log_controller.dart';
 import '../controllers/restaurant_details_controller.dart';
+import '../controllers/restaurant_management_controller.dart';
 import '../models/admin_models.dart';
 import 'widgets/admin_confirm_dialog.dart';
 import 'widgets/admin_form_widgets.dart';
+import 'widgets/admin_page_header.dart';
 import 'widgets/admin_skeletons.dart';
 import 'widgets/admin_status_badge.dart';
 
@@ -51,11 +54,15 @@ class _RestaurantDetailsScreenState
   final _longitudeController = TextEditingController();
 
   String _cuisine = _cuisines.first;
+  final List<String> _cuisineOptions = List.of(_cuisines);
+  String _originalCuisine = _cuisines.first;
+  bool _cuisineChanged = false;
   String _budget = _budgets.first;
   bool _isVerified = false;
   String _imageUrl = '';
   bool _uploading = false;
   bool _seeded = false;
+  String? _saveError;
 
   @override
   void initState() {
@@ -87,9 +94,20 @@ class _RestaurantDetailsScreenState
 
   void _seed(AdminRestaurant restaurant) {
     _nameController.text = restaurant.name;
-    _cuisine = _cuisines.contains(restaurant.cuisine)
-        ? restaurant.cuisine
-        : _cuisines.first;
+    final storedCuisine = restaurant.cuisine
+        .split(',')
+        .map((value) => value.trim())
+        .firstWhere((value) => value.isNotEmpty, orElse: () => '');
+    if (storedCuisine.isNotEmpty) {
+      if (!_cuisineOptions.contains(storedCuisine)) {
+        _cuisineOptions.add(storedCuisine);
+      }
+      _cuisine = storedCuisine;
+    }
+    _originalCuisine = restaurant.cuisine.trim().isEmpty
+        ? _cuisine
+        : restaurant.cuisine.trim();
+    _cuisineChanged = false;
     _addressController.text = restaurant.address;
     _hoursController.text = restaurant.operatingHours;
     _contactController.text = restaurant.contact;
@@ -110,7 +128,9 @@ class _RestaurantDetailsScreenState
   AdminRestaurantDraft _draft() {
     return AdminRestaurantDraft(
       name: _nameController.text,
-      cuisine: _cuisine,
+      // Keep every stored category when an administrator edits an unrelated
+      // field. Selecting a new cuisine intentionally replaces that list.
+      cuisine: _cuisineChanged ? _cuisine : _originalCuisine,
       address: _addressController.text,
       operatingHours: _hoursController.text,
       contact: _contactController.text,
@@ -127,17 +147,26 @@ class _RestaurantDetailsScreenState
   }
 
   Future<void> _save() async {
+    setState(() => _saveError = null);
     final result = await ref
         .read(restaurantDetailsControllerProvider(widget.restaurantId).notifier)
-        .save(_draft());
+        .save(
+          _draft(),
+          rawRating: _ratingController.text,
+          rawLatitude: _latitudeController.text,
+          rawLongitude: _longitudeController.text,
+        );
     if (!mounted) {
       return;
     }
     final messenger = ScaffoldMessenger.of(context);
     if (result.error != null) {
+      setState(() => _saveError = result.error);
       messenger.showSnackBar(SnackBar(content: Text(result.error!)));
       return;
     }
+    ref.invalidate(restaurantManagementControllerProvider);
+    ref.invalidate(adminActionLogControllerProvider);
     final createdId = result.createdId;
     if (createdId != null) {
       messenger.showSnackBar(
@@ -150,11 +179,16 @@ class _RestaurantDetailsScreenState
       context.go('/admin/restaurants/$createdId');
       return;
     }
-    messenger.showSnackBar(
-      const SnackBar(
-        content: Text('Changes Saved — Restaurant information updated.'),
-      ),
-    );
+    if (result.warning != null) {
+      messenger.showSnackBar(SnackBar(content: Text(result.warning!)));
+    } else {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Changes Saved — Restaurant information updated.'),
+        ),
+      );
+    }
+    context.go('/admin/restaurants/${widget.restaurantId}');
   }
 
   Future<void> _remove() async {
@@ -237,6 +271,15 @@ class _RestaurantDetailsScreenState
             ),
           ),
           const SizedBox(height: 16),
+          AdminPageHeader(
+            title: widget.restaurantId == 'new'
+                ? 'Add Restaurant'
+                : 'Edit Restaurant Information',
+            subtitle: widget.restaurantId == 'new'
+                ? 'Create a restaurant record'
+                : 'Update restaurant details and verification status',
+          ),
+          const SizedBox(height: 20),
           if (state.status == RestaurantDetailsStatus.loading)
             const _RestaurantDetailsSkeleton()
           else if (state.status == RestaurantDetailsStatus.notFound)
@@ -270,16 +313,33 @@ class _RestaurantDetailsScreenState
               latitudeController: _latitudeController,
               longitudeController: _longitudeController,
               cuisine: _cuisine,
+              cuisineOptions: _cuisineOptions,
               budget: _budget,
               isVerified: _isVerified,
               imageUrl: _imageUrl,
               uploading: _uploading,
-              onCuisineChanged: (value) => setState(() => _cuisine = value),
+              onCuisineChanged: (value) => setState(() {
+                _cuisine = value;
+                _cuisineChanged = true;
+              }),
               onBudgetChanged: (value) => setState(() => _budget = value),
               onVerifiedChanged: () =>
                   setState(() => _isVerified = !_isVerified),
               onUpload: _uploadImage,
             ),
+            if (_saveError != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _saveError!,
+                key: const Key('admin-restaurant-save-error'),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.destructive,
+                ),
+              ),
+            ],
             const SizedBox(height: 24),
             AdminPrimaryButton(
               label: isCreate ? 'Create Restaurant' : 'Save Changes',
@@ -357,7 +417,7 @@ class _RestaurantInformationCard extends StatelessWidget {
           _infoRow(
             context,
             'Status',
-            restaurant.isVerified ? 'Verified' : 'Unverified',
+            restaurant.verificationStatus,
             isLast: true,
           ),
         ],
@@ -477,6 +537,7 @@ class _FormCard extends StatelessWidget {
     required this.latitudeController,
     required this.longitudeController,
     required this.cuisine,
+    required this.cuisineOptions,
     required this.budget,
     required this.isVerified,
     required this.imageUrl,
@@ -498,6 +559,7 @@ class _FormCard extends StatelessWidget {
   final TextEditingController latitudeController;
   final TextEditingController longitudeController;
   final String cuisine;
+  final List<String> cuisineOptions;
   final String budget;
   final bool isVerified;
   final String imageUrl;
@@ -535,16 +597,16 @@ class _FormCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _field(
-            label: 'Cuisine',
+            label: 'Cuisine *',
             child: AdminSelectField<String>(
               value: cuisine,
-              options: [for (final c in _cuisines) (c, c)],
+              options: [for (final c in cuisineOptions) (c, c)],
               onChanged: onCuisineChanged,
             ),
           ),
           const SizedBox(height: 16),
           _field(
-            label: 'Address',
+            label: 'Address *',
             child: AdminInputField(
               controller: addressController,
               hint: 'Full address',

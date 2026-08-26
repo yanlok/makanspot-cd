@@ -404,7 +404,7 @@ class _AccountSummarySection extends StatelessWidget {
                 child: DropdownButtonFormField<AccountRoleFilter>(
                   key: const Key('profile-account-role-filter'),
                   isExpanded: true,
-                  value: state.roleFilter,
+                  initialValue: state.roleFilter,
                   items: const [
                     DropdownMenuItem(
                       value: AccountRoleFilter.all,
@@ -431,7 +431,7 @@ class _AccountSummarySection extends StatelessWidget {
                 child: DropdownButtonFormField<AccountStatusFilter>(
                   key: const Key('profile-account-status-filter'),
                   isExpanded: true,
-                  value: state.statusFilter,
+                  initialValue: state.statusFilter,
                   items: const [
                     DropdownMenuItem(
                       value: AccountStatusFilter.all,

@@ -44,7 +44,6 @@ class RestaurantManagementScreen extends ConsumerWidget {
                     ('All statuses', RestaurantVerificationFilter.all),
                     ('Verified', RestaurantVerificationFilter.verified),
                     ('Pending', RestaurantVerificationFilter.pending),
-                    ('Rejected', RestaurantVerificationFilter.rejected),
                   ],
                   onChanged: controller.selectVerificationFilter,
                 ),
@@ -57,6 +56,9 @@ class RestaurantManagementScreen extends ConsumerWidget {
                   options: const [
                     ('Name: A–Z', RestaurantSort.nameAscending),
                     ('Name: Z–A', RestaurantSort.nameDescending),
+                    ('Rating: High–Low', RestaurantSort.ratingDescending),
+                    ('Rating: Low–High', RestaurantSort.ratingAscending),
+                    ('Verification status', RestaurantSort.verificationStatus),
                   ],
                   onChanged: controller.selectSort,
                 ),
@@ -196,8 +198,21 @@ class _RestaurantCard extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         restaurant.ownerName.isEmpty
-                            ? 'Owner not provided'
+                            ? (restaurant.description.isEmpty
+                                  ? 'Restaurant details not provided'
+                                  : restaurant.description)
                             : 'Owner: ${restaurant.ownerName}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.mutedForeground,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        restaurant.cuisine.isEmpty
+                            ? 'Cuisine not provided'
+                            : restaurant.cuisine,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(

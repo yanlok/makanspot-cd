@@ -3,6 +3,9 @@ import 'admin_repository.dart';
 
 /// Deterministic prototype-like fixture data for the administrator console.
 class FixtureAdminRepository implements AdminRepository {
+  @override
+  bool get restaurantUpdatesAreAutomaticallyAudited => false;
+
   FixtureAdminRepository()
     : _users = List.of(_seedUsers),
       _restaurants = List.of(_seedRestaurants),
@@ -101,11 +104,24 @@ class FixtureAdminRepository implements AdminRepository {
   }
 
   @override
+  Future<bool> restaurantNameExists(
+    String name, {
+    String? excludeRestaurantId,
+  }) async {
+    final normalizedName = _normalizeRestaurantName(name);
+    return _restaurants.any(
+      (restaurant) =>
+          restaurant.id != excludeRestaurantId &&
+          _normalizeRestaurantName(restaurant.name) == normalizedName,
+    );
+  }
+
+  @override
   Future<void> logAdminAction({
     required String adminUserId,
     required String adminUsername,
     required String action,
-    required String targetUserId,
+    String? targetUserId,
     required String targetUsername,
     Map<String, Map<String, Object?>>? fieldChanges,
   }) async {
@@ -155,8 +171,9 @@ class FixtureAdminRepository implements AdminRepository {
   @override
   Future<AdminRestaurant?> updateRestaurant(
     String id,
-    AdminRestaurantDraft draft,
-  ) async {
+    AdminRestaurantDraft draft, {
+    Set<String>? changedFields,
+  }) async {
     final i = _restaurants.indexWhere((r) => r.id == id);
     if (i < 0) return null;
     _restaurants[i] = _restaurantFromDraft(id: id, draft: draft);
@@ -240,6 +257,9 @@ class FixtureAdminRepository implements AdminRepository {
       longitude: draft.longitude,
     );
   }
+
+  String _normalizeRestaurantName(String value) =>
+      value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 }
 
 String _image(String id) {

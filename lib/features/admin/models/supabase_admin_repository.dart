@@ -9,6 +9,9 @@ class SupabaseAdminRepository implements AdminRepository {
 
   final SupabaseClient _client;
 
+  @override
+  bool get restaurantUpdatesAreAutomaticallyAudited => true;
+
   static const _reportSelect = '''
     id,
     reason,
@@ -268,22 +271,41 @@ class SupabaseAdminRepository implements AdminRepository {
   }
 
   @override
+  Future<bool> restaurantNameExists(
+    String name, {
+    String? excludeRestaurantId,
+  }) async {
+    // Avoid an `ilike` filter here: a restaurant name can legitimately
+    // contain PostgREST wildcard characters. Comparing the small set of IDs
+    // and names locally is exact and works on every deployed schema.
+    final rows = await _client.from('restaurants').select('id, name');
+    final normalizedName = _normalizeRestaurantName(name);
+    return rows.any(
+      (row) =>
+          '${row['id']}' != excludeRestaurantId &&
+          _normalizeRestaurantName(_stringOrEmpty(row['name'])) ==
+              normalizedName,
+    );
+  }
+
+  @override
   Future<void> logAdminAction({
     required String adminUserId,
     required String adminUsername,
     required String action,
-    required String targetUserId,
+    String? targetUserId,
     required String targetUsername,
     Map<String, Map<String, Object?>>? fieldChanges,
   }) async {
-    await _client.from('admin_audit_log').insert({
+    final values = <String, Object?>{
       'admin_user_id': adminUserId,
       'admin_username': adminUsername,
       'action': action,
-      'target_user_id': targetUserId,
       'target_username': targetUsername,
       'field_changes': fieldChanges ?? {},
-    });
+    };
+    if (targetUserId != null) values['target_user_id'] = targetUserId;
+    await _client.from('admin_audit_log').insert(values);
   }
 
   @override
@@ -299,41 +321,39 @@ class SupabaseAdminRepository implements AdminRepository {
 
   @override
   Future<List<AdminRestaurant>> loadRestaurants() async {
-    try {
-      final rows = await _client
-          .from('restaurants')
-          .select(_restaurantSelect(includeOwnerName: true))
-          .order('name');
-      return rows.map(_restaurantFromRow).toList(growable: false);
-    } on PostgrestException catch (error) {
-      if (!_isMissingOwnerName(error)) rethrow;
-      final rows = await _client
-          .from('restaurants')
-          .select(_restaurantSelect(includeOwnerName: false))
-          .order('name');
-      return rows.map(_restaurantFromRow).toList(growable: false);
-    }
+    // The production database has evolved independently from the original
+    // app schema. In particular, some deployments do not expose the
+    // `restaurant_categories` relationship (or fields such as `rating`).
+    // Selecting the base record keeps the admin catalogue available across
+    // both schema versions; optional image data is fetched separately below.
+    final rows = await _client.from('restaurants').select().order('name');
+    final primaryImages = await _loadPrimaryImages(
+      rows.map((row) => row['id']),
+    );
+
+    return rows
+        .map(
+          (row) => _restaurantFromRow(
+            row,
+            primaryImageUrl: primaryImages['${row['id']}'],
+          ),
+        )
+        .toList(growable: false);
   }
 
   @override
   Future<AdminRestaurant?> loadRestaurant(String id) async {
-    Map<String, dynamic>? row;
-    try {
-      row = await _client
-          .from('restaurants')
-          .select(_restaurantSelect(includeOwnerName: true))
-          .eq('id', id)
-          .maybeSingle();
-    } on PostgrestException catch (error) {
-      if (!_isMissingOwnerName(error)) rethrow;
-      row = await _client
-          .from('restaurants')
-          .select(_restaurantSelect(includeOwnerName: false))
-          .eq('id', id)
-          .maybeSingle();
-    }
+    final row = await _client
+        .from('restaurants')
+        .select()
+        .eq('id', int.tryParse(id) ?? id)
+        .maybeSingle();
     if (row == null) return null;
-    return _restaurantFromRow(row);
+    final primaryImages = await _loadPrimaryImages([row['id']]);
+    return _restaurantFromRow(
+      row,
+      primaryImageUrl: primaryImages['${row['id']}'],
+    );
   }
 
   @override
@@ -346,10 +366,50 @@ class SupabaseAdminRepository implements AdminRepository {
   @override
   Future<AdminRestaurant?> updateRestaurant(
     String id,
-    AdminRestaurantDraft draft,
-  ) {
-    throw UnimplementedError(
-      'Restaurant update is not yet supported via Supabase.',
+    AdminRestaurantDraft draft, {
+    Set<String>? changedFields,
+  }) async {
+    final restaurantId = int.tryParse(id) ?? id;
+    Map<String, dynamic> row;
+    try {
+      // Current production schema. It stores categories and business hours
+      // directly on `restaurants` rather than via the original join table.
+      final updated = await _client
+          .from('restaurants')
+          .update(_currentRestaurantPayload(draft, changedFields))
+          .eq('id', restaurantId)
+          .select();
+      if (updated.isEmpty) {
+        throw const RestaurantUpdateNoRowsException();
+      }
+      row = updated.single;
+    } on PostgrestException catch (error) {
+      if (!_isMissingColumn(error)) rethrow;
+      // Compatibility with the original MakanSpot schema used by local and
+      // older Supabase deployments.
+      final updated = await _client
+          .from('restaurants')
+          .update(_legacyRestaurantPayload(draft, changedFields))
+          .eq('id', restaurantId)
+          .select();
+      if (updated.isEmpty) {
+        throw const RestaurantUpdateNoRowsException();
+      }
+      row = updated.single;
+    }
+
+    final primaryImages = await _loadPrimaryImages([row['id']]);
+    final existingImageUrl = primaryImages['${row['id']}'] ?? '';
+    final requestedImageUrl = draft.imageUrl.trim();
+    if (requestedImageUrl.isNotEmpty &&
+        requestedImageUrl != existingImageUrl.trim()) {
+      await _persistPrimaryImage(row['id'], requestedImageUrl);
+    }
+    return _restaurantFromRow(
+      row,
+      primaryImageUrl: requestedImageUrl.isNotEmpty
+          ? requestedImageUrl
+          : primaryImages['${row['id']}'],
     );
   }
 
@@ -502,20 +562,74 @@ class SupabaseAdminRepository implements AdminRepository {
     );
   }
 
-  AdminRestaurant _restaurantFromRow(Map<String, dynamic> row) {
-    final images = row['restaurant_images'] as List<dynamic>?;
-    final primaryImage = images?.cast<Map<String, dynamic>>().firstWhere(
-      (img) => img['is_primary'] == true,
-      orElse: () => {'image_url': ''},
-    );
-    final imageUrl = primaryImage?['image_url'] as String? ?? '';
+  Future<Map<String, String>> _loadPrimaryImages(
+    Iterable<dynamic> restaurantIds,
+  ) async {
+    final ids = restaurantIds.whereType<num>().toList(growable: false);
+    if (ids.isEmpty) return const {};
 
-    final hours = row['operating_hours'];
+    // Images are helpful in the catalogue, but a missing image table or a
+    // permissions issue must never prevent the restaurant records themselves
+    // from rendering.
+    try {
+      final rows = await _client
+          .from('restaurant_images')
+          .select('restaurant_id, image_url, is_primary')
+          .inFilter('restaurant_id', ids);
+      final imageUrls = <String, String>{};
+      for (final row in rows) {
+        final restaurantId = row['restaurant_id'];
+        final imageUrl = row['image_url']?.toString() ?? '';
+        if (restaurantId == null || imageUrl.isEmpty) continue;
+        final key = '$restaurantId';
+        if (row['is_primary'] == true || !imageUrls.containsKey(key)) {
+          imageUrls[key] = imageUrl;
+        }
+      }
+      return imageUrls;
+    } on Object {
+      return const {};
+    }
+  }
+
+  Future<void> _persistPrimaryImage(
+    dynamic restaurantId,
+    String imageUrl,
+  ) async {
+    final trimmedUrl = imageUrl.trim();
+    if (trimmedUrl.isEmpty) return;
+
+    final existing = await _client
+        .from('restaurant_images')
+        .select('id, image_url')
+        .eq('restaurant_id', restaurantId)
+        .eq('is_primary', true)
+        .limit(1);
+    if (existing.isEmpty) {
+      await _client.from('restaurant_images').insert({
+        'restaurant_id': restaurantId,
+        'image_url': trimmedUrl,
+        'is_primary': true,
+      });
+      return;
+    }
+    if (_stringOrEmpty(existing.first['image_url']) == trimmedUrl) return;
+    await _client
+        .from('restaurant_images')
+        .update({'image_url': trimmedUrl})
+        .eq('id', existing.first['id']);
+  }
+
+  AdminRestaurant _restaurantFromRow(
+    Map<String, dynamic> row, {
+    String? primaryImageUrl,
+  }) {
+    final hours = row['operating_hours'] ?? row['business_hours'];
     String operatingHours;
     if (hours is Map) {
       operatingHours = hours.values
-          .whereType<String>()
-          .where((s) => s.isNotEmpty)
+          .map((value) => value?.toString() ?? '')
+          .where((value) => value.isNotEmpty)
           .join(', ');
     } else {
       operatingHours = hours?.toString() ?? '';
@@ -525,15 +639,17 @@ class SupabaseAdminRepository implements AdminRepository {
       id: '${row['id']}',
       name: _stringOrEmpty(row['name']),
       cuisine: _cuisineFromRow(row),
-      address: _stringOrEmpty(row['address']),
-      imageUrl: imageUrl,
+      address: _addressFromRow(row),
+      imageUrl: primaryImageUrl ?? _primaryImageFromEmbeddedRow(row),
       operatingHours: operatingHours,
-      contact: row['phone_number'] as String? ?? '',
-      ownerName: row['owner_name'] as String? ?? '',
-      budget: row['price_range'] as String? ?? '',
+      contact: _stringOrEmpty(row['phone_number'] ?? row['phone']),
+      ownerName: _stringOrEmpty(row['owner_name']),
+      budget: _budgetFromRow(row['price_range']),
       description: row['description'] as String? ?? '',
-      sourcePlatform: row['social_media_source'] as String? ?? 'Manual',
-      isVerified: row['is_approved'] as bool? ?? false,
+      sourcePlatform: _sourcePlatformFromRow(row),
+      isVerified:
+          row['is_approved'] as bool? ??
+          ((row['verification_confidence'] as num?)?.toDouble() ?? 0) >= 0.8,
       rating: (row['rating'] as num?)?.toDouble(),
       latitude: (row['latitude'] as num?)?.toDouble(),
       longitude: (row['longitude'] as num?)?.toDouble(),
@@ -541,6 +657,17 @@ class SupabaseAdminRepository implements AdminRepository {
   }
 
   String _cuisineFromRow(Map<String, dynamic> row) {
+    final rawCategories = row['categories'];
+    if (rawCategories is List) {
+      return rawCategories
+          .map(
+            (category) => category is Map
+                ? category['name']?.toString() ?? ''
+                : category?.toString() ?? '',
+          )
+          .where((name) => name.isNotEmpty)
+          .join(', ');
+    }
     final relationships = row['restaurant_categories'];
     if (relationships is! List) return '';
     return relationships
@@ -553,6 +680,136 @@ class SupabaseAdminRepository implements AdminRepository {
         .where((name) => name.isNotEmpty)
         .join(', ');
   }
+
+  String _primaryImageFromEmbeddedRow(Map<String, dynamic> row) {
+    final images = row['restaurant_images'];
+    if (images is! List) return '';
+    var fallback = '';
+    for (final image in images) {
+      if (image is! Map) continue;
+      final url = image['image_url']?.toString() ?? '';
+      if (url.isEmpty) continue;
+      fallback = fallback.isEmpty ? url : fallback;
+      if (image['is_primary'] == true) return url;
+    }
+    return fallback;
+  }
+
+  String _addressFromRow(Map<String, dynamic> row) {
+    final address = _stringOrEmpty(row['address']);
+    if (address.isNotEmpty) return address;
+    return [
+      row['city'],
+      row['state'],
+    ].map(_stringOrEmpty).where((part) => part.isNotEmpty).join(', ');
+  }
+
+  String _budgetFromRow(dynamic value) {
+    final priceRange = _stringOrEmpty(value);
+    return switch (priceRange) {
+      r'$' || '0' || '1' => 'Low',
+      r'$$' || '2' => 'Medium',
+      r'$$$' || r'$$$$' || '3' || '4' => 'High',
+      _ => priceRange,
+    };
+  }
+
+  String _sourcePlatformFromRow(Map<String, dynamic> row) {
+    final source = _stringOrEmpty(row['social_media_source']);
+    if (source.isNotEmpty) return source;
+    if (_stringOrEmpty(row['instagram_username']).isNotEmpty) {
+      return 'Instagram';
+    }
+    return 'Manual';
+  }
+
+  Map<String, Object?> _currentRestaurantPayload(
+    AdminRestaurantDraft draft,
+    Set<String>? changedFields,
+  ) {
+    bool changed(String field) =>
+        changedFields == null || changedFields.contains(field);
+
+    return {
+      if (changed('name')) 'name': draft.name.trim(),
+      if (changed('name'))
+        'normalized_name': _normalizeRestaurantName(draft.name),
+      if (changed('description'))
+        'description': _nullWhenBlank(draft.description),
+      if (changed('address')) 'address': draft.address.trim(),
+      if (changed('latitude')) 'latitude': draft.latitude,
+      if (changed('longitude')) 'longitude': draft.longitude,
+      if (changed('contact')) 'phone': _nullWhenBlank(draft.contact),
+      if (changed('owner_name')) 'owner_name': _nullWhenBlank(draft.ownerName),
+      if (changed('budget')) 'price_range': _currentPriceRange(draft.budget),
+      if (changed('rating')) 'rating': draft.rating,
+      if (changed('cuisine')) 'categories': _categoryValues(draft.cuisine),
+      if (changed('operating_hours'))
+        'business_hours': {'status': draft.operatingHours.trim()},
+      if (changed('source_platform'))
+        'social_media_source': _nullWhenBlank(draft.sourcePlatform),
+      if (changed('verification_status'))
+        'verification_confidence': draft.isVerified ? 0.9 : 0.0,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    };
+  }
+
+  Map<String, Object?> _legacyRestaurantPayload(
+    AdminRestaurantDraft draft,
+    Set<String>? changedFields,
+  ) {
+    bool changed(String field) =>
+        changedFields == null || changedFields.contains(field);
+
+    return {
+      if (changed('name')) 'name': draft.name.trim(),
+      if (changed('description'))
+        'description': _nullWhenBlank(draft.description),
+      if (changed('address')) 'address': draft.address.trim(),
+      if (changed('latitude') && draft.latitude != null)
+        'latitude': draft.latitude,
+      if (changed('longitude') && draft.longitude != null)
+        'longitude': draft.longitude,
+      if (changed('contact')) 'phone_number': _nullWhenBlank(draft.contact),
+      if (changed('owner_name')) 'owner_name': _nullWhenBlank(draft.ownerName),
+      if (changed('budget')) 'price_range': _legacyPriceRange(draft.budget),
+      if (changed('rating')) 'rating': draft.rating,
+      if (changed('operating_hours'))
+        'operating_hours': {'status': draft.operatingHours.trim()},
+      if (changed('source_platform'))
+        'social_media_source': _nullWhenBlank(draft.sourcePlatform),
+      if (changed('verification_status')) 'is_approved': draft.isVerified,
+      'last_updated': DateTime.now().toUtc().toIso8601String(),
+    };
+  }
+
+  List<String> _categoryValues(String cuisine) => cuisine
+      .split(',')
+      .map((value) => value.trim())
+      .where((value) => value.isNotEmpty)
+      .toList(growable: false);
+
+  String _currentPriceRange(String budget) => switch (budget) {
+    'Low' => '1',
+    'Medium' => '2',
+    'High' => '3',
+    _ => budget,
+  };
+
+  String _legacyPriceRange(String budget) => switch (budget) {
+    'Low' => r'$',
+    'Medium' => r'$$',
+    'High' => r'$$$',
+    _ => budget,
+  };
+
+  String? _nullWhenBlank(String value) {
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
+  String _normalizeRestaurantName(String value) =>
+      value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 
   Future<ReportedContent?> _loadPostContent(String postId) async {
     final row = await _client
@@ -621,25 +878,9 @@ class SupabaseAdminRepository implements AdminRepository {
 
   String _stringOrEmpty(dynamic value) => value?.toString() ?? '';
 
-  bool _isMissingOwnerName(PostgrestException error) =>
-      error.code == '42703' && error.message.contains('owner_name');
-
-  String _restaurantSelect({required bool includeOwnerName}) =>
-      '''
-    id,
-    name,
-    description,
-    address,
-    latitude,
-    longitude,
-    price_range,
-    rating,
-    operating_hours,
-    phone_number,
-    ${includeOwnerName ? 'owner_name,' : ''}
-    social_media_source,
-    is_approved,
-    restaurant_images(image_url, is_primary),
-    restaurant_categories(categories(name))
-  ''';
+  bool _isMissingColumn(PostgrestException error) =>
+      error.code == '42703' ||
+      error.code == 'PGRST204' ||
+      error.message.contains('Could not find') &&
+          error.message.contains('column');
 }

@@ -109,9 +109,7 @@ class _RestaurantInformationCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    AdminStatusBadge(
-                      label: restaurant.isVerified ? 'Verified' : 'Unverified',
-                    ),
+                    AdminStatusBadge(label: restaurant.verificationStatus),
                   ],
                 ),
               ),
@@ -139,6 +137,38 @@ class _RestaurantInformationCard extends StatelessWidget {
             label: 'Operating Hours',
             value: _orNotProvided(restaurant.operatingHours),
           ),
+          _InformationRow(
+            icon: Icons.restaurant_menu_outlined,
+            label: 'Cuisine',
+            value: _orNotProvided(restaurant.cuisine),
+          ),
+          _InformationRow(
+            icon: Icons.payments_outlined,
+            label: 'Budget',
+            value: _orNotProvided(restaurant.budget),
+          ),
+          _InformationRow(
+            icon: LucideIcons.star,
+            label: 'Rating',
+            value: restaurant.ratingDisplay,
+          ),
+          _InformationRow(
+            icon: Icons.description_outlined,
+            label: 'Description',
+            value: _orNotProvided(restaurant.description),
+          ),
+          _InformationRow(
+            icon: Icons.public_outlined,
+            label: 'Source Platform',
+            value: _orNotProvided(restaurant.sourcePlatform),
+          ),
+          _InformationRow(
+            icon: LucideIcons.mapPin,
+            label: 'Coordinates',
+            value: restaurant.latitude == null || restaurant.longitude == null
+                ? 'Not provided'
+                : '${restaurant.latitude}, ${restaurant.longitude}',
+          ),
           const SizedBox(height: 12),
           const _InformationSectionTitle('Owner Information'),
           _InformationRow(
@@ -154,7 +184,7 @@ class _RestaurantInformationCard extends StatelessWidget {
           _InformationRow(
             icon: LucideIcons.badgeCheck,
             label: 'Status',
-            value: restaurant.isVerified ? 'Verified' : 'Unverified',
+            value: restaurant.verificationStatus,
             last: true,
           ),
         ],

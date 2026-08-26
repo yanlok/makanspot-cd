@@ -1,11 +1,17 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:makanspot/core/config/supabase_config.dart';
 import '../models/discover_repository.dart';
 import '../models/discover_restaurant.dart';
 import '../models/fixture_discover_repository.dart';
+import '../models/supabase_discover_repository.dart';
 import 'discover_state.dart';
 
 final discoverRepositoryProvider = Provider<DiscoverRepository>((ref) {
+  if (SupabaseConfig.isConfigured) {
+    return SupabaseDiscoverRepository(Supabase.instance.client);
+  }
   return const FixtureDiscoverRepository();
 });
 
@@ -122,6 +128,8 @@ class DiscoverController extends StateNotifier<DiscoverState> {
     for (final filter in state.selectedFilters) {
       final matches = switch (filter) {
         'Hidden Gems' => restaurant.isHiddenGem,
+        // Opening status cannot be derived reliably from free-form operating
+        // hours, so only honour it when a source supplied the label.
         'Open Now' => restaurant.labels.contains('Open Now'),
         'Budget' => restaurant.budget == 'Low',
         'Mamak' => restaurant.cuisine == 'Mamak',

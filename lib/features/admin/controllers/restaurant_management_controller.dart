@@ -5,9 +5,15 @@ import '../models/admin_repository.dart';
 
 enum RestaurantManagementStatus { loading, content, empty, error }
 
-enum RestaurantVerificationFilter { all, verified, pending, rejected }
+enum RestaurantVerificationFilter { all, verified, pending }
 
-enum RestaurantSort { nameAscending, nameDescending }
+enum RestaurantSort {
+  nameAscending,
+  nameDescending,
+  ratingDescending,
+  ratingAscending,
+  verificationStatus,
+}
 
 class RestaurantManagementState {
   const RestaurantManagementState({
@@ -105,15 +111,17 @@ class RestaurantManagementController
               restaurant.name.toLowerCase().contains(query) ||
               restaurant.cuisine.toLowerCase().contains(query) ||
               restaurant.address.toLowerCase().contains(query) ||
-              restaurant.ownerName.toLowerCase().contains(query);
+              restaurant.ownerName.toLowerCase().contains(query) ||
+              restaurant.description.toLowerCase().contains(query) ||
+              restaurant.sourcePlatform.toLowerCase().contains(query);
           final matchesVerification =
               state.verificationFilter == RestaurantVerificationFilter.all ||
               (state.verificationFilter ==
                       RestaurantVerificationFilter.verified &&
                   restaurant.isVerified) ||
               (state.verificationFilter ==
-                  RestaurantVerificationFilter.pending &&
-                !restaurant.isVerified);
+                      RestaurantVerificationFilter.pending &&
+                  !restaurant.isVerified);
           return matchesSearch && matchesVerification;
         }).toList()..sort(
           (left, right) => switch (state.sort) {
@@ -123,6 +131,15 @@ class RestaurantManagementController
             RestaurantSort.nameDescending => right.name.toLowerCase().compareTo(
               left.name.toLowerCase(),
             ),
+            RestaurantSort.ratingDescending => (right.rating ?? -1).compareTo(
+              left.rating ?? -1,
+            ),
+            RestaurantSort.ratingAscending =>
+              (left.rating ?? double.infinity).compareTo(
+                right.rating ?? double.infinity,
+              ),
+            RestaurantSort.verificationStatus =>
+              (right.isVerified ? 1 : 0).compareTo(left.isVerified ? 1 : 0),
           },
         );
     state = state.copyWith(

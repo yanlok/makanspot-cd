@@ -17,6 +17,10 @@ final adminRepositoryProvider = Provider<AdminRepository>((ref) {
 
 /// Data-source boundary for the MakanSpot administrator console.
 abstract interface class AdminRepository {
+  /// Whether restaurant updates are written to the admin audit trail by the
+  /// same database transaction that persists the restaurant.
+  bool get restaurantUpdatesAreAutomaticallyAudited;
+
   Future<AdminDashboardData> loadDashboard();
 
   Future<List<AdminUser>> loadUsers();
@@ -43,12 +47,16 @@ abstract interface class AdminRepository {
   /// True when another user already holds [phone] (excluding [excludeUserId]).
   Future<bool> phoneExists(String phone, String excludeUserId);
 
+  /// True when another restaurant already holds [name]. When updating an
+  /// existing record, pass its ID in [excludeRestaurantId].
+  Future<bool> restaurantNameExists(String name, {String? excludeRestaurantId});
+
   /// Records an audit-trail entry for an administrative action.
   Future<void> logAdminAction({
     required String adminUserId,
     required String adminUsername,
     required String action,
-    required String targetUserId,
+    String? targetUserId,
     required String targetUsername,
     Map<String, Map<String, Object?>>? fieldChanges,
   });
@@ -64,8 +72,9 @@ abstract interface class AdminRepository {
 
   Future<AdminRestaurant?> updateRestaurant(
     String id,
-    AdminRestaurantDraft draft,
-  );
+    AdminRestaurantDraft draft, {
+    Set<String>? changedFields,
+  });
 
   Future<void> deleteRestaurant(String id);
 
@@ -83,4 +92,12 @@ abstract interface class AdminRepository {
 
   /// Soft-deletes all reports for the given content (content stays visible).
   Future<void> dismissReports(String contentId);
+}
+
+/// Raised when an update request completes without changing a visible row.
+///
+/// With row-level security this can mean either that the record disappeared
+/// or that the signed-in account is no longer allowed to update it.
+class RestaurantUpdateNoRowsException implements Exception {
+  const RestaurantUpdateNoRowsException();
 }
