@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'badge_catalog.dart';
 import 'journey_models.dart';
 import 'journey_repository.dart';
 
@@ -60,9 +61,7 @@ class SupabaseJourneyRepository implements JourneyRepository {
       locations: locationsById.values.toList(growable: false),
       reviewCount: visits.length,
       totalLikes: totalLikes,
-      // The achievements and score history are not modelled in the
-      // database yet; the journey screens handle empty lists gracefully.
-      achievements: const [],
+      achievements: journeyAchievementsFromCatalog(),
       scoreHistory: const [],
     );
   }
@@ -127,8 +126,8 @@ class SupabaseJourneyRepository implements JourneyRepository {
   }
 
   String _profileTitle(int score) {
-    if (score >= 500) return 'Makan Legend';
-    if (score >= 100) return 'Hidden Gem Hunter';
+    if (score >= 500) return 'Food Master';
+    if (score >= 100) return 'Explorer';
     return 'Food Explorer';
   }
 }
