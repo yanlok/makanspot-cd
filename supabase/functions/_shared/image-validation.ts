@@ -21,7 +21,8 @@ export interface ImageValidationResult {
 // Validation prompt
 // ---------------------------------------------------------------------------
 
-const VALIDATION_SYSTEM_PROMPT = `You are validating images for a restaurant directory app called MakanSpot.
+const VALIDATION_SYSTEM_PROMPT =
+  `You are validating images for a restaurant directory app called MakanSpot.
 Analyze this image and determine if it's a good representation of the restaurant.
 
 Rate the image on these criteria:
@@ -54,11 +55,12 @@ Rules:
  * Validate an image URL for restaurant suitability.
  * Downloads the image and sends to a vision LLM for classification.
  *
- * Fails open: returns approved=true on any error to avoid blocking the pipeline.
+ * Fails closed: an unavailable validator must never promote an unverified image.
  */
 export async function validateImage(
   imageUrl: string,
   restaurantName: string,
+  downloaded?: { bytes: Uint8Array; contentType: string },
 ): Promise<ImageValidationResult> {
   const apiKey = Deno.env.get("MIMO_API_KEY") ?? Deno.env.get("LLM_API_KEY") ??
     Deno.env.get("OPENAI_API_KEY");
@@ -69,11 +71,11 @@ export async function validateImage(
   const model = Deno.env.get("MIMO_MODEL") ?? Deno.env.get("LLM_MODEL") ??
     Deno.env.get("OPENAI_MODEL") ?? "gpt-4o-mini";
 
-  // Fail open if no API key
+  // Fail closed if no API key; existing primary images remain untouched.
   if (!apiKey) {
     return {
-      approved: true,
-      score: 0.5,
+      approved: false,
+      score: 0,
       reason: "no_api_key",
       notes: "Validation skipped: no LLM API key configured",
     };
@@ -81,18 +83,28 @@ export async function validateImage(
 
   try {
     // Download image as base64
-    const imageResp = await fetch(imageUrl);
-    if (!imageResp.ok) {
-      return {
-        approved: true,
-        score: 0.5,
-        reason: "download_failed",
-        notes: `Image download failed (${imageResp.status}), allowing image`,
-      };
+    let contentType = downloaded?.contentType;
+    let imageBytes: ArrayBuffer;
+    if (downloaded) {
+      imageBytes = downloaded.bytes.buffer.slice(
+        downloaded.bytes.byteOffset,
+        downloaded.bytes.byteOffset + downloaded.bytes.byteLength,
+      ) as ArrayBuffer;
+    } else {
+      const imageResp = await fetch(imageUrl, {
+        signal: AbortSignal.timeout(12_000),
+      });
+      if (!imageResp.ok) {
+        return {
+          approved: false,
+          score: 0,
+          reason: "download_failed",
+          notes: `Image download failed (${imageResp.status}), allowing image`,
+        };
+      }
+      contentType = imageResp.headers.get("content-type") ?? "image/jpeg";
+      imageBytes = await imageResp.arrayBuffer();
     }
-
-    const contentType = imageResp.headers.get("content-type") ?? "image/jpeg";
-    const imageBytes = await imageResp.arrayBuffer();
     const base64 = btoa(
       Array.from(new Uint8Array(imageBytes))
         .map((b) => String.fromCharCode(b))
@@ -117,7 +129,8 @@ export async function validateImage(
             content: [
               {
                 type: "text",
-                text: `Validate this image for the restaurant "${restaurantName}".`,
+                text:
+                  `Validate this image for the restaurant "${restaurantName}".`,
               },
               {
                 type: "image_url",
@@ -129,16 +142,16 @@ export async function validateImage(
           },
         ],
       }),
+      signal: AbortSignal.timeout(25_000),
     });
 
     if (!resp.ok) {
       console.error(
         `[image-validation] LLM API error: ${resp.status} ${await resp.text()}`,
       );
-      // Fail open
       return {
-        approved: true,
-        score: 0.5,
+        approved: false,
+        score: 0,
         reason: "api_error",
         notes: `LLM API error (${resp.status}), allowing image`,
       };
@@ -148,8 +161,8 @@ export async function validateImage(
     const content = data?.choices?.[0]?.message?.content;
     if (!content) {
       return {
-        approved: true,
-        score: 0.5,
+        approved: false,
+        score: 0,
         reason: "empty_response",
         notes: "LLM returned empty response, allowing image",
       };
@@ -172,12 +185,13 @@ export async function validateImage(
     };
   } catch (e) {
     console.error("[image-validation] Validation failed:", e);
-    // Fail open
     return {
-      approved: true,
-      score: 0.5,
+      approved: false,
+      score: 0,
       reason: "exception",
-      notes: `Validation exception: ${e instanceof Error ? e.message : String(e)}`,
+      notes: `Validation exception: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
     };
   }
 }

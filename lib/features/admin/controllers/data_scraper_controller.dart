@@ -85,7 +85,10 @@ class DataScraperController extends StateNotifier<PipelineState> {
   Future<(String?, String?)> _loadActiveJob() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      return (prefs.getString(_persistedJobId), prefs.getString(_persistedRunId));
+      return (
+        prefs.getString(_persistedJobId),
+        prefs.getString(_persistedRunId),
+      );
     } catch (e) {
       return (null, null);
     }
@@ -133,14 +136,14 @@ class DataScraperController extends StateNotifier<PipelineState> {
           .from('scrape_runs')
           .select('cost_usd')
           .eq('status', 'completed');
-      final sources = await _supabase
-          .from('discovery_sources')
-          .select()
-          .order('created_at', ascending: false)
-          .limit(20);
+      final sources = await _loadAllDiscoverySources();
       final runs = await _supabase
           .from('scrape_runs')
-          .select()
+          .select(
+            'id, source_id, status, started_at, completed_at, posts_received, '
+            'new_posts, restaurant_candidates, new_restaurants, cost_usd, error, '
+            'created_at, discovery_sources(source_type, source_value, area, created_at)',
+          )
           .order('created_at', ascending: false)
           .limit(10);
 
@@ -153,9 +156,7 @@ class DataScraperController extends StateNotifier<PipelineState> {
           .map((m) => DiscoverySourceSummary.fromMap(m))
           .toList();
 
-      final recentRuns = runs
-          .map((m) => ScrapeRunSummary.fromMap(m))
-          .toList();
+      final recentRuns = runs.map((m) => ScrapeRunSummary.fromMap(m)).toList();
 
       _updateState(
         (s) => s.copyWith(
@@ -169,6 +170,30 @@ class DataScraperController extends StateNotifier<PipelineState> {
     } catch (e) {
       developer.log('Failed to load stats: $e', name: 'DataScraper');
     }
+  }
+
+  /// PostgREST applies a server-side maximum row count, so fetch ordered pages
+  /// until every discovery source has been loaded.
+  Future<List<Map<String, dynamic>>> _loadAllDiscoverySources() async {
+    const pageSize = 500;
+    final rows = <Map<String, dynamic>>[];
+
+    for (var from = 0; ; from += pageSize) {
+      final page = await _supabase
+          .from('discovery_sources')
+          .select()
+          .order('new_restaurants', ascending: false)
+          .order('yield_rate', ascending: false)
+          .order('posts_scraped', ascending: false)
+          .order('last_scraped_at', ascending: false, nullsFirst: false)
+          .order('created_at', ascending: false)
+          .order('id', ascending: false)
+          .range(from, from + pageSize - 1);
+      rows.addAll(page.map(Map<String, dynamic>.from));
+      if (page.length < pageSize) break;
+    }
+
+    return rows;
   }
 
   /// Check for active scrape runs.
@@ -259,6 +284,47 @@ class DataScraperController extends StateNotifier<PipelineState> {
     } catch (e) {
       _updateState(
         (s) => s.copyWith(status: PipelineStatus.error, error: e.toString()),
+      );
+    }
+  }
+
+  /// Gracefully abort paid actors and close the active database lifecycle.
+  Future<void> cancelScan() async {
+    final runId = state.activeRunId;
+    if (runId == null) return;
+    _pollTimer?.cancel();
+    _updateState((s) => s.copyWith(stepMessage: 'Cancelling scan...'));
+    try {
+      final response = await _supabase.functions.invoke(
+        'cancel-pipeline',
+        body: {'run_id': runId},
+      );
+      final result = response.data as Map<String, dynamic>?;
+      if (result?['cancelled'] != true) {
+        _updateState(
+          (s) => s.copyWith(
+            status: PipelineStatus.processing,
+            stepMessage: 'Actor abort is pending. Tap Stop scan to retry.',
+          ),
+        );
+        return;
+      }
+      await _clearActiveJob();
+      _updateState(
+        (s) => s.copyWith(
+          status: PipelineStatus.error,
+          error: 'Scan cancelled. Existing restaurant data was preserved.',
+          activeRunId: null,
+          activeJobId: null,
+        ),
+      );
+      await _loadStats();
+    } catch (e) {
+      _updateState(
+        (s) => s.copyWith(
+          status: PipelineStatus.error,
+          error: 'Could not cancel scan: $e',
+        ),
       );
     }
   }

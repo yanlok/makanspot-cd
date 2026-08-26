@@ -24,17 +24,17 @@ type DbClient = SupabaseClient<any, any, any, any, any>;
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { isServiceRoleRequest } from "../_shared/auth.ts";
 import {
-  type IgRecord,
-  toPlaceCandidate,
-  toStagingRow,
   applyAuthoritativeLocation,
   boundLocationPostItems,
   boundLocationPostTargets,
+  type IgRecord,
   isLikelyFoodPlace,
   type PlaceCandidate,
   placePostsToRows,
   shouldQueueLocationPosts,
   type StagingRow,
+  toPlaceCandidate,
+  toStagingRow,
 } from "../_shared/apify.ts";
 import {
   deriveCategories,
@@ -51,6 +51,15 @@ import {
   trendScore,
 } from "../_shared/enrich.ts";
 import { suggestNewSources } from "../auto-suggest-sources/index.ts";
+import { fetchWithTimeout } from "../_shared/http.ts";
+import {
+  canUseMapbox,
+  deadlineExceeded,
+  FOLLOWUP_DEADLINE_MS,
+  hasProcessingBudget,
+  MAX_POLL_FAILURES,
+  SCRAPE_DEADLINE_MS,
+} from "../_shared/pipeline-limits.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -58,7 +67,7 @@ import { suggestNewSources } from "../auto-suggest-sources/index.ts";
 
 const BATCH_SIZE = 10;
 const APIFY_POLL_DELAY_MS = 10_000;
-const MAX_RETRIES = 30; // ~5 min at 10s intervals
+const MAX_RETRIES = MAX_POLL_FAILURES;
 
 // ---------------------------------------------------------------------------
 // Geographic + scheduling helpers
@@ -125,9 +134,12 @@ interface PipelineState {
     { restaurant_id: number; location_id: string; url: string }
   >;
   location_posts_run_id?: string;
+  location_posts_started_at?: string;
   location_posts_dataset_id?: string;
   location_posts_actor_completed?: boolean;
   component_item_count?: number;
+  mapbox_requests_used?: number;
+  metrics_index?: number;
   current_step?:
     | "scrape"
     | "ingest"
@@ -190,12 +202,17 @@ Deno.serve(async (req: Request) => {
     .single();
 
   if (readErr || !scrapeRun) {
-    console.error(`[pipeline-continue] Scrape run ${jobId} not found:`, readErr?.message);
+    console.error(
+      `[pipeline-continue] Scrape run ${jobId} not found:`,
+      readErr?.message,
+    );
     return jsonResponse({ error: "Scrape run not found" }, 404);
   }
 
   if (scrapeRun.status !== "running") {
-    console.log(`[pipeline-continue] Scrape run ${jobId} is ${scrapeRun.status} — skipping`);
+    console.log(
+      `[pipeline-continue] Scrape run ${jobId} is ${scrapeRun.status} — skipping`,
+    );
     return jsonResponse({ ok: true, skipped: true });
   }
 
@@ -211,6 +228,8 @@ Deno.serve(async (req: Request) => {
     },
   };
   const step = state.current_step ?? "scrape";
+  // Leave headroom for state persistence and the chained invocation.
+  const processingDeadline = Date.now() + 45_000;
 
   try {
     if (step === "scrape") {
@@ -224,11 +243,11 @@ Deno.serve(async (req: Request) => {
     } else if (step === "detect") {
       await handleDetect(supabase, jobId, state);
     } else if (step === "resolve") {
-      await handleResolve(supabase, jobId, state);
+      await handleResolve(supabase, jobId, state, processingDeadline);
     } else if (step === "enrich") {
-      await handleEnrich(supabase, jobId, state);
+      await handleEnrich(supabase, jobId, state, processingDeadline);
     } else if (step === "metrics") {
-      await handleMetrics(supabase, jobId, state);
+      await handleMetrics(supabase, jobId, state, processingDeadline);
     } else if (step === "complete") {
       await handleComplete(supabase, jobId, state);
 
@@ -249,6 +268,7 @@ Deno.serve(async (req: Request) => {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[pipeline-continue] Job ${jobId} failed:`, msg);
     await abortActiveFollowupIfNeeded(state);
+    await abortPrimaryActorIfNeeded(state);
     await markFailed(supabase, jobId, state, msg);
   }
 
@@ -281,14 +301,27 @@ async function handleScrape(
     return;
   }
 
-  const resp = await fetch(
+  if (deadlineExceeded(state.started_at, SCRAPE_DEADLINE_MS)) {
+    await abortActorRun(token, runId);
+    await markFailed(
+      supabase,
+      jobId,
+      state,
+      "Discovery actor exceeded 7 minute deadline",
+    );
+    return;
+  }
+
+  const resp = await fetchWithTimeout(
     `https://api.apify.com/v2/actor-runs/${runId}`,
     { headers: { Authorization: `Bearer ${token}` } },
+    12_000,
   );
 
   if (!resp.ok) {
     const retries = (state.retry_count ?? 0) + 1;
     if (retries >= MAX_RETRIES) {
+      await abortActorRun(token, runId);
       await markFailed(
         supabase,
         jobId,
@@ -312,6 +345,7 @@ async function handleScrape(
   if (apifyStatus === "SUCCEEDED") {
     const datasetId = data.data?.defaultDatasetId;
     if (!datasetId) {
+      await abortActorRun(token, runId);
       await markFailed(
         supabase,
         jobId,
@@ -361,6 +395,7 @@ async function handleScrape(
     apifyStatus === "ABORTED" ||
     apifyStatus === "TIMED-OUT"
   ) {
+    await abortActorRun(token, runId);
     await markFailed(supabase, jobId, state, `Apify run ${apifyStatus}`);
   } else {
     // Still running — check again after delay
@@ -392,9 +427,10 @@ async function handleIngest(
 
   const offset = (state.batch_index ?? 0) * BATCH_SIZE;
 
-  const resp = await fetch(
+  const resp = await fetchWithTimeout(
     `https://api.apify.com/v2/datasets/${datasetId}/items?format=json&offset=${offset}&limit=${BATCH_SIZE}`,
     { headers: { Authorization: `Bearer ${token}` } },
+    15_000,
   );
 
   if (!resp.ok) {
@@ -471,8 +507,7 @@ async function handleIngest(
           place.latitude !== null && place.longitude !== null &&
           !isInMalaysia(place.latitude, place.longitude)
         ) {
-          state.stats.places_filtered =
-            (state.stats.places_filtered ?? 0) + 1;
+          state.stats.places_filtered = (state.stats.places_filtered ?? 0) + 1;
           skippedCount++;
           // Still stage embedded posts — they may reference other locations
         } else {
@@ -573,6 +608,9 @@ async function startLocationPostsComponent(
   const runId = state.scrape_run_id;
   const token = Deno.env.get("APIFY_TOKEN");
   if (!runId || !token) throw new Error("Cannot start location-post component");
+  const { data: activeRun, error: activeRunError } = await supabase
+    .from("scrape_runs").select("status").eq("id", runId).single();
+  if (activeRunError || activeRun?.status !== "running") return;
   const { data: component, error } = await supabase
     .from("scrape_run_components").insert({
       scrape_run_id: runId,
@@ -586,7 +624,17 @@ async function startLocationPostsComponent(
 
   let actorRunId: string | null = null;
   try {
-    const response = await fetch(
+    const { data: stillActive } = await supabase.from("scrape_runs")
+      .select("status").eq("id", runId).single();
+    if (stillActive?.status !== "running") {
+      await markComponentFailed(
+        supabase,
+        component.id,
+        "Pipeline cancelled before actor start",
+      );
+      return;
+    }
+    const response = await fetchWithTimeout(
       "https://api.apify.com/v2/acts/apify%2Finstagram-scraper/runs",
       {
         method: "POST",
@@ -603,6 +651,7 @@ async function startLocationPostsComponent(
           addParentData: true,
         }),
       },
+      20_000,
     );
     if (!response.ok) {
       throw new Error(
@@ -613,31 +662,64 @@ async function startLocationPostsComponent(
     actorRunId = (await response.json()).data?.id ?? null;
     if (!actorRunId) throw new Error("Location-post actor returned no run ID");
 
+    // Publish the actor ID while the component is still pending so a
+    // concurrent cancellation can always discover it.
+    const { data: published, error: publishError } = await supabase
+      .from("scrape_run_components").update({ apify_run_id: actorRunId })
+      .eq("id", component.id).eq("status", "pending").select("id");
+    if (publishError || !published?.length) {
+      const aborted = await abortActorRun(token, actorRunId);
+      await supabase.from("scrape_run_components").update({
+        apify_run_id: actorRunId,
+        error: aborted
+          ? "Follow-up ownership lost; actor abort accepted"
+          : "cancel_abort_pending: follow-up ownership lost",
+      }).eq("id", component.id);
+      return;
+    }
+
+    const { data: runAfterStart } = await supabase.from("scrape_runs")
+      .select("status").eq("id", runId).single();
+    if (runAfterStart?.status !== "running") {
+      const aborted = await abortActorRun(token, actorRunId);
+      await supabase.from("scrape_run_components").update({
+        status: aborted ? "failed" : "pending",
+        error: aborted
+          ? "Pipeline cancelled; actor abort accepted"
+          : "cancel_abort_pending: follow-up actor started during cancellation",
+        completed_at: aborted ? new Date().toISOString() : null,
+      }).eq("id", component.id);
+      return;
+    }
+
     state.location_posts_run_id = actorRunId;
+    state.location_posts_started_at = new Date().toISOString();
     state.active_component_id = component.id;
     state.component_item_count = 0;
     state.current_step = "location_posts_scrape";
     state.batch_index = 0;
-    const [componentUpdate] = await Promise.all([
-      supabase.from("scrape_run_components").update({
+    const { data: transitioned, error: componentError } = await supabase
+      .from("scrape_run_components").update({
         status: "running",
-        apify_run_id: actorRunId,
         started_at: new Date().toISOString(),
-      }).eq("id", component.id),
-      updateState(supabase, jobId, state),
-    ]);
-    if (componentUpdate.error) {
-      throw new Error(
-        `Location-post component init failed: ${componentUpdate.error.message}`,
-      );
+      }).eq("id", component.id).eq("status", "pending").select("id");
+    if (componentError || !transitioned?.length) {
+      const aborted = await abortActorRun(token, actorRunId);
+      if (!aborted) {
+        await supabase.from("scrape_run_components").update({
+          error: "cancel_abort_pending: running transition lost",
+        }).eq("id", component.id);
+      }
+      return;
     }
+    await updateState(supabase, jobId, state);
   } catch (error) {
-    if (actorRunId) await abortActorRun(token, actorRunId);
+    const aborted = actorRunId ? await abortActorRun(token, actorRunId) : true;
     const message = error instanceof Error ? error.message : String(error);
     await supabase.from("scrape_run_components").update({
-      status: "failed",
-      error: message,
-      completed_at: new Date().toISOString(),
+      status: aborted ? "failed" : "pending",
+      error: aborted ? message : `cancel_abort_pending: ${message}`,
+      completed_at: aborted ? new Date().toISOString() : null,
     }).eq("id", component.id);
     throw error;
   }
@@ -652,9 +734,22 @@ async function handleLocationPostsScrape(
   const runId = state.location_posts_run_id;
   const token = Deno.env.get("APIFY_TOKEN");
   if (!runId || !token) throw new Error("Missing location-post actor state");
-  const response = await fetch(`https://api.apify.com/v2/actor-runs/${runId}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  if (deadlineExceeded(state.location_posts_started_at, FOLLOWUP_DEADLINE_MS)) {
+    await abortActorRun(token, runId);
+    await markComponentFailed(
+      supabase,
+      state.active_component_id,
+      "Location-post actor exceeded 5 minute deadline",
+    );
+    throw new Error("Location-post actor exceeded 5 minute deadline");
+  }
+  const response = await fetchWithTimeout(
+    `https://api.apify.com/v2/actor-runs/${runId}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+    12_000,
+  );
   if (!response.ok) {
     throw new Error(`Location-post poll failed (${response.status})`);
   }
@@ -712,9 +807,10 @@ async function handleLocationPostsIngest(
   }
   const offset = alreadyProcessed;
   const limit = Math.min(BATCH_SIZE, 3 - alreadyProcessed);
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `https://api.apify.com/v2/datasets/${datasetId}/items?format=json&offset=${offset}&limit=${limit}`,
     { headers: { Authorization: `Bearer ${token}` } },
+    15_000,
   );
   if (!response.ok) {
     throw new Error(`Location-post dataset fetch failed (${response.status})`);
@@ -774,14 +870,21 @@ async function abortActiveFollowupIfNeeded(state: PipelineState) {
   if (token) await abortActorRun(token, state.location_posts_run_id);
 }
 
-async function abortActorRun(token: string, runId: string) {
-  await fetch(
+async function abortPrimaryActorIfNeeded(state: PipelineState) {
+  if (!state.apify_run_id) return;
+  const token = Deno.env.get("APIFY_TOKEN");
+  if (token) await abortActorRun(token, state.apify_run_id);
+}
+
+async function abortActorRun(token: string, runId: string): Promise<boolean> {
+  return await fetchWithTimeout(
     `https://api.apify.com/v2/actor-runs/${runId}/abort?gracefully=true`,
     {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
     },
-  ).catch(() => undefined);
+    10_000,
+  ).then((response) => response.ok).catch(() => false);
 }
 
 async function markComponentFailed(
@@ -881,26 +984,24 @@ async function upsertPlaceRestaurant(
     city ??= data.city;
   }
   if (
-    (!address || !city) && place.latitude !== null && place.longitude !== null
+    !restaurantId && (!address || !city) && place.latitude !== null &&
+    place.longitude !== null
   ) {
-    const reverse = await reverseGeocode(place.latitude, place.longitude);
-    address ??= reverse?.address ?? null;
-    city ??= reverse?.city ?? null;
+    if (canUseMapbox(state.mapbox_requests_used)) {
+      state.mapbox_requests_used = (state.mapbox_requests_used ?? 0) + 1;
+      const reverse = await reverseGeocode(place.latitude, place.longitude);
+      address ??= reverse?.address ?? null;
+      city ??= reverse?.city ?? null;
+    }
   }
 
   if (restaurantId) {
+    // Existing canonical content may have been curated by an admin. Refresh
+    // only pipeline-owned timestamps; source identity lives in the link table.
     const patch: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
       last_scraped_at: new Date().toISOString(),
     };
-    if (place.name) patch.name = place.name;
-    if (address) patch.address = address;
-    if (city) patch.city = city;
-    if (place.latitude !== null) patch.latitude = place.latitude;
-    if (place.longitude !== null) patch.longitude = place.longitude;
-    if (place.phone) patch.phone = place.phone;
-    if (place.external_id) patch.instagram_location_id = place.external_id;
-    if (categories.length) patch.categories = categories;
     const { error } = await supabase.from("restaurants").update(patch).eq(
       "id",
       restaurantId,
@@ -921,7 +1022,6 @@ async function upsertPlaceRestaurant(
       instagram_location_id: place.external_id,
       categories,
       verification_confidence: place.external_id ? 0.9 : 0.7,
-      is_approved: false,
       last_scraped_at: new Date().toISOString(),
     }).select("id").single();
     if (error || !data) {
@@ -988,8 +1088,8 @@ async function findRestaurantForPostCandidate(
   const address = normalizeName(candidate.address);
   const city = normalizeName(candidate.city);
   for (const restaurant of data ?? []) {
-    const nameRelation = nameRelation(name, restaurant.normalized_name ?? "");
-    if (nameRelation === "none") continue;
+    const relation = nameRelation(name, restaurant.normalized_name ?? "");
+    if (relation === "none") continue;
     if (latitude !== null && longitude !== null) return restaurant.id;
 
     if (address) {
@@ -998,7 +1098,7 @@ async function findRestaurantForPostCandidate(
       const cityMatches = !city || city === normalizeName(restaurant.city);
       if (addressRelation !== "none" && cityMatches) return restaurant.id;
     } else if (
-      city && nameRelation === "equal" &&
+      city && relation === "equal" &&
       city === normalizeName(restaurant.city)
     ) {
       return restaurant.id;
@@ -1119,6 +1219,7 @@ async function handleResolve(
   supabase: DbClient,
   jobId: string,
   state: PipelineState,
+  processingDeadline: number,
 ) {
   const { data: posts, error: fetchErr } = await supabase
     .from("scraped_posts")
@@ -1152,7 +1253,9 @@ async function handleResolve(
     state.batch_index = 0;
     state.retry_count = 0;
     await updateState(supabase, jobId, state);
-    console.log(`[pipeline-continue] Job ${jobId}: resolve done, moving to enrich`);
+    console.log(
+      `[pipeline-continue] Job ${jobId}: resolve done, moving to enrich`,
+    );
     await scheduleContinue(jobId, 0);
     return;
   }
@@ -1160,6 +1263,7 @@ async function handleResolve(
   let resolved = 0;
 
   for (const post of posts) {
+    if (!hasProcessingBudget(processingDeadline)) break;
     let matchedRestaurantId: number | null = null;
 
     if (post.post_url) {
@@ -1220,6 +1324,7 @@ async function handleResolve(
         );
       }
     }
+    if (!hasProcessingBudget(processingDeadline)) break;
   }
 
   state.batch_index = (state.batch_index ?? 0) + 1;
@@ -1320,6 +1425,7 @@ async function handleEnrich(
   supabase: DbClient,
   jobId: string,
   state: PipelineState,
+  processingDeadline: number,
 ) {
   // Fetch unresolved candidates for LLM enrichment
   const { data: posts, error: fetchErr } = await supabase
@@ -1361,6 +1467,7 @@ async function handleEnrich(
   let failed = 0;
 
   for (const post of posts) {
+    if (!hasProcessingBudget(processingDeadline)) break;
     try {
       const caption = post.caption ?? "";
       const hashtags: string[] = Array.isArray(post.hashtags)
@@ -1414,11 +1521,18 @@ async function handleEnrich(
       }
 
       // Geocode the venue
-      const geo = await geocode(
-        extraction.name,
-        extraction.address,
-        extraction.city,
-      );
+      let geo = null;
+      if (canUseMapbox(state.mapbox_requests_used)) {
+        state.mapbox_requests_used = (state.mapbox_requests_used ?? 0) + 1;
+        // Record quota consumption before the request so retries remain
+        // conservative even if the invocation is interrupted.
+        await updateState(supabase, jobId, state);
+        geo = await geocode(
+          extraction.name,
+          extraction.address,
+          extraction.city,
+        );
+      }
       if (geo) {
         latitude = geo.latitude;
         longitude = geo.longitude;
@@ -1460,7 +1574,6 @@ async function handleEnrich(
           instagram_location_id: post.location_id,
           categories: extraction.categories,
           verification_confidence: extraction.confidence,
-          is_approved: false,
           source_post_count: 1,
           popularity_score: popularityScore(
             post.likes ?? 0,
@@ -1533,7 +1646,10 @@ async function handleEnrich(
       enriched++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[pipeline-continue] Enrich error for post ${post.id}:`, msg);
+      console.error(
+        `[pipeline-continue] Enrich error for post ${post.id}:`,
+        msg,
+      );
       await supabase
         .from("scraped_posts")
         .update({ status: "failed", error: msg })
@@ -1541,6 +1657,7 @@ async function handleEnrich(
       state.stats.posts_failed++;
       failed++;
     }
+    if (!hasProcessingBudget(processingDeadline)) break;
   }
 
   state.batch_index = (state.batch_index ?? 0) + 1;
@@ -1564,6 +1681,7 @@ async function handleMetrics(
   supabase: DbClient,
   jobId: string,
   state: PipelineState,
+  processingDeadline: number,
 ) {
   interface MetricPost {
     author_username: string | null;
@@ -1580,7 +1698,9 @@ async function handleMetrics(
   const now = Date.now();
   const DAY = 86_400_000;
 
-  for (const restaurantId of ids) {
+  const startIndex = state.metrics_index ?? 0;
+  for (let index = startIndex; index < ids.length; index++) {
+    const restaurantId = ids[index];
     const { data: links, error: linkError } = await supabase
       .from("restaurant_social_posts")
       .select("post_id")
@@ -1698,8 +1818,15 @@ async function handleMetrics(
         bestImage.quality_score,
       );
     }
+    state.metrics_index = index + 1;
+    if (!hasProcessingBudget(processingDeadline)) {
+      await updateState(supabase, jobId, state);
+      await scheduleContinue(jobId, 0);
+      return;
+    }
   }
 
+  state.metrics_index = 0;
   state.current_step = "complete";
   await updateState(supabase, jobId, state);
   await scheduleContinue(jobId, 0);
@@ -1741,6 +1868,7 @@ async function handleComplete(
           new_restaurants: state.stats.restaurants_created,
           candidates_detected: state.stats.candidates_detected,
           candidates_enriched: state.stats.candidates_enriched,
+          mapbox_requests_used: state.mapbox_requests_used ?? 0,
           skipped: state.stats.posts_skipped,
           failed: state.stats.posts_failed,
           cost_usd: state.cost_usd ?? 0,
@@ -1897,9 +2025,10 @@ async function fetchSettledActorCost(
   let settled = current;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const response = await fetch(
+      const response = await fetchWithTimeout(
         `https://api.apify.com/v2/actor-runs/${runId}`,
         { headers: { Authorization: `Bearer ${token}` } },
+        10_000,
       );
       if (response.ok) {
         const data = await response.json();
@@ -1909,7 +2038,10 @@ async function fetchSettledActorCost(
         }
       }
     } catch (error) {
-      console.warn("[pipeline-continue] Could not refresh settled Apify cost", error);
+      console.warn(
+        "[pipeline-continue] Could not refresh settled Apify cost",
+        error,
+      );
     }
     if (attempt < 2) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -1995,7 +2127,10 @@ function scheduleContinue(jobId: string, delayMs: number) {
         })
       )
       .catch(async (err) => {
-        console.error(`[pipeline-continue] Chain call error for ${jobId}:`, err);
+        console.error(
+          `[pipeline-continue] Chain call error for ${jobId}:`,
+          err,
+        );
         try {
           const supabase = createClient(
             Deno.env.get("SUPABASE_URL")!,

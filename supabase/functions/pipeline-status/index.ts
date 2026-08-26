@@ -62,12 +62,14 @@ Deno.serve(async (req: Request) => {
   const [activeRunResult, recentRunsResult, specificRunResult] = await Promise
     .all([
       runId
-        ? supabase.from("scrape_runs").select("*").eq("id", runId)
+        ? supabase.from("scrape_runs").select(
+          "*, discovery_sources(source_type, source_value, area, created_at)",
+        ).eq("id", runId)
           .maybeSingle()
         : supabase
           .from("scrape_runs")
           .select(
-            "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, verified_restaurants, cost_usd, error, created_at",
+            "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, verified_restaurants, cost_usd, error, created_at, discovery_sources(source_type, source_value, area, created_at)",
           )
           .in("status", ["running", "pending"])
           .order("created_at", { ascending: false })
@@ -76,7 +78,7 @@ Deno.serve(async (req: Request) => {
       supabase
         .from("scrape_runs")
         .select(
-          "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, cost_usd, error, created_at",
+          "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, cost_usd, error, created_at, discovery_sources(source_type, source_value, area, created_at)",
         )
         .in("status", ["completed", "failed"])
         .order("created_at", { ascending: false })
@@ -86,7 +88,7 @@ Deno.serve(async (req: Request) => {
         ? supabase
           .from("scrape_runs")
           .select(
-            "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, cost_usd, error, created_at",
+            "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, cost_usd, error, created_at, discovery_sources(source_type, source_value, area, created_at)",
           )
           .eq("id", runId)
           .maybeSingle()
@@ -130,7 +132,7 @@ Deno.serve(async (req: Request) => {
   const { data: sources } = await supabase
     .from("discovery_sources")
     .select(
-      "id, source_type, source_value, status, scrape_count, posts_scraped, new_posts, restaurant_candidates, new_restaurants, verified_restaurants, total_cost_usd, yield_rate, cost_per_new_restaurant, priority_score, last_scraped_at, next_scrape_at",
+      "id, source_type, source_value, area, status, scrape_count, posts_scraped, new_posts, restaurant_candidates, new_restaurants, verified_restaurants, total_cost_usd, yield_rate, cost_per_new_restaurant, priority_score, last_scraped_at, next_scrape_at, created_at",
     )
     .order("priority_score", { ascending: false, nullsFirst: false });
 
@@ -154,9 +156,7 @@ Deno.serve(async (req: Request) => {
     (counts.resolved ?? 0);
 
   console.log(
-    `[pipeline-status] runId=${
-      runId ?? "(none)"
-    } → status=${status}, ` +
+    `[pipeline-status] runId=${runId ?? "(none)"} → status=${status}, ` +
       `posts=${totalPosts}, restaurants=${totalRestaurants ?? 0}`,
   );
 
@@ -188,6 +188,7 @@ Deno.serve(async (req: Request) => {
       new_restaurants: run.new_restaurants,
       cost_usd: run.cost_usd,
       error: run.error,
+      discovery_sources: run.discovery_sources,
     })),
   });
 });

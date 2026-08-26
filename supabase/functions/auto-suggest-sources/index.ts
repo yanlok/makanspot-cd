@@ -9,8 +9,11 @@
 // Response:  { suggestions_added: number, suggestions: [...] }
 // ============================================================================
 
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { fetchWithTimeout } from "../_shared/http.ts";
+import { isServiceRoleRequest } from "../_shared/auth.ts";
+type DbClient = SupabaseClient<any, any, any, any, any>;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,7 +40,17 @@ const MAX_SUGGESTIONS = 5;
 const MAX_ACTIVE_SOURCES = 50;
 const MAX_NEW_PER_CYCLE = 5;
 
-const SUGGESTION_SYSTEM_PROMPT = `You are a data analyst for a Malaysian restaurant discovery app called MakanSpot.
+/** Canonical comparison key shared by manual and AI-generated searches. */
+export function normalizeSearchQuery(value: string): string {
+  return value
+    .trim()
+    .replace(/^#+\s*/, "")
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("en");
+}
+
+const SUGGESTION_SYSTEM_PROMPT =
+  `You are a data analyst for a Malaysian restaurant discovery app called MakanSpot.
 Your job is to suggest new Instagram search queries to find restaurants.
 
 You will receive a table of existing discovery sources and their performance metrics.
@@ -69,12 +82,15 @@ Return strict JSON:
 // Entry point
 // ---------------------------------------------------------------------------
 
-Deno.serve(async (req: Request) => {
+if (import.meta.main) Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
   if (req.method !== "POST") {
     return jsonResponse({ error: "Use POST" }, 405);
+  }
+  if (!(await isServiceRoleRequest(req))) {
+    return jsonResponse({ error: "service_role_required" }, 403);
   }
 
   const supabase = createClient(
@@ -97,7 +113,7 @@ Deno.serve(async (req: Request) => {
 // ---------------------------------------------------------------------------
 
 export async function suggestNewSources(
-  supabase: ReturnType<typeof createClient>,
+  supabase: DbClient,
 ): Promise<{ suggestions_added: number; suggestions: Suggestion[] }> {
   // Check active source cap
   const { count: activeCount, error: countError } = await supabase
@@ -135,6 +151,23 @@ export async function suggestNewSources(
     return { suggestions_added: 0, suggestions: [] };
   }
 
+  // Duplicate protection must cover every manual and AI-generated search,
+  // not only the top-performing rows included in the LLM prompt.
+  const { data: querySources, error: querySourcesError } = await supabase
+    .from("discovery_sources")
+    .select("source_value")
+    .in("source_type", ["search_query", "automation"]);
+  if (querySourcesError) {
+    throw new Error(
+      `Existing query lookup failed: ${querySourcesError.message}`,
+    );
+  }
+  const knownQueryKeys = new Set(
+    (querySources ?? []).map((source) =>
+      normalizeSearchQuery(source.source_value ?? "")
+    ).filter(Boolean),
+  );
+
   // Build context for LLM
   const existingQueries = sources.map((s) => s.source_value);
   const sourceTable = sources.map((s) =>
@@ -143,7 +176,8 @@ export async function suggestNewSources(
     }% | ${s.new_restaurants ?? 0} | ${s.posts_scraped ?? 0} |`
   ).join("\n");
 
-  const userContent = `Existing sources (type | query | area | yield | restaurants | posts):
+  const userContent =
+    `Existing sources (type | query | area | yield | restaurants | posts):
 | --- | --- | --- | --- | --- | --- |
 ${sourceTable}
 
@@ -162,20 +196,20 @@ Suggest ${MAX_SUGGESTIONS} new search queries.`;
   // Filter out duplicates and insert
   let added = 0;
   const results: Suggestion[] = [];
+  const remainingCapacity = Math.max(
+    0,
+    MAX_ACTIVE_SOURCES - (activeCount ?? 0),
+  );
+  const insertLimit = Math.min(MAX_NEW_PER_CYCLE, remainingCapacity);
 
   for (const suggestion of suggestions.slice(0, MAX_NEW_PER_CYCLE)) {
-    const query = suggestion.query.trim();
-    if (!query) continue;
+    if (added >= insertLimit) break;
+    const query = suggestion.query.trim().replace(/^#+\s*/, "")
+      .replace(/\s+/g, " ");
+    const queryKey = normalizeSearchQuery(query);
+    if (!queryKey) continue;
 
-    // Check if source already exists (UNIQUE constraint on source_type + source_value)
-    const { data: existing } = await supabase
-      .from("discovery_sources")
-      .select("id")
-      .eq("source_type", "search_query")
-      .eq("source_value", query)
-      .maybeSingle();
-
-    if (existing) {
+    if (knownQueryKeys.has(queryKey)) {
       console.log(`[auto-suggest] Skipping duplicate: ${query}`);
       continue;
     }
@@ -192,11 +226,22 @@ Suggest ${MAX_SUGGESTIONS} new search queries.`;
       });
 
     if (insertError) {
-      console.error(`[auto-suggest] Insert failed for "${query}":`, insertError.message);
+      // The database normalized-query index closes concurrent read/insert
+      // races. A duplicate created by another invocation is a safe skip.
+      if (insertError.code === "23505") {
+        knownQueryKeys.add(queryKey);
+        console.log(`[auto-suggest] Concurrent duplicate skipped: ${query}`);
+        continue;
+      }
+      console.error(
+        `[auto-suggest] Insert failed for "${query}":`,
+        insertError.message,
+      );
       continue;
     }
 
     added++;
+    knownQueryKeys.add(queryKey);
     results.push(suggestion);
     console.log(`[auto-suggest] Added: "${query}" (${suggestion.area})`);
   }
@@ -225,7 +270,7 @@ async function callLLM(userContent: string): Promise<Suggestion[]> {
   }
 
   try {
-    const resp = await fetch(`${baseUrl}/chat/completions`, {
+    const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
@@ -240,7 +285,7 @@ async function callLLM(userContent: string): Promise<Suggestion[]> {
           { role: "user", content: userContent },
         ],
       }),
-    });
+    }, 25_000);
 
     if (!resp.ok) {
       console.error(`[auto-suggest] LLM API error: ${resp.status}`);

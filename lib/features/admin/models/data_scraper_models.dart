@@ -48,7 +48,9 @@ class DiscoverySourceSummary {
     required this.sourceValue,
     required this.area,
     required this.status,
+    required this.scrapeCount,
     required this.postsScraped,
+    required this.restaurantCandidates,
     required this.newRestaurants,
     required this.yieldRate,
     required this.totalCostUsd,
@@ -63,7 +65,9 @@ class DiscoverySourceSummary {
   final String sourceValue;
   final String? area;
   final String status;
+  final int scrapeCount;
   final int postsScraped;
+  final int restaurantCandidates;
   final int newRestaurants;
   final double yieldRate;
   final double totalCostUsd;
@@ -73,25 +77,28 @@ class DiscoverySourceSummary {
   final DateTime? createdAt;
 
   factory DiscoverySourceSummary.fromMap(Map<String, dynamic> m) =>
-    DiscoverySourceSummary(
-      id: m['id'] as int,
-      sourceType: m['source_type'] as String? ?? 'unknown',
-      sourceValue: m['source_value'] as String? ?? '',
-      area: m['area'] as String?,
-      status: m['status'] as String? ?? 'active',
-      postsScraped: m['posts_scraped'] as int? ?? 0,
-      newRestaurants: m['new_restaurants'] as int? ?? 0,
-      yieldRate: (m['yield_rate'] as num?)?.toDouble() ?? 0,
-      totalCostUsd: (m['total_cost_usd'] as num?)?.toDouble() ?? 0,
-      costPerNewRestaurant: (m['cost_per_new_restaurant'] as num?)?.toDouble(),
-      priorityScore: (m['priority_score'] as num?)?.toDouble() ?? 0.5,
-      lastScrapedAt: m['last_scraped_at'] != null
-          ? DateTime.tryParse(m['last_scraped_at'] as String)
-          : null,
-      createdAt: m['created_at'] != null
-          ? DateTime.tryParse(m['created_at'] as String)
-          : null,
-    );
+      DiscoverySourceSummary(
+        id: m['id'] as int,
+        sourceType: m['source_type'] as String? ?? 'unknown',
+        sourceValue: m['source_value'] as String? ?? '',
+        area: m['area'] as String?,
+        status: m['status'] as String? ?? 'active',
+        scrapeCount: m['scrape_count'] as int? ?? 0,
+        postsScraped: m['posts_scraped'] as int? ?? 0,
+        restaurantCandidates: m['restaurant_candidates'] as int? ?? 0,
+        newRestaurants: m['new_restaurants'] as int? ?? 0,
+        yieldRate: (m['yield_rate'] as num?)?.toDouble() ?? 0,
+        totalCostUsd: (m['total_cost_usd'] as num?)?.toDouble() ?? 0,
+        costPerNewRestaurant: (m['cost_per_new_restaurant'] as num?)
+            ?.toDouble(),
+        priorityScore: (m['priority_score'] as num?)?.toDouble() ?? 0.5,
+        lastScrapedAt: m['last_scraped_at'] != null
+            ? DateTime.tryParse(m['last_scraped_at'] as String)
+            : null,
+        createdAt: m['created_at'] != null
+            ? DateTime.tryParse(m['created_at'] as String)
+            : null,
+      );
 }
 
 class ScrapeRunSummary {
@@ -102,6 +109,10 @@ class ScrapeRunSummary {
     required this.newPosts,
     required this.newRestaurants,
     required this.costUsd,
+    this.sourceId,
+    this.sourceType,
+    this.sourceValue,
+    this.sourceArea,
     this.startedAt,
     this.completedAt,
     this.error,
@@ -113,18 +124,30 @@ class ScrapeRunSummary {
   final int newPosts;
   final int newRestaurants;
   final double costUsd;
+  final int? sourceId;
+  final String? sourceType;
+  final String? sourceValue;
+  final String? sourceArea;
   final DateTime? startedAt;
   final DateTime? completedAt;
   final String? error;
 
-  factory ScrapeRunSummary.fromMap(Map<String, dynamic> m) =>
-    ScrapeRunSummary(
+  factory ScrapeRunSummary.fromMap(Map<String, dynamic> m) {
+    final embeddedSource = m['discovery_sources'];
+    final source = embeddedSource is Map
+        ? Map<String, dynamic>.from(embeddedSource)
+        : null;
+    return ScrapeRunSummary(
       id: m['id'] as String,
       status: m['status'] as String? ?? 'pending',
       postsReceived: m['posts_received'] as int? ?? 0,
       newPosts: m['new_posts'] as int? ?? 0,
       newRestaurants: m['new_restaurants'] as int? ?? 0,
       costUsd: (m['cost_usd'] as num?)?.toDouble() ?? 0,
+      sourceId: m['source_id'] as int?,
+      sourceType: source?['source_type'] as String?,
+      sourceValue: source?['source_value'] as String?,
+      sourceArea: source?['area'] as String?,
       startedAt: m['started_at'] != null
           ? DateTime.tryParse(m['started_at'] as String)
           : null,
@@ -133,6 +156,7 @@ class ScrapeRunSummary {
           : null,
       error: m['error'] as String?,
     );
+  }
 }
 
 class PipelineState {

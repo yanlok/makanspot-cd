@@ -38,11 +38,12 @@ class DataScraperScreen extends ConsumerWidget {
           const SizedBox(height: 16),
 
           // Scan controls or progress
-          if (state.initMessage.isNotEmpty && state.status == PipelineStatus.idle)
+          if (state.initMessage.isNotEmpty &&
+              state.status == PipelineStatus.idle)
             _LoadingBar(message: state.initMessage)
           else if (state.status == PipelineStatus.scanning ||
               state.status == PipelineStatus.processing)
-            _ScanProgress(state: state)
+            _ScanProgress(state: state, onCancel: controller.cancelScan)
           else
             _ScanControls(
               resultLimit: state.resultLimit,
@@ -57,7 +58,8 @@ class DataScraperScreen extends ConsumerWidget {
           ],
 
           // Results
-          if (state.status == PipelineStatus.complete && state.result != null) ...[
+          if (state.status == PipelineStatus.complete &&
+              state.result != null) ...[
             const SizedBox(height: 16),
             _ResultsCard(result: state.result!),
           ],
@@ -216,7 +218,10 @@ class _LoadingBar extends StatelessWidget {
           const SizedBox(
             width: 20,
             height: 20,
-            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: AppColors.primary,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -280,7 +285,10 @@ class _ScanControls extends StatelessWidget {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: AppColors.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
@@ -319,7 +327,10 @@ class _ScanControls extends StatelessWidget {
             children: [
               Text(
                 '1',
-                style: TextStyle(fontSize: 11, color: AppColors.mutedForeground),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: AppColors.mutedForeground,
+                ),
               ),
               Text(
                 '~\$${_costPerResult.toStringAsFixed(3)} × $resultLimit = \$${estimatedCost.toStringAsFixed(3)}',
@@ -331,7 +342,10 @@ class _ScanControls extends StatelessWidget {
               ),
               Text(
                 '20',
-                style: TextStyle(fontSize: 11, color: AppColors.mutedForeground),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: AppColors.mutedForeground,
+                ),
               ),
             ],
           ),
@@ -370,9 +384,10 @@ class _ScanControls extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _ScanProgress extends StatelessWidget {
-  const _ScanProgress({required this.state});
+  const _ScanProgress({required this.state, required this.onCancel});
 
   final PipelineState state;
+  final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -391,7 +406,10 @@ class _ScanProgress extends StatelessWidget {
               const SizedBox(
                 width: 20,
                 height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.primary,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -409,6 +427,16 @@ class _ScanProgress extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _ProgressSteps(currentStep: state.currentStep),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              key: const Key('cancel-pipeline-button'),
+              onPressed: onCancel,
+              icon: const Icon(LucideIcons.circleStop, size: 16),
+              label: const Text('Stop scan'),
+            ),
+          ),
         ],
       ),
     );
@@ -446,7 +474,11 @@ class _ProgressSteps extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 6),
           child: Row(
             children: [
-              _StepIcon(icon: icon, isComplete: isComplete, isCurrent: isCurrent),
+              _StepIcon(
+                icon: icon,
+                isComplete: isComplete,
+                isCurrent: isCurrent,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -458,18 +490,25 @@ class _ProgressSteps extends StatelessWidget {
                     color: isComplete
                         ? AppColors.success
                         : isCurrent
-                            ? AppColors.foreground
-                            : AppColors.mutedForeground,
+                        ? AppColors.foreground
+                        : AppColors.mutedForeground,
                   ),
                 ),
               ),
               if (isComplete)
-                const Icon(LucideIcons.check, size: 14, color: AppColors.success)
+                const Icon(
+                  LucideIcons.check,
+                  size: 14,
+                  color: AppColors.success,
+                )
               else if (isCurrent)
                 const SizedBox(
                   width: 14,
                   height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppColors.primary,
+                  ),
                 ),
             ],
           ),
@@ -495,8 +534,8 @@ class _StepIcon extends StatelessWidget {
     final color = isComplete
         ? AppColors.success
         : isCurrent
-            ? AppColors.primary
-            : AppColors.mutedForeground;
+        ? AppColors.primary
+        : AppColors.mutedForeground;
 
     return Container(
       width: 28,
@@ -505,8 +544,8 @@ class _StepIcon extends StatelessWidget {
         color: isComplete
             ? AppColors.success.withValues(alpha: 0.1)
             : isCurrent
-                ? AppColors.primary.withValues(alpha: 0.1)
-                : AppColors.secondary.withValues(alpha: 0.5),
+            ? AppColors.primary.withValues(alpha: 0.1)
+            : AppColors.secondary.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(7),
       ),
       child: Icon(icon, size: 14, color: color),
@@ -544,23 +583,43 @@ class _ResultsCard extends StatelessWidget {
                   color: AppColors.success.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(LucideIcons.checkCircle, size: 18, color: AppColors.success),
+                child: const Icon(
+                  LucideIcons.checkCircle,
+                  size: 18,
+                  color: AppColors.success,
+                ),
               ),
               const SizedBox(width: 12),
-              Text('Scan Complete', style: Theme.of(context).textTheme.titleMedium),
+              Text(
+                'Scan Complete',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
             ],
           ),
           const SizedBox(height: 16),
-          _ResultRow(label: 'Posts received', value: '${result.postsReceived}', color: AppColors.primary),
+          _ResultRow(
+            label: 'Posts received',
+            value: '${result.postsReceived}',
+            color: AppColors.primary,
+          ),
           const SizedBox(height: 8),
-          _ResultRow(label: 'New restaurants', value: '${result.newRestaurants}', color: AppColors.success),
+          _ResultRow(
+            label: 'New restaurants',
+            value: '${result.newRestaurants}',
+            color: AppColors.success,
+          ),
           const SizedBox(height: 8),
-          _ResultRow(label: 'Cost', value: '\$${result.costUsd.toStringAsFixed(3)}', color: AppColors.accent),
+          _ResultRow(
+            label: 'Cost',
+            value: '\$${result.costUsd.toStringAsFixed(3)}',
+            color: AppColors.accent,
+          ),
           if (result.newRestaurants > 0) ...[
             const SizedBox(height: 8),
             _ResultRow(
               label: 'Cost per restaurant',
-              value: '\$${(result.costUsd / result.newRestaurants).toStringAsFixed(3)}',
+              value:
+                  '\$${(result.costUsd / result.newRestaurants).toStringAsFixed(3)}',
               color: AppColors.success,
             ),
           ],
@@ -571,7 +630,11 @@ class _ResultsCard extends StatelessWidget {
 }
 
 class _ResultRow extends StatelessWidget {
-  const _ResultRow({required this.label, required this.value, required this.color});
+  const _ResultRow({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
 
   final String label;
   final String value;
@@ -584,7 +647,9 @@ class _ResultRow extends StatelessWidget {
       children: [
         Text(
           label,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.mutedForeground),
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(color: AppColors.mutedForeground),
         ),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -612,14 +677,19 @@ class _ResultRow extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _CostKpiCard extends StatelessWidget {
-  const _CostKpiCard({required this.totalCostUsd, required this.totalRestaurants});
+  const _CostKpiCard({
+    required this.totalCostUsd,
+    required this.totalRestaurants,
+  });
 
   final double totalCostUsd;
   final int totalRestaurants;
 
   @override
   Widget build(BuildContext context) {
-    final costPerRestaurant = totalRestaurants > 0 ? totalCostUsd / totalRestaurants : 0.0;
+    final costPerRestaurant = totalRestaurants > 0
+        ? totalCostUsd / totalRestaurants
+        : 0.0;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -637,7 +707,11 @@ class _CostKpiCard extends StatelessWidget {
               color: AppColors.success.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(LucideIcons.trendingDown, size: 20, color: AppColors.success),
+            child: const Icon(
+              LucideIcons.trendingDown,
+              size: 20,
+              color: AppColors.success,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -688,10 +762,20 @@ class _ErrorCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(LucideIcons.triangleAlert, size: 20, color: AppColors.destructive),
+          const Icon(
+            LucideIcons.triangleAlert,
+            size: 20,
+            color: AppColors.destructive,
+          ),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(message, style: const TextStyle(fontSize: 13, color: AppColors.destructive)),
+            child: Text(
+              message,
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppColors.destructive,
+              ),
+            ),
           ),
         ],
       ),
@@ -703,17 +787,41 @@ class _ErrorCard extends StatelessWidget {
 // Discovery Sources Section
 // ---------------------------------------------------------------------------
 
-class _DiscoverySourcesSection extends StatelessWidget {
+class _DiscoverySourcesSection extends StatefulWidget {
   const _DiscoverySourcesSection({required this.sources});
 
   final List<DiscoverySourceSummary> sources;
 
   @override
+  State<_DiscoverySourcesSection> createState() =>
+      _DiscoverySourcesSectionState();
+}
+
+class _DiscoverySourcesSectionState extends State<_DiscoverySourcesSection> {
+  static const _pageSize = 5;
+  int _visibleCount = _pageSize;
+
+  @override
+  void didUpdateWidget(covariant _DiscoverySourcesSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.sources != widget.sources) {
+      _visibleCount = _pageSize;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final sources = widget.sources;
+    final visibleCount = _visibleCount.clamp(0, sources.length);
+    final visibleSources = sources.take(visibleCount).toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Discovery Sources', style: Theme.of(context).textTheme.titleMedium),
+        Text(
+          'Discovery Sources',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
         const SizedBox(height: 12),
         Container(
           decoration: BoxDecoration(
@@ -721,13 +829,45 @@ class _DiscoverySourcesSection extends StatelessWidget {
             borderRadius: BorderRadius.circular(AppRadii.card),
             border: Border.all(color: AppColors.secondary),
           ),
-          child: Column(
-            children: sources.take(10).map((source) {
-              final isLast = source == sources.take(10).last;
-              return _SourceRow(source: source, showDivider: !isLast);
-            }).toList(),
-          ),
+          child: sources.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('No discovery sources yet.'),
+                )
+              : Column(
+                  children: visibleSources.asMap().entries.map((entry) {
+                    return _SourceRow(
+                      source: entry.value,
+                      showDivider: entry.key < visibleSources.length - 1,
+                    );
+                  }).toList(),
+                ),
         ),
+        if (sources.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Text(
+                'Showing $visibleCount of ${sources.length} sources',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: AppColors.mutedForeground,
+                ),
+              ),
+              const Spacer(),
+              if (visibleCount < sources.length)
+                TextButton(
+                  onPressed: () => setState(() {
+                    _visibleCount = (_visibleCount + _pageSize).clamp(
+                      0,
+                      sources.length,
+                    );
+                  }),
+                  child: const Text('Show 5 more'),
+                ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -742,8 +882,18 @@ class _SourceRow extends StatelessWidget {
   String _formatDate(DateTime? dt) {
     if (dt == null) return '';
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
   }
@@ -753,8 +903,8 @@ class _SourceRow extends StatelessWidget {
     final statusColor = source.status == 'active'
         ? AppColors.success
         : source.status == 'cooldown'
-            ? AppColors.accent
-            : AppColors.mutedForeground;
+        ? AppColors.accent
+        : AppColors.mutedForeground;
 
     final isAutomation = source.sourceType == 'automation';
 
@@ -762,7 +912,11 @@ class _SourceRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: showDivider
           ? BoxDecoration(
-              border: Border(bottom: BorderSide(color: AppColors.secondary.withValues(alpha: 0.5))),
+              border: Border(
+                bottom: BorderSide(
+                  color: AppColors.secondary.withValues(alpha: 0.5),
+                ),
+              ),
             )
           : null,
       child: Row(
@@ -770,7 +924,10 @@ class _SourceRow extends StatelessWidget {
           Container(
             width: 8,
             height: 8,
-            decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: statusColor,
+              shape: BoxShape.circle,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -792,7 +949,10 @@ class _SourceRow extends StatelessWidget {
                     ),
                     if (isAutomation)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: AppColors.accent.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(4),
@@ -809,13 +969,47 @@ class _SourceRow extends StatelessWidget {
                   ],
                 ),
                 Text(
-                  '${source.sourceType} · ${source.area ?? "—"}',
-                  style: TextStyle(fontSize: 11, color: AppColors.mutedForeground),
+                  '${source.sourceType} · ${source.area ?? "No area"}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: AppColors.mutedForeground,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 2,
+                  children: [
+                    Text(
+                      '${source.postsScraped} posts',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppColors.mutedForeground,
+                      ),
+                    ),
+                    Text(
+                      '${source.restaurantCandidates} candidates',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppColors.mutedForeground,
+                      ),
+                    ),
+                    Text(
+                      '${source.scrapeCount} scrapes',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppColors.mutedForeground,
+                      ),
+                    ),
+                  ],
                 ),
                 if (source.createdAt != null)
                   Text(
                     'added ${_formatDate(source.createdAt)}',
-                    style: TextStyle(fontSize: 10, color: AppColors.mutedForeground),
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: AppColors.mutedForeground,
+                    ),
                   ),
               ],
             ),
@@ -829,7 +1023,16 @@ class _SourceRow extends StatelessWidget {
                   fontFamily: 'Poppins',
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: source.newRestaurants > 0 ? AppColors.success : AppColors.mutedForeground,
+                  color: source.newRestaurants > 0
+                      ? AppColors.success
+                      : AppColors.mutedForeground,
+                ),
+              ),
+              Text(
+                '${(source.yieldRate * 100).toStringAsFixed(1)}% yield',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: AppColors.mutedForeground,
                 ),
               ),
               Text(
@@ -860,10 +1063,14 @@ class _RecentRunsSection extends StatelessWidget {
       children: [
         Text('Recent Runs', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 12),
-        ...runs.take(5).map((run) => Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: _RunCard(run: run),
-        )),
+        ...runs
+            .take(5)
+            .map(
+              (run) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _RunCard(run: run),
+              ),
+            ),
       ],
     );
   }
@@ -876,15 +1083,27 @@ class _RunCard extends StatelessWidget {
 
   String _formatRunDate(DateTime? dt) {
     if (dt == null) return '—';
+    final malaysiaTime = dt.toUtc().add(const Duration(hours: 8));
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
-    final day = dt.day;
-    final month = months[dt.month - 1];
-    final hour = dt.hour.toString().padLeft(2, '0');
-    final minute = dt.minute.toString().padLeft(2, '0');
-    return '$day $month ${dt.year}, $hour:$minute';
+    final day = malaysiaTime.day;
+    final month = months[malaysiaTime.month - 1];
+    final hour = malaysiaTime.hour % 12 == 0 ? 12 : malaysiaTime.hour % 12;
+    final minute = malaysiaTime.minute.toString().padLeft(2, '0');
+    final period = malaysiaTime.hour < 12 ? 'AM' : 'PM';
+    return '$day $month ${malaysiaTime.year}, $hour:$minute $period';
   }
 
   @override
@@ -892,8 +1111,17 @@ class _RunCard extends StatelessWidget {
     final statusColor = run.status == 'completed'
         ? AppColors.success
         : run.status == 'failed'
-            ? AppColors.destructive
-            : AppColors.accent;
+        ? AppColors.destructive
+        : AppColors.accent;
+    final sourceLabel = run.sourceValue?.trim().isNotEmpty == true
+        ? run.sourceValue!
+        : run.sourceId != null
+        ? 'Legacy source #${run.sourceId}'
+        : 'Legacy run (source unavailable)';
+    final sourceContext = [
+      if (run.sourceType?.isNotEmpty == true) run.sourceType!,
+      if (run.sourceArea?.isNotEmpty == true) run.sourceArea!,
+    ].join(' · ');
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -907,7 +1135,10 @@ class _RunCard extends StatelessWidget {
           Container(
             width: 8,
             height: 8,
-            decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: statusColor,
+              shape: BoxShape.circle,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -915,7 +1146,27 @@ class _RunCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${run.newPosts} posts · ${run.newRestaurants} restaurants',
+                  sourceLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.foreground,
+                  ),
+                ),
+                if (sourceContext.isNotEmpty)
+                  Text(
+                    sourceContext,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: AppColors.mutedForeground,
+                    ),
+                  ),
+                Text(
+                  '${run.postsReceived} received · ${run.newPosts} new · '
+                  '${run.newRestaurants} restaurants',
                   style: const TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 13,
@@ -925,11 +1176,17 @@ class _RunCard extends StatelessWidget {
                 ),
                 Text(
                   '\$${run.costUsd.toStringAsFixed(3)} · ${run.status}',
-                  style: TextStyle(fontSize: 11, color: AppColors.mutedForeground),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: AppColors.mutedForeground,
+                  ),
                 ),
                 Text(
                   _formatRunDate(run.startedAt ?? run.completedAt),
-                  style: TextStyle(fontSize: 10, color: AppColors.mutedForeground),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: AppColors.mutedForeground,
+                  ),
                 ),
               ],
             ),

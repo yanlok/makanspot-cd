@@ -1,6 +1,7 @@
 /// <reference path="./deno.d.ts" />
 import { type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { validateImage } from "./image-validation.ts";
+import { fetchWithTimeout } from "./http.ts";
 
 // Enrichment helpers — core logic with cleaner, more explicit naming.
 
@@ -104,7 +105,7 @@ export async function extractVenue(
   }\n\nCaption:\n${caption}`;
 
   try {
-    const resp = await fetch(`${baseUrl}/chat/completions`, {
+    const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
@@ -119,7 +120,7 @@ export async function extractVenue(
           { role: "user", content: userContent },
         ],
       }),
-    });
+    }, 25_000);
 
     if (!resp.ok) return fallback;
     const data = await resp.json();
@@ -171,8 +172,9 @@ export async function geocode(
     url.searchParams.set("access_token", token);
     url.searchParams.set("country", "my");
     url.searchParams.set("limit", "1");
+    url.searchParams.set("permanent", "true");
 
-    const resp = await fetch(url.toString());
+    const resp = await fetchWithTimeout(url.toString(), {}, 10_000);
     if (!resp.ok) return null;
     const data = await resp.json();
     const feature = data?.features?.[0];
@@ -228,9 +230,12 @@ export async function reverseGeocode(
   url.searchParams.set("latitude", String(latitude));
   url.searchParams.set("longitude", String(longitude));
   url.searchParams.set("country", "my");
+  url.searchParams.set("permanent", "true");
   url.searchParams.set("access_token", token);
   try {
-    const response = await fetcher(url.toString());
+    const response = fetcher === fetch
+      ? await fetchWithTimeout(url.toString(), {}, 10_000)
+      : await fetcher(url.toString());
     if (!response.ok) return null;
     return parseReverseGeocode(await response.json());
   } catch {
@@ -658,7 +663,11 @@ export async function fetchImage(
   imageUrl: string,
 ): Promise<{ bytes: Uint8Array; contentType: string } | null> {
   try {
-    const resp = await fetch(imageUrl, { redirect: "follow" });
+    const resp = await fetchWithTimeout(
+      imageUrl,
+      { redirect: "follow" },
+      12_000,
+    );
     if (!resp.ok) return null;
     const ct = resp.headers.get("content-type") ?? "image/jpeg";
     if (!ct.startsWith("image/")) return null;
@@ -747,22 +756,13 @@ export async function persistPrimaryImage(
     // Continue without name — validation still works
   }
 
-  const validation = await validateImage(imageUrl, restaurantName);
+  const validation = await validateImage(imageUrl, restaurantName, fetched);
   if (!validation.approved) {
     console.log(
       `[image-validation] Rejected image for restaurant ${restaurantId}: ${validation.reason} — ${validation.notes}`,
     );
-    // Store validation result for admin review
-    await supabase.from("restaurant_images").insert({
-      restaurant_id: restaurantId,
-      source_url: imageUrl,
-      image_url: imageUrl,
-      image_type: "other",
-      quality_score: 0,
-      is_primary: false,
-      validation_score: validation.score,
-      validation_reason: validation.reason,
-    });
+    // Do not persist an unverified remote URL. In particular, never disturb a
+    // user-selected or previously validated primary image.
     return;
   }
 
