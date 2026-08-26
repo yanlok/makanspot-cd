@@ -10,7 +10,6 @@ import '../models/admin_models.dart';
 import 'widgets/admin_form_widgets.dart';
 import 'widgets/admin_page_header.dart';
 import 'widgets/admin_skeletons.dart';
-import 'widgets/admin_status_badge.dart';
 
 class RestaurantInformationScreen extends ConsumerWidget {
   const RestaurantInformationScreen({required this.restaurantId, super.key});
@@ -106,10 +105,6 @@ class _RestaurantInformationCard extends StatelessWidget {
                         color: AppColors.mutedForeground,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    AdminStatusBadge(
-                      label: restaurant.isApproved ? 'Approved' : 'Pending',
-                    ),
                   ],
                 ),
               ),
@@ -148,11 +143,6 @@ class _RestaurantInformationCard extends StatelessWidget {
             icon: LucideIcons.phone,
             label: 'Phone',
             value: _orNotProvided(restaurant.phone),
-          ),
-          _InformationRow(
-            icon: LucideIcons.badgeCheck,
-            label: 'Status',
-            value: restaurant.isApproved ? 'Approved' : 'Pending',
             last: true,
           ),
         ],

@@ -222,6 +222,10 @@ class _LoadingBar extends StatelessWidget {
               strokeWidth: 2,
               color: AppColors.primary,
             ),
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: AppColors.primary,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -289,6 +293,10 @@ class _ScanControls extends StatelessWidget {
                   horizontal: 10,
                   vertical: 4,
                 ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: AppColors.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
@@ -331,6 +339,10 @@ class _ScanControls extends StatelessWidget {
                   fontSize: 11,
                   color: AppColors.mutedForeground,
                 ),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: AppColors.mutedForeground,
+                ),
               ),
               Text(
                 '~\$${_costPerResult.toStringAsFixed(3)} × $resultLimit = \$${estimatedCost.toStringAsFixed(3)}',
@@ -342,6 +354,10 @@ class _ScanControls extends StatelessWidget {
               ),
               Text(
                 '20',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: AppColors.mutedForeground,
+                ),
                 style: TextStyle(
                   fontSize: 11,
                   color: AppColors.mutedForeground,
@@ -406,6 +422,10 @@ class _ScanProgress extends StatelessWidget {
               const SizedBox(
                 width: 20,
                 height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.primary,
+                ),
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
                   color: AppColors.primary,
@@ -479,6 +499,11 @@ class _ProgressSteps extends StatelessWidget {
                 isComplete: isComplete,
                 isCurrent: isCurrent,
               ),
+              _StepIcon(
+                icon: icon,
+                isComplete: isComplete,
+                isCurrent: isCurrent,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -492,6 +517,8 @@ class _ProgressSteps extends StatelessWidget {
                         : isCurrent
                         ? AppColors.foreground
                         : AppColors.mutedForeground,
+                        ? AppColors.foreground
+                        : AppColors.mutedForeground,
                   ),
                 ),
               ),
@@ -501,10 +528,19 @@ class _ProgressSteps extends StatelessWidget {
                   size: 14,
                   color: AppColors.success,
                 )
+                const Icon(
+                  LucideIcons.check,
+                  size: 14,
+                  color: AppColors.success,
+                )
               else if (isCurrent)
                 const SizedBox(
                   width: 14,
                   height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppColors.primary,
+                  ),
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
                     color: AppColors.primary,
@@ -536,6 +572,8 @@ class _StepIcon extends StatelessWidget {
         : isCurrent
         ? AppColors.primary
         : AppColors.mutedForeground;
+        ? AppColors.primary
+        : AppColors.mutedForeground;
 
     return Container(
       width: 28,
@@ -544,6 +582,8 @@ class _StepIcon extends StatelessWidget {
         color: isComplete
             ? AppColors.success.withValues(alpha: 0.1)
             : isCurrent
+            ? AppColors.primary.withValues(alpha: 0.1)
+            : AppColors.secondary.withValues(alpha: 0.5),
             ? AppColors.primary.withValues(alpha: 0.1)
             : AppColors.secondary.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(7),
@@ -588,6 +628,11 @@ class _ResultsCard extends StatelessWidget {
                   size: 18,
                   color: AppColors.success,
                 ),
+                child: const Icon(
+                  LucideIcons.checkCircle,
+                  size: 18,
+                  color: AppColors.success,
+                ),
               ),
               const SizedBox(width: 12),
               Text(
@@ -602,7 +647,17 @@ class _ResultsCard extends StatelessWidget {
             value: '${result.postsReceived}',
             color: AppColors.primary,
           ),
+          _ResultRow(
+            label: 'Posts received',
+            value: '${result.postsReceived}',
+            color: AppColors.primary,
+          ),
           const SizedBox(height: 8),
+          _ResultRow(
+            label: 'New restaurants',
+            value: '${result.newRestaurants}',
+            color: AppColors.success,
+          ),
           _ResultRow(
             label: 'New restaurants',
             value: '${result.newRestaurants}',
@@ -614,10 +669,17 @@ class _ResultsCard extends StatelessWidget {
             value: '\$${result.costUsd.toStringAsFixed(3)}',
             color: AppColors.accent,
           ),
+          _ResultRow(
+            label: 'Cost',
+            value: '\$${result.costUsd.toStringAsFixed(3)}',
+            color: AppColors.accent,
+          ),
           if (result.newRestaurants > 0) ...[
             const SizedBox(height: 8),
             _ResultRow(
               label: 'Cost per restaurant',
+              value:
+                  '\$${(result.costUsd / result.newRestaurants).toStringAsFixed(3)}',
               value:
                   '\$${(result.costUsd / result.newRestaurants).toStringAsFixed(3)}',
               color: AppColors.success,
@@ -635,6 +697,11 @@ class _ResultRow extends StatelessWidget {
     required this.value,
     required this.color,
   });
+  const _ResultRow({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
 
   final String label;
   final String value;
@@ -647,6 +714,9 @@ class _ResultRow extends StatelessWidget {
       children: [
         Text(
           label,
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(color: AppColors.mutedForeground),
           style: Theme.of(
             context,
           ).textTheme.bodyMedium?.copyWith(color: AppColors.mutedForeground),
@@ -681,12 +751,19 @@ class _CostKpiCard extends StatelessWidget {
     required this.totalCostUsd,
     required this.totalRestaurants,
   });
+  const _CostKpiCard({
+    required this.totalCostUsd,
+    required this.totalRestaurants,
+  });
 
   final double totalCostUsd;
   final int totalRestaurants;
 
   @override
   Widget build(BuildContext context) {
+    final costPerRestaurant = totalRestaurants > 0
+        ? totalCostUsd / totalRestaurants
+        : 0.0;
     final costPerRestaurant = totalRestaurants > 0
         ? totalCostUsd / totalRestaurants
         : 0.0;
@@ -706,6 +783,11 @@ class _CostKpiCard extends StatelessWidget {
             decoration: BoxDecoration(
               color: AppColors.success.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              LucideIcons.trendingDown,
+              size: 20,
+              color: AppColors.success,
             ),
             child: const Icon(
               LucideIcons.trendingDown,
@@ -767,8 +849,20 @@ class _ErrorCard extends StatelessWidget {
             size: 20,
             color: AppColors.destructive,
           ),
+          const Icon(
+            LucideIcons.triangleAlert,
+            size: 20,
+            color: AppColors.destructive,
+          ),
           const SizedBox(width: 12),
           Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppColors.destructive,
+              ),
+            ),
             child: Text(
               message,
               style: const TextStyle(
@@ -818,6 +912,10 @@ class _DiscoverySourcesSectionState extends State<_DiscoverySourcesSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Text(
+          'Discovery Sources',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
         Text(
           'Discovery Sources',
           style: Theme.of(context).textTheme.titleMedium,
@@ -905,6 +1003,8 @@ class _SourceRow extends StatelessWidget {
         : source.status == 'cooldown'
         ? AppColors.accent
         : AppColors.mutedForeground;
+        ? AppColors.accent
+        : AppColors.mutedForeground;
 
     final isAutomation = source.sourceType == 'automation';
 
@@ -917,6 +1017,11 @@ class _SourceRow extends StatelessWidget {
                   color: AppColors.secondary.withValues(alpha: 0.5),
                 ),
               ),
+              border: Border(
+                bottom: BorderSide(
+                  color: AppColors.secondary.withValues(alpha: 0.5),
+                ),
+              ),
             )
           : null,
       child: Row(
@@ -924,6 +1029,10 @@ class _SourceRow extends StatelessWidget {
           Container(
             width: 8,
             height: 8,
+            decoration: BoxDecoration(
+              color: statusColor,
+              shape: BoxShape.circle,
+            ),
             decoration: BoxDecoration(
               color: statusColor,
               shape: BoxShape.circle,
@@ -1071,6 +1180,14 @@ class _RecentRunsSection extends StatelessWidget {
                 child: _RunCard(run: run),
               ),
             ),
+        ...runs
+            .take(5)
+            .map(
+              (run) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _RunCard(run: run),
+              ),
+            ),
       ],
     );
   }
@@ -1135,6 +1252,10 @@ class _RunCard extends StatelessWidget {
           Container(
             width: 8,
             height: 8,
+            decoration: BoxDecoration(
+              color: statusColor,
+              shape: BoxShape.circle,
+            ),
             decoration: BoxDecoration(
               color: statusColor,
               shape: BoxShape.circle,

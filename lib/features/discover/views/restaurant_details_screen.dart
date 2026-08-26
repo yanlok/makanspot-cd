@@ -6,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:makanspot/core/theme/app_theme.dart';
 import 'package:makanspot/shared/widgets/makan_network_image.dart';
 
+import '../controllers/discover_controller.dart';
 import '../controllers/restaurant_details_controller.dart';
 import '../controllers/restaurant_details_state.dart';
 import '../models/discover_restaurant.dart';
@@ -40,6 +41,15 @@ class RestaurantDetailsScreen extends ConsumerWidget {
       ),
       RestaurantDetailsStatus.content => _DetailsContent(
         state: state,
+        isSaved: ref.watch(savedRestaurantIdsProvider).contains(restaurantId),
+        onToggleSave: () {
+          final savedIds = Set<String>.of(ref.read(savedRestaurantIdsProvider));
+          if (!savedIds.add(restaurantId)) {
+            savedIds.remove(restaurantId);
+          }
+          ref.read(savedRestaurantIdsProvider.notifier).state =
+              Set.unmodifiable(savedIds);
+        },
         onBack: () {
           if (context.canPop()) {
             context.pop();
@@ -66,6 +76,8 @@ class RestaurantDetailsScreen extends ConsumerWidget {
 class _DetailsContent extends StatelessWidget {
   const _DetailsContent({
     required this.state,
+    required this.isSaved,
+    required this.onToggleSave,
     required this.onBack,
     required this.onOpenMaps,
     required this.onWriteReview,
@@ -74,6 +86,8 @@ class _DetailsContent extends StatelessWidget {
   });
 
   final RestaurantDetailsState state;
+  final bool isSaved;
+  final VoidCallback onToggleSave;
   final VoidCallback onBack;
   final VoidCallback onOpenMaps;
   final VoidCallback onWriteReview;
@@ -93,9 +107,31 @@ class _DetailsContent extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
           sliver: SliverList.list(
             children: [
-              Text(
-                restaurant.name,
-                style: Theme.of(context).textTheme.headlineSmall,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      restaurant.name,
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                  ),
+                  IconButton(
+                    key: const Key('restaurant-details-save'),
+                    onPressed: onToggleSave,
+                    tooltip: isSaved
+                        ? 'Remove from saved restaurants'
+                        : 'Save restaurant',
+                    icon: Icon(
+                      isSaved
+                          ? LucideIcons.bookmarkCheck
+                          : LucideIcons.bookmark,
+                      color: isSaved
+                          ? AppColors.primary
+                          : AppColors.secondaryForeground,
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 2),
               Text(

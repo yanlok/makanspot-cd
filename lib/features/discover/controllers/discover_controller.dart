@@ -3,10 +3,26 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/discover_repository.dart';
 import '../models/discover_restaurant.dart';
 import '../models/fixture_discover_repository.dart';
+import '../models/supabase_discover_repository.dart';
 import 'discover_state.dart';
 
+import 'package:makanspot/core/config/supabase_config.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+final savedRestaurantIdsProvider = StateProvider<Set<String>>((ref) {
+  return const {};
+});
+
 final discoverRepositoryProvider = Provider<DiscoverRepository>((ref) {
-  return const FixtureDiscoverRepository();
+  if (!SupabaseConfig.isConfigured) {
+    return const FixtureDiscoverRepository();
+  }
+  try {
+    return SupabaseDiscoverRepository(Supabase.instance.client);
+  } on StateError {
+    // Keeps previews and tests usable when main() has not initialized Supabase.
+    return const FixtureDiscoverRepository();
+  }
 });
 
 final discoverControllerProvider = StateNotifierProvider.autoDispose
@@ -14,16 +30,27 @@ final discoverControllerProvider = StateNotifierProvider.autoDispose
       final controller = DiscoverController(
         ref.watch(discoverRepositoryProvider),
         args,
+        ref.read(savedRestaurantIdsProvider),
+        (ids) => ref.read(savedRestaurantIdsProvider.notifier).state = ids,
       );
       controller.load();
       return controller;
     });
 
 class DiscoverController extends StateNotifier<DiscoverState> {
-  DiscoverController(this._repository, DiscoverArguments arguments)
-    : super(DiscoverState.loading(arguments));
+  DiscoverController(
+    this._repository,
+    DiscoverArguments arguments,
+    Set<String> initialBookmarks,
+    this._onBookmarksChanged,
+  ) : super(
+        DiscoverState.loading(
+          arguments,
+        ).copyWith(bookmarkedIds: Set.unmodifiable(initialBookmarks)),
+      );
 
   final DiscoverRepository _repository;
+  final void Function(Set<String>) _onBookmarksChanged;
   List<DiscoverRestaurant> _allRestaurants = const [];
 
   Future<void> load() async {
@@ -85,6 +112,7 @@ class DiscoverController extends StateNotifier<DiscoverState> {
       bookmarks.remove(id);
     }
     state = state.copyWith(bookmarkedIds: Set.unmodifiable(bookmarks));
+    _onBookmarksChanged(Set.unmodifiable(bookmarks));
   }
 
   void _applyFilters() {
@@ -121,6 +149,7 @@ class DiscoverController extends StateNotifier<DiscoverState> {
     }
     for (final filter in state.selectedFilters) {
       final matches = switch (filter) {
+        'Saved' => state.bookmarkedIds.contains(restaurant.id),
         'Hidden Gems' => restaurant.isHiddenGem,
         'Open Now' => restaurant.labels.contains('Open Now'),
         'Budget' => restaurant.budget == 'Low',

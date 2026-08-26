@@ -10,7 +10,6 @@ import '../models/admin_models.dart';
 import 'widgets/admin_confirm_dialog.dart';
 import 'widgets/admin_form_widgets.dart';
 import 'widgets/admin_skeletons.dart';
-import 'widgets/admin_status_badge.dart';
 
 const _categories = <String>[
   'Malay',
@@ -52,7 +51,6 @@ class _RestaurantDetailsScreenState
 
   final Set<String> _selectedCategories = {};
   String _priceRange = _priceRanges.first;
-  bool _isApproved = false;
   String _imageUrl = '';
   bool _uploading = false;
   bool _seeded = false;
@@ -101,7 +99,6 @@ class _RestaurantDetailsScreenState
         : _priceRanges.first;
     _descriptionController.text = restaurant.description ?? '';
     _imageUrl = restaurant.imageUrl;
-    _isApproved = restaurant.isApproved;
     _latitudeController.text = restaurant.latitude?.toString() ?? '';
     _longitudeController.text = restaurant.longitude?.toString() ?? '';
     _seeded = true;
@@ -249,7 +246,6 @@ class _RestaurantDetailsScreenState
             _DetailsHeader(
               isCreate: isCreate,
               name: _nameController.text,
-              isApproved: _isApproved,
               imageUrl: _imageUrl,
             ),
             const SizedBox(height: 24),
@@ -270,7 +266,6 @@ class _RestaurantDetailsScreenState
               longitudeController: _longitudeController,
               selectedCategories: _selectedCategories,
               priceRange: _priceRange,
-              isApproved: _isApproved,
               imageUrl: _imageUrl,
               uploading: _uploading,
               onCategoryToggled: (category) => setState(() {
@@ -282,8 +277,6 @@ class _RestaurantDetailsScreenState
               }),
               onPriceRangeChanged: (value) =>
                   setState(() => _priceRange = value),
-              onApprovedChanged: () =>
-                  setState(() => _isApproved = !_isApproved),
               onUpload: _uploadImage,
             ),
             const SizedBox(height: 24),
@@ -370,12 +363,6 @@ class _RestaurantInformationCard extends StatelessWidget {
                 ? 'Not provided'
                 : restaurant.phone!,
           ),
-          _infoRow(
-            context,
-            'Status',
-            restaurant.isApproved ? 'Approved' : 'Pending',
-            isLast: true,
-          ),
         ],
       ),
     );
@@ -419,13 +406,11 @@ class _DetailsHeader extends StatelessWidget {
   const _DetailsHeader({
     required this.isCreate,
     required this.name,
-    required this.isApproved,
     required this.imageUrl,
   });
 
   final bool isCreate;
   final String name;
-  final bool isApproved;
   final String imageUrl;
 
   @override
@@ -468,10 +453,6 @@ class _DetailsHeader extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.titleLarge,
               ),
-              if (!isCreate) ...[
-                const SizedBox(height: 4),
-                AdminStatusBadge(label: isApproved ? 'Approved' : 'Pending'),
-              ],
             ],
           ),
         ),
@@ -494,12 +475,10 @@ class _FormCard extends StatelessWidget {
     required this.longitudeController,
     required this.selectedCategories,
     required this.priceRange,
-    required this.isApproved,
     required this.imageUrl,
     required this.uploading,
     required this.onCategoryToggled,
     required this.onPriceRangeChanged,
-    required this.onApprovedChanged,
     required this.onUpload,
   });
 
@@ -515,12 +494,10 @@ class _FormCard extends StatelessWidget {
   final TextEditingController longitudeController;
   final Set<String> selectedCategories;
   final String priceRange;
-  final bool isApproved;
   final String imageUrl;
   final bool uploading;
   final ValueChanged<String> onCategoryToggled;
   final ValueChanged<String> onPriceRangeChanged;
-  final VoidCallback onApprovedChanged;
   final VoidCallback onUpload;
 
   @override
@@ -634,22 +611,6 @@ class _FormCard extends StatelessWidget {
               value: priceRange,
               options: [for (final p in _priceRanges) (p, p)],
               onChanged: onPriceRangeChanged,
-            ),
-          ),
-          const SizedBox(height: 16),
-          _field(
-            label: 'Approved',
-            child: AdminOutlineButton(
-              label: isApproved ? 'Approved' : 'Not Approved',
-              borderColor: isApproved ? AppColors.success : AppColors.secondary,
-              foregroundColor: isApproved
-                  ? AppColors.success
-                  : AppColors.mutedForeground,
-              backgroundColor: isApproved
-                  ? AppColors.success.withValues(alpha: 0.1)
-                  : AppColors.surface,
-              buttonKey: const Key('admin-restaurant-approved'),
-              onPressed: onApprovedChanged,
             ),
           ),
           const SizedBox(height: 16),

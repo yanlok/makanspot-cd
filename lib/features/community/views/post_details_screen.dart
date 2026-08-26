@@ -10,6 +10,7 @@ import '../controllers/post_details_controller.dart';
 import '../models/community_models.dart';
 import 'widgets/community_empty_state.dart';
 import 'widgets/community_page_header.dart';
+import 'widgets/community_report_dialog.dart';
 
 class PostDetailsScreen extends ConsumerStatefulWidget {
   const PostDetailsScreen({required this.postId, super.key});
@@ -39,14 +40,17 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
     final controller = ref.read(provider.notifier);
     return SafeArea(
       bottom: false,
-      child: Column(
-        children: [
-          CommunityPageHeader(
-            title: 'Post',
-            onBack: () => context.go('/community'),
-          ),
-          Expanded(child: _buildBody(context, state, controller)),
-        ],
+      child: DecoratedBox(
+        decoration: const BoxDecoration(color: AppColors.background),
+        child: Column(
+          children: [
+            CommunityPageHeader(
+              title: 'Post',
+              onBack: () => context.go('/community'),
+            ),
+            Expanded(child: _buildBody(context, state, controller)),
+          ],
+        ),
       ),
     );
   }
@@ -75,17 +79,23 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
         );
       case PostDetailsStatus.content:
         final post = state.post!;
-        final topLevel = state.comments
-            .where((comment) => comment.parentCommentId == null)
-            .toList(growable: false);
+        final topLevel =
+            state.comments
+                .where((comment) => comment.parentCommentId == null)
+                .toList()
+              ..sort(
+                (a, b) => (b.isPinned ? 1 : 0).compareTo(a.isPinned ? 1 : 0),
+              );
         return ListView(
           key: const Key('post-details-scroll'),
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
           children: [
             _DetailedPostCard(
               post: post,
               controller: controller,
               isLikePending: state.isLikePending,
+              onReport: () => _showReportDialog(context, controller),
+              onSave: controller.toggleSave,
             ),
             const SizedBox(height: 16),
             Text(
@@ -124,6 +134,14 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
                       _replyController.clear();
                     });
                   },
+                  onDelete: comment.isOwn
+                      ? () => controller.deleteComment(comment.id)
+                      : null,
+                  onPin: comment.canPin
+                      ? () => controller.togglePinComment(comment)
+                      : null,
+                  onReport: () =>
+                      _showCommentReportDialog(context, controller, comment.id),
                 ),
                 if (_replyingTo == comment.id)
                   Padding(
@@ -146,12 +164,70 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
                 ))
                   Padding(
                     padding: const EdgeInsets.fromLTRB(40, 4, 0, 8),
-                    child: _CommentCard(comment: reply, isReply: true),
+                    child: _CommentCard(
+                      comment: reply,
+                      isReply: true,
+                      onDelete: reply.isOwn
+                          ? () => controller.deleteComment(reply.id)
+                          : null,
+                      onPin: reply.canPin
+                          ? () => controller.togglePinComment(reply)
+                          : null,
+                      onReport: () => _showCommentReportDialog(
+                        context,
+                        controller,
+                        reply.id,
+                      ),
+                    ),
                   ),
                 const SizedBox(height: 8),
               ],
           ],
         );
+    }
+  }
+
+  Future<void> _showReportDialog(
+    BuildContext context,
+    PostDetailsController controller,
+  ) async {
+    final submission = await showCommunityReportDialog(
+      context,
+      contentLabel: 'post',
+    );
+    if (submission != null) {
+      await controller.reportPost(
+        submission.reason,
+        details: submission.details,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Report sent to moderators.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _showCommentReportDialog(
+    BuildContext context,
+    PostDetailsController controller,
+    String commentId,
+  ) async {
+    final submission = await showCommunityReportDialog(
+      context,
+      contentLabel: 'comment',
+    );
+    if (submission != null) {
+      await controller.reportComment(
+        commentId,
+        submission.reason,
+        details: submission.details,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Report sent to moderators.')),
+        );
+      }
     }
   }
 }
@@ -161,11 +237,15 @@ class _DetailedPostCard extends StatelessWidget {
     required this.post,
     required this.controller,
     required this.isLikePending,
+    required this.onReport,
+    required this.onSave,
   });
 
   final CommunityPost post;
   final PostDetailsController controller;
   final bool isLikePending;
+  final VoidCallback onReport;
+  final VoidCallback onSave;
 
   @override
   Widget build(BuildContext context) {
@@ -181,12 +261,13 @@ class _DetailedPostCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.fromLTRB(12, 12, 8, 8),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   ClipOval(
                     child: SizedBox.square(
-                      dimension: 40,
+                      dimension: 44,
                       child: post.userAvatar.isEmpty
                           ? Image.asset('assets/images/default_icon.jpg')
                           : MakanNetworkImage(
@@ -205,34 +286,77 @@ class _DetailedPostCard extends StatelessWidget {
                           post.username,
                           style: Theme.of(context).textTheme.titleSmall,
                         ),
+                        const SizedBox(height: 2),
                         Text(
                           post.profileTitle,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: AppColors.mutedForeground),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _relativeTimeLabel(post.createdAt),
                           style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(color: AppColors.mutedForeground),
                         ),
                       ],
                     ),
                   ),
-                  IconButton(
+                  IconButton.filledTonal(
                     tooltip: 'Report post',
-                    onPressed: () {},
-                    icon: const Icon(LucideIcons.ellipsis, size: 20),
+                    onPressed: onReport,
+                    icon: const Icon(LucideIcons.ellipsis, size: 18),
                   ),
                 ],
               ),
             ),
-            TextButton.icon(
-              onPressed: () => context.push('/restaurant/${post.restaurantId}'),
-              icon: const Icon(LucideIcons.utensils, size: 16),
-              label: Text(post.restaurantName),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              child: InkWell(
+                onTap: () => context.push('/restaurant/${post.restaurantId}'),
+                borderRadius: BorderRadius.circular(AppRadii.control),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(AppRadii.control),
+                    border: Border.all(color: AppColors.secondary),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        LucideIcons.utensils,
+                        size: 16,
+                        color: AppColors.secondaryForeground,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          post.restaurantName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.labelLarge,
+                        ),
+                      ),
+                      const Icon(
+                        LucideIcons.chevronRight,
+                        size: 16,
+                        color: AppColors.mutedForeground,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
             if (post.rating > 0)
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
                 child: _RatingRow(rating: post.rating),
               ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
               child: Text(
                 post.reviewText,
                 style: Theme.of(
@@ -246,7 +370,7 @@ class _DetailedPostCard extends StatelessWidget {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(AppRadii.control),
                   child: SizedBox(
-                    height: 160,
+                    height: 220,
                     width: double.infinity,
                     child: _isVideoUrl(post.mediaUrls.first)
                         ? Container(
@@ -269,29 +393,61 @@ class _DetailedPostCard extends StatelessWidget {
               ),
             const Divider(height: 1),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
               child: Row(
                 children: [
                   TextButton.icon(
                     key: const Key('details-like'),
                     onPressed: isLikePending ? null : controller.toggleLike,
                     icon: Icon(
-                      LucideIcons.heart,
-                      size: 20,
+                      post.isLiked ? Icons.favorite : LucideIcons.heart,
+                      size: 19,
                       color: post.isLiked
                           ? AppColors.destructive
                           : AppColors.mutedForeground,
                     ),
-                    label: Text('${post.likes}'),
+                    label: Text(
+                      '${post.likes} likes',
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.fade,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                   ),
                   TextButton.icon(
                     onPressed: () {},
                     icon: const Icon(
                       LucideIcons.messageCircle,
-                      size: 20,
+                      size: 19,
                       color: AppColors.mutedForeground,
                     ),
-                    label: Text('${post.commentCount}'),
+                    label: Text(
+                      '${post.commentCount} comments',
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.fade,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton.icon(
+                    onPressed: onSave,
+                    icon: Icon(
+                      post.isSaved
+                          ? LucideIcons.bookmarkCheck
+                          : LucideIcons.bookmark,
+                      color: post.isSaved
+                          ? AppColors.primary
+                          : AppColors.mutedForeground,
+                      size: 19,
+                    ),
+                    label: Text(
+                      post.isSaved ? 'Saved' : 'Save',
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.fade,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                   ),
                 ],
               ),
@@ -309,6 +465,18 @@ bool _isVideoUrl(String url) {
       path.endsWith('.mov') ||
       path.endsWith('.m4v') ||
       path.endsWith('.webm');
+}
+
+String _relativeTimeLabel(DateTime value) {
+  final now = DateTime.now();
+  final diff = now.difference(value);
+  if (diff.inMinutes < 1) return 'Just now';
+  if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+  if (diff.inDays < 1) return '${diff.inHours}h ago';
+  if (diff.inDays < 7) return '${diff.inDays}d ago';
+  final weeks = (diff.inDays / 7).floor();
+  if (weeks < 5) return '${weeks}w ago';
+  return '${value.day}/${value.month}/${value.year}';
 }
 
 class _RatingRow extends StatelessWidget {
@@ -392,12 +560,18 @@ class _CommentCard extends StatelessWidget {
     this.isReplying = false,
     this.isReply = false,
     this.onReply,
+    this.onDelete,
+    this.onPin,
+    required this.onReport,
   });
 
   final CommunityComment comment;
   final bool isReplying;
   final bool isReply;
   final VoidCallback? onReply;
+  final VoidCallback? onDelete;
+  final VoidCallback? onPin;
+  final VoidCallback onReport;
 
   @override
   Widget build(BuildContext context) {
@@ -446,9 +620,54 @@ class _CommentCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      comment.username,
-                      style: Theme.of(context).textTheme.labelMedium,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            comment.username,
+                            style: Theme.of(context).textTheme.labelMedium,
+                          ),
+                        ),
+                        if (comment.isPinned)
+                          const Icon(
+                            LucideIcons.pin,
+                            size: 14,
+                            color: AppColors.primary,
+                          ),
+                        PopupMenuButton<String>(
+                          tooltip: 'Comment actions',
+                          onSelected: (action) {
+                            switch (action) {
+                              case 'report':
+                                onReport();
+                              case 'delete':
+                                onDelete?.call();
+                              case 'pin':
+                                onPin?.call();
+                            }
+                          },
+                          itemBuilder: (context) => [
+                            const PopupMenuItem(
+                              value: 'report',
+                              child: Text('Report comment'),
+                            ),
+                            if (onPin != null)
+                              PopupMenuItem(
+                                value: 'pin',
+                                child: Text(
+                                  comment.isPinned
+                                      ? 'Unpin comment'
+                                      : 'Pin comment',
+                                ),
+                              ),
+                            if (onDelete != null)
+                              const PopupMenuItem(
+                                value: 'delete',
+                                child: Text('Delete comment'),
+                              ),
+                          ],
+                        ),
+                      ],
                     ),
                     Text(comment.text),
                   ],

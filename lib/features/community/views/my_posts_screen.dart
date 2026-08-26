@@ -90,6 +90,7 @@ class MyPostsScreen extends ConsumerWidget {
                               '/restaurant/${post.restaurantId}',
                             ),
                             onLike: () {},
+                            onSave: () => controller.toggleSave(post.id),
                           ),
                           const SizedBox(height: 8),
                           Row(
