@@ -32,7 +32,7 @@ import 'package:makanspot/features/discover/views/discover_screen.dart';
 import 'package:makanspot/features/discover/views/restaurant_details_screen.dart';
 import 'package:makanspot/features/discover/views/saved_restaurant_screen.dart';
 import 'package:makanspot/features/home/views/home_screen.dart';
-import 'package:makanspot/features/journey/views/achievements_screen.dart';
+import 'package:makanspot/features/journey/views/achievements_progress_screen.dart';
 import 'package:makanspot/features/journey/views/exploration_map_screen.dart';
 import 'package:makanspot/features/journey/views/journey_screen.dart';
 import 'package:makanspot/features/journey/views/visit_history_screen.dart';
@@ -175,7 +175,7 @@ GoRouter createAppRouter({
           ),
           GoRoute(
             path: '/achievements',
-            builder: (context, state) => const AchievementsScreen(),
+            builder: (context, state) => const AchievementsProgressScreen(),
           ),
           GoRoute(
             path: AppRoutes.profile,

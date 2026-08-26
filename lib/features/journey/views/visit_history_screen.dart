@@ -24,13 +24,67 @@ class VisitHistoryScreen extends ConsumerWidget {
           JourneyPageHeader(
             title: 'Visit History',
             onBack: context.pop,
-            bottom: TextField(
-              key: const Key('visit-search'),
-              onChanged: controller.updateVisitSearch,
-              decoration: const InputDecoration(
-                hintText: 'Search your visits...',
-                prefixIcon: Icon(LucideIcons.search, size: 19),
-              ),
+            bottom: Column(
+              children: [
+                TextField(
+                  key: const Key('visit-search'),
+                  onChanged: controller.updateVisitSearch,
+                  decoration: const InputDecoration(
+                    hintText: 'Search your visits...',
+                    prefixIcon: Icon(LucideIcons.search, size: 19),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _VisitFilterMenu<JourneyVisitPeriod>(
+                        value: state.visitPeriod,
+                        label: _periodLabel(state.visitPeriod),
+                        items: const [
+                          PopupMenuItem(
+                            value: JourneyVisitPeriod.allTime,
+                            child: Text('All time'),
+                          ),
+                          PopupMenuItem(
+                            value: JourneyVisitPeriod.last30Days,
+                            child: Text('Last 30 days'),
+                          ),
+                          PopupMenuItem(
+                            value: JourneyVisitPeriod.last12Months,
+                            child: Text('Last 12 months'),
+                          ),
+                          PopupMenuItem(
+                            value: JourneyVisitPeriod.yearToDate,
+                            child: Text('Year to date'),
+                          ),
+                        ],
+                        onSelected: controller.updateVisitPeriod,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _VisitFilterMenu<JourneyActivityFilter>(
+                        value: state.activityFilter,
+                        label: state.activityFilter == JourneyActivityFilter.all
+                            ? 'All activity'
+                            : 'Reviews only',
+                        items: const [
+                          PopupMenuItem(
+                            value: JourneyActivityFilter.all,
+                            child: Text('All activity'),
+                          ),
+                          PopupMenuItem(
+                            value: JourneyActivityFilter.reviews,
+                            child: Text('Reviews only'),
+                          ),
+                        ],
+                        onSelected: controller.updateActivityFilter,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
           Expanded(child: _body(context, state, controller)),
@@ -87,6 +141,43 @@ class VisitHistoryScreen extends ConsumerWidget {
           _VisitCard(visit: state.filteredVisits[index]),
     );
   }
+}
+
+class _VisitFilterMenu<T> extends StatelessWidget {
+  const _VisitFilterMenu({
+    required this.value,
+    required this.label,
+    required this.items,
+    required this.onSelected,
+  });
+
+  final T value;
+  final String label;
+  final List<PopupMenuEntry<T>> items;
+  final ValueChanged<T> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<T>(
+      initialValue: value,
+      onSelected: onSelected,
+      itemBuilder: (_) => items,
+      child: OutlinedButton.icon(
+        onPressed: null,
+        icon: const Icon(LucideIcons.listFilter, size: 16),
+        label: Text(label, overflow: TextOverflow.ellipsis),
+      ),
+    );
+  }
+}
+
+String _periodLabel(JourneyVisitPeriod period) {
+  return switch (period) {
+    JourneyVisitPeriod.allTime => 'All time',
+    JourneyVisitPeriod.last30Days => 'Last 30 days',
+    JourneyVisitPeriod.last12Months => 'Last 12 months',
+    JourneyVisitPeriod.yearToDate => 'Year to date',
+  };
 }
 
 class _VisitCard extends StatelessWidget {
