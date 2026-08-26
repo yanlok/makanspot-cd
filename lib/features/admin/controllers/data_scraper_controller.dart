@@ -1,0 +1,433 @@
+import 'dart:async';
+import 'dart:developer' as developer;
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../models/data_scraper_models.dart';
+
+// ---------------------------------------------------------------------------
+// Controller
+// ---------------------------------------------------------------------------
+
+class V2DataScraperController extends StateNotifier<V2PipelineState> {
+  V2DataScraperController()
+    : super(const V2PipelineState(status: V2PipelineStatus.idle)) {
+    _init();
+  }
+
+  final _supabase = Supabase.instance.client;
+  Timer? _pollTimer;
+  bool _isDisposed = false;
+
+  @override
+  void dispose() {
+    _isDisposed = true;
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  void _updateState(V2PipelineState Function(V2PipelineState) update) {
+    if (_isDisposed) return;
+    state = update(state);
+  }
+
+  static const _persistedKey = 'v2_data_scraper_last_scan';
+  static const _persistedJobId = 'v2_active_job_id';
+  static const _persistedRunId = 'v2_active_run_id';
+
+  Future<void> _loadPersistedResult() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_persistedKey);
+      if (raw != null) {
+        final timestamp = DateTime.parse(raw);
+        _updateState((s) => s.copyWith(persistedScanTime: timestamp));
+      }
+    } catch (e) {
+      developer.log('Failed to load persisted v2 scan: $e', name: 'V2Scraper');
+    }
+  }
+
+  Future<void> _persistLastScan() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _persistedKey,
+        DateTime.now().toUtc().toIso8601String(),
+      );
+    } catch (e) {
+      developer.log('Failed to persist v2 scan: $e', name: 'V2Scraper');
+    }
+  }
+
+  Future<void> _persistActiveJob(String jobId, String runId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_persistedJobId, jobId);
+      await prefs.setString(_persistedRunId, runId);
+    } catch (e) {
+      developer.log('Failed to persist active job: $e', name: 'V2Scraper');
+    }
+  }
+
+  Future<void> _clearActiveJob() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_persistedJobId);
+      await prefs.remove(_persistedRunId);
+    } catch (e) {
+      developer.log('Failed to clear active job: $e', name: 'V2Scraper');
+    }
+  }
+
+  Future<(String?, String?)> _loadActiveJob() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return (
+        prefs.getString(_persistedJobId),
+        prefs.getString(_persistedRunId),
+      );
+    } catch (e) {
+      return (null, null);
+    }
+  }
+
+  Future<void> _init() async {
+    _updateState((s) => s.copyWith(initMessage: 'Loading v2 stats...'));
+    await _loadStats();
+    if (!_isDisposed) await _loadPersistedResult();
+
+    // Resume any persisted active job
+    final (persistedJobId, persistedRunId) = await _loadActiveJob();
+    if (!_isDisposed && persistedRunId != null) {
+      _updateState(
+        (s) => s.copyWith(
+          status: V2PipelineStatus.processing,
+          currentStep: V2PipelineStep.ingest,
+          stepMessage: 'Reconnecting to active scan...',
+          activeJobId: persistedJobId,
+          activeRunId: persistedRunId,
+        ),
+      );
+      _startPolling(persistedRunId, jobId: persistedJobId);
+    } else if (!_isDisposed) {
+      await _checkForActiveRuns();
+    }
+
+    if (!_isDisposed && state.status == V2PipelineStatus.idle) {
+      _updateState((s) => s.copyWith(initMessage: ''));
+    }
+  }
+
+  /// Load aggregate stats from v2 tables.
+  Future<void> _loadStats() async {
+    try {
+      final restaurantCount = await _supabase
+          .from('restaurants')
+          .select('id')
+          .count();
+      final postCount = await _supabase
+          .from('scraped_posts')
+          .select('id')
+          .count();
+      final costRows = await _supabase
+          .from('scrape_runs')
+          .select('cost_usd')
+          .eq('status', 'completed');
+      final sources = await _supabase
+          .from('discovery_sources')
+          .select()
+          .order('priority_score', ascending: false)
+          .limit(20);
+      final runs = await _supabase
+          .from('scrape_runs')
+          .select()
+          .order('created_at', ascending: false)
+          .limit(10);
+
+      double totalCost = 0;
+      for (final row in costRows) {
+        totalCost += (row['cost_usd'] as num?)?.toDouble() ?? 0;
+      }
+
+      final discoverySources = sources
+          .map((m) => V2DiscoverySourceSummary.fromMap(m))
+          .toList();
+
+      final recentRuns = runs
+          .map((m) => V2ScrapeRunSummary.fromMap(m))
+          .toList();
+
+      _updateState(
+        (s) => s.copyWith(
+          totalRestaurants: restaurantCount.count,
+          totalPosts: postCount.count,
+          totalCostUsd: totalCost,
+          discoverySources: discoverySources,
+          recentRuns: recentRuns,
+        ),
+      );
+    } catch (e) {
+      developer.log('Failed to load v2 stats: $e', name: 'V2Scraper');
+    }
+  }
+
+  /// Check for active v2 scrape runs.
+  Future<void> _checkForActiveRuns() async {
+    try {
+      final resp = await _supabase.functions.invoke(
+        'pipeline-status',
+        body: {},
+      );
+      final data = resp.data as Map<String, dynamic>?;
+      if (data == null) return;
+
+      final activeRun = data['active_run'] as Map<String, dynamic>?;
+      if (activeRun != null && activeRun['status'] == 'running') {
+        final runId = activeRun['id'] as String;
+        _updateState(
+          (s) => s.copyWith(
+            status: V2PipelineStatus.processing,
+            currentStep: V2PipelineStep.ingest,
+            stepMessage: 'Reconnecting to active v2 scan...',
+            activeRunId: runId,
+          ),
+        );
+        _startPolling(runId);
+      }
+    } catch (e) {
+      developer.log('Failed to check active v2 runs: $e', name: 'V2Scraper');
+    }
+  }
+
+  /// Set the result limit for the next scan.
+  void setResultLimit(int limit) {
+    _updateState((s) => s.copyWith(resultLimit: limit.clamp(1, 20)));
+  }
+
+  /// Start a new v2 pipeline scan.
+  Future<void> startScan() async {
+    if (state.status == V2PipelineStatus.scanning ||
+        state.status == V2PipelineStatus.processing) {
+      return;
+    }
+
+    _updateState(
+      (s) => s.copyWith(
+        status: V2PipelineStatus.scanning,
+        currentStep: V2PipelineStep.scrape,
+        stepMessage: 'Starting v2 pipeline...',
+        error: null,
+        result: null,
+        activeRunId: null,
+      ),
+    );
+
+    try {
+      final triggerResp = await _supabase.functions.invoke(
+        'trigger-pipeline',
+        body: {'result_limit': state.resultLimit},
+      );
+
+      final data = triggerResp.data as Map<String, dynamic>?;
+      final jobId = data?['job_id'] as String?;
+      final runId = data?['run_id'] as String?;
+
+      if (runId == null) {
+        final errorMsg = data?['error'] as String? ?? 'No run ID returned';
+        throw Exception(errorMsg);
+      }
+
+      _updateState((s) => s.copyWith(activeJobId: jobId, activeRunId: runId));
+      await _persistActiveJob(jobId ?? '', runId);
+
+      if (!_isDisposed) {
+        _startPolling(runId, jobId: jobId);
+      }
+    } on FunctionException catch (e) {
+      String message = 'Scan could not start.';
+      if (e.status == 409) {
+        final details = e.details;
+        if (details is Map) {
+          message =
+              (details as Map<String, dynamic>)['message'] as String? ??
+              message;
+        }
+      }
+      _updateState(
+        (s) => s.copyWith(status: V2PipelineStatus.error, error: message),
+      );
+    } catch (e) {
+      _updateState(
+        (s) => s.copyWith(status: V2PipelineStatus.error, error: e.toString()),
+      );
+    }
+  }
+
+  void _startPolling(String runId, {String? jobId, int attempt = 0}) {
+    _pollTimer?.cancel();
+    const maxAttempts = 180;
+
+    _pollTimer = Timer(const Duration(seconds: 5), () async {
+      if (_isDisposed) return;
+
+      final nextAttempt = attempt + 1;
+      if (nextAttempt >= maxAttempts) {
+        await _clearActiveJob();
+        _updateState(
+          (s) => s.copyWith(
+            status: V2PipelineStatus.error,
+            error: 'Scan timed out after 15 minutes',
+            activeRunId: null,
+            activeJobId: null,
+          ),
+        );
+        return;
+      }
+
+      final result = await _checkRunStatus(runId);
+      if (result != null) {
+        await _clearActiveJob();
+        _handleCompletion(result);
+        return;
+      }
+
+      if (!_isDisposed) {
+        _startPolling(runId, jobId: jobId, attempt: nextAttempt);
+      }
+    });
+  }
+
+  Future<Map<String, dynamic>?> _checkRunStatus(String runId) async {
+    try {
+      final resp = await _supabase.functions.invoke(
+        'pipeline-status',
+        body: {'run_id': runId},
+      );
+
+      final data = resp.data as Map<String, dynamic>?;
+      if (data == null) return null;
+
+      // Use specific_run when available (direct match by run_id)
+      final specificRun = data['specific_run'] as Map<String, dynamic>?;
+      if (specificRun != null) {
+        final runStatus = specificRun['status'] as String? ?? 'running';
+        if (runStatus == 'completed' || runStatus == 'failed') {
+          return {
+            'status': runStatus,
+            'posts_received': specificRun['posts_received'],
+            'new_posts': specificRun['new_posts'],
+            'new_restaurants': specificRun['new_restaurants'],
+            'cost_usd': specificRun['cost_usd'],
+            'error': specificRun['error'],
+          };
+        }
+
+        // Still running — update progress from stats
+        final stats = data['stats'] as Map<String, dynamic>?;
+        if (stats != null) {
+          final step = _inferStep(specificRun);
+          _updateState(
+            (s) => s.copyWith(
+              currentStep: step,
+              stepMessage: _stepMessage(step, stats),
+            ),
+          );
+        }
+        return null;
+      }
+
+      return null;
+    } catch (e) {
+      developer.log('v2 status check failed: $e', name: 'V2Scraper');
+      return null;
+    }
+  }
+
+  V2PipelineStep _inferStep(Map<String, dynamic> run) {
+    final status = run['status'] as String? ?? 'running';
+    if (status == 'completed' || status == 'failed') {
+      return V2PipelineStep.metrics;
+    }
+
+    final posts = run['posts_received'] as int? ?? 0;
+    final restaurants = run['new_restaurants'] as int? ?? 0;
+
+    if (posts == 0) return V2PipelineStep.scrape;
+    if (restaurants == 0) return V2PipelineStep.detect;
+    return V2PipelineStep.enrich;
+  }
+
+  String _stepMessage(V2PipelineStep step, Map<String, dynamic> stats) {
+    final posts = stats['total_posts'] as int? ?? 0;
+    final pending = stats['pending'] as int? ?? 0;
+    final promoted = stats['promoted'] as int? ?? 0;
+    final restaurants = stats['total_restaurants'] as int? ?? 0;
+
+    switch (step) {
+      case V2PipelineStep.scrape:
+        return 'Scraping Instagram...';
+      case V2PipelineStep.ingest:
+        return 'Ingesting posts... ($posts total)';
+      case V2PipelineStep.detect:
+        return 'Detecting restaurants... ($pending pending)';
+      case V2PipelineStep.resolve:
+        return 'Resolving candidates...';
+      case V2PipelineStep.enrich:
+        return 'Enriching restaurants... ($promoted promoted)';
+      case V2PipelineStep.metrics:
+        return 'Updating metrics... ($restaurants restaurants)';
+    }
+  }
+
+  void _handleCompletion(Map<String, dynamic> statusData) {
+    final runStatus = statusData['status'] as String? ?? 'completed';
+
+    if (runStatus == 'failed') {
+      _updateState(
+        (s) => s.copyWith(
+          status: V2PipelineStatus.error,
+          error: statusData['error'] as String? ?? 'Scan failed',
+          activeRunId: null,
+          activeJobId: null,
+        ),
+      );
+      return;
+    }
+
+    final scanResult = V2ScanResult(
+      postsReceived: statusData['posts_received'] as int? ?? 0,
+      newPosts: statusData['new_posts'] as int? ?? 0,
+      restaurantCandidates: 0,
+      newRestaurants: statusData['new_restaurants'] as int? ?? 0,
+      verifiedRestaurants: 0,
+      costUsd: (statusData['cost_usd'] as num?)?.toDouble() ?? 0,
+    );
+
+    _updateState(
+      (s) => s.copyWith(
+        status: V2PipelineStatus.complete,
+        currentStep: V2PipelineStep.metrics,
+        stepMessage: 'Complete!',
+        result: scanResult,
+        lastScanTime: DateTime.now(),
+        activeRunId: null,
+        activeJobId: null,
+      ),
+    );
+
+    _persistLastScan();
+    _loadStats();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Provider
+// ---------------------------------------------------------------------------
+
+final v2DataScraperControllerProvider =
+    StateNotifierProvider<V2DataScraperController, V2PipelineState>(
+      (ref) => V2DataScraperController(),
+    );

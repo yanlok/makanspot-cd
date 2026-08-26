@@ -3,10 +3,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/discover_repository.dart';
 import '../models/discover_restaurant.dart';
 import '../models/fixture_discover_repository.dart';
+import '../models/supabase_discover_repository.dart';
 import 'discover_state.dart';
 
+import 'package:makanspot/core/config/supabase_config.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 final discoverRepositoryProvider = Provider<DiscoverRepository>((ref) {
-  return const FixtureDiscoverRepository();
+  if (!SupabaseConfig.isConfigured) {
+    return const FixtureDiscoverRepository();
+  }
+  try {
+    return SupabaseDiscoverRepository(Supabase.instance.client);
+  } on StateError {
+    // Keeps previews and tests usable when main() has not initialized Supabase.
+    return const FixtureDiscoverRepository();
+  }
 });
 
 final discoverControllerProvider = StateNotifierProvider.autoDispose
@@ -121,6 +133,7 @@ class DiscoverController extends StateNotifier<DiscoverState> {
     }
     for (final filter in state.selectedFilters) {
       final matches = switch (filter) {
+        'Saved' => state.bookmarkedIds.contains(restaurant.id),
         'Hidden Gems' => restaurant.isHiddenGem,
         'Open Now' => restaurant.labels.contains('Open Now'),
         'Budget' => restaurant.budget == 'Low',

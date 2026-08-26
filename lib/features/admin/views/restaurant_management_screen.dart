@@ -8,10 +8,10 @@ import 'package:makanspot/core/theme/app_theme.dart';
 import '../controllers/restaurant_management_controller.dart';
 import '../models/admin_models.dart';
 import 'widgets/admin_empty_state.dart';
+import 'widgets/admin_filter_dropdown.dart';
 import 'widgets/admin_page_header.dart';
 import 'widgets/admin_search_field.dart';
 import 'widgets/admin_skeletons.dart';
-import 'widgets/admin_status_badge.dart';
 
 class RestaurantManagementScreen extends ConsumerWidget {
   const RestaurantManagementScreen({super.key});
@@ -31,6 +31,36 @@ class RestaurantManagementScreen extends ConsumerWidget {
           const AdminPageHeader(
             title: 'Restaurants',
             subtitle: 'Manage restaurant records',
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: AdminFilterDropdown<RestaurantVerificationFilter>(
+                  width: null,
+                  value: state.verificationFilter,
+                  options: const [
+                    ('All statuses', RestaurantVerificationFilter.all),
+                    ('Verified', RestaurantVerificationFilter.verified),
+                    ('Pending', RestaurantVerificationFilter.pending),
+                    ('Rejected', RestaurantVerificationFilter.rejected),
+                  ],
+                  onChanged: controller.selectVerificationFilter,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: AdminFilterDropdown<RestaurantSort>(
+                  width: null,
+                  value: state.sort,
+                  options: const [
+                    ('Name: A–Z', RestaurantSort.nameAscending),
+                    ('Name: Z–A', RestaurantSort.nameDescending),
+                  ],
+                  onChanged: controller.selectSort,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 20),
           Row(
@@ -156,13 +186,18 @@ class _RestaurantCard extends StatelessWidget {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          AdminStatusBadge(
-                            label: restaurant.isVerified
-                                ? 'Verified'
-                                : 'Unverified',
-                          ),
                         ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        (restaurant.instagramUsername ?? '').isEmpty
+                            ? 'Instagram not provided'
+                            : 'IG: ${restaurant.instagramUsername}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.mutedForeground,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Row(
@@ -179,9 +214,9 @@ class _RestaurantCard extends StatelessWidget {
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
-                              restaurant.address.isEmpty
+                              (restaurant.address ?? '').isEmpty
                                   ? 'No address'
-                                  : restaurant.address,
+                                  : restaurant.address!,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: Theme.of(context).textTheme.bodySmall
@@ -205,35 +240,30 @@ class _RestaurantCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      restaurant.sourcePlatform.isEmpty
-                          ? 'Manual'
-                          : restaurant.sourcePlatform,
+                      restaurant.categoriesDisplay,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: AppColors.mutedForeground,
                       ),
                     ),
                   ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        LucideIcons.star,
-                        size: 14,
-                        color: AppColors.accent,
+                  if (restaurant.priceRange != null) ...[
+                    const Icon(
+                      LucideIcons.star,
+                      size: 14,
+                      color: AppColors.accent,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      restaurant.priceRange!,
+                      style: const TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.foreground,
                       ),
-                      const SizedBox(width: 4),
-                      Text(
-                        restaurant.ratingDisplay,
-                        style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.foreground,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(width: 12),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
                   const Text(
                     'Manage',
                     style: TextStyle(

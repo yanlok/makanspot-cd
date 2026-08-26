@@ -8,13 +8,18 @@ class FixtureCommunityRepository implements CommunityRepository {
 
   final List<CommunityPost> _posts;
   final List<CommunityComment> _comments;
+  final Set<String> _reportedPosts = {};
+  final Set<String> _reportedComments = {};
   int _nextPost = 1;
   int _nextComment = 1;
 
   @override
   Future<List<CommunityPost>> loadCommunityPosts() async {
     return List.unmodifiable(
-      _posts.where((post) => post.status == 'active').toList()
+      _posts
+          .where((post) => post.status == 'active')
+          .map(_withCommentCount)
+          .toList()
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
     );
   }
@@ -22,7 +27,21 @@ class FixtureCommunityRepository implements CommunityRepository {
   @override
   Future<List<CommunityPost>> loadMyPosts() async {
     return List.unmodifiable(
-      _posts.where((post) => post.userId == 'demo-user').toList()
+      _posts
+          .where((post) => post.userId == 'demo-user')
+          .map(_withCommentCount)
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+    );
+  }
+
+  @override
+  Future<List<CommunityPost>> loadSavedPosts() async {
+    return List.unmodifiable(
+      _posts
+          .where((post) => post.status == 'active' && post.isSaved)
+          .map(_withCommentCount)
+          .toList()
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
     );
   }
@@ -37,7 +56,7 @@ class FixtureCommunityRepository implements CommunityRepository {
       return null;
     }
     return CommunityPostDetails(
-      post: matches.single,
+      post: _withCommentCount(matches.single),
       comments: List.unmodifiable(
         _comments.where((comment) => comment.postId == id),
       ),
@@ -120,6 +139,9 @@ class FixtureCommunityRepository implements CommunityRepository {
       username: 'Yih Loong',
       userAvatar: '',
       text: text,
+      userId: 'demo-user',
+      isOwn: true,
+      canPin: true,
       parentCommentId: parentCommentId,
     );
     _comments.insert(0, comment);
@@ -138,6 +160,73 @@ class FixtureCommunityRepository implements CommunityRepository {
       likes: post.isLiked ? post.likes - 1 : post.likes + 1,
     );
     return _posts[index];
+  }
+
+  @override
+  Future<CommunityPost?> toggleSave(String id) async {
+    final index = _posts.indexWhere((post) => post.id == id);
+    if (index < 0) return null;
+    _posts[index] = _posts[index].copyWith(isSaved: !_posts[index].isSaved);
+    return _posts[index];
+  }
+
+  @override
+  Future<void> reportPost({
+    required String postId,
+    required CommunityReportReason reason,
+    String? additionalInfo,
+  }) async {
+    _reportedPosts.add(postId);
+  }
+
+  @override
+  Future<void> reportComment({
+    required String commentId,
+    required CommunityReportReason reason,
+    String? additionalInfo,
+  }) async {
+    _reportedComments.add(commentId);
+  }
+
+  @override
+  Future<void> deleteComment(String id) async {
+    _comments.removeWhere(
+      (comment) => comment.id == id && comment.userId == 'demo-user',
+    );
+  }
+
+  @override
+  Future<void> togglePinComment({
+    required String id,
+    required bool pinned,
+  }) async {
+    final index = _comments.indexWhere(
+      (comment) => comment.id == id && comment.userId == 'demo-user',
+    );
+    if (index >= 0) {
+      final comment = _comments[index];
+      _comments[index] = CommunityComment(
+        id: comment.id,
+        postId: comment.postId,
+        username: comment.username,
+        userAvatar: comment.userAvatar,
+        text: comment.text,
+        userId: comment.userId,
+        isOwn: comment.isOwn,
+        canPin: comment.canPin,
+        isPinned: pinned,
+        createdAt: comment.createdAt,
+        parentCommentId: comment.parentCommentId,
+      );
+    }
+  }
+
+  CommunityPost _withCommentCount(CommunityPost post) {
+    return post.copyWith(
+      commentCount: _comments
+          .where((comment) => comment.postId == post.id)
+          .length,
+    );
   }
 }
 

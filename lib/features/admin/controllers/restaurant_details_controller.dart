@@ -77,13 +77,17 @@ class RestaurantDetailsController
     }
     state = const RestaurantDetailsState.loading();
     try {
-      final restaurant = await _repository.loadRestaurant(_restaurantId);
-      if (restaurant == null) {
+      final restaurants = await _repository.loadRestaurants();
+      final matches = restaurants.where(
+        (restaurant) => restaurant.id == _restaurantId,
+      );
+      if (matches.isEmpty) {
         state = const RestaurantDetailsState(
           status: RestaurantDetailsStatus.notFound,
         );
         return;
       }
+      final restaurant = matches.single;
       state = RestaurantDetailsState(
         status: RestaurantDetailsStatus.content,
         restaurant: restaurant,
@@ -132,16 +136,17 @@ class RestaurantDetailsController
   AdminRestaurantDraft _draftWithName(AdminRestaurantDraft draft, String name) {
     return AdminRestaurantDraft(
       name: name,
-      cuisine: draft.cuisine,
+      categories: draft.categories,
       address: draft.address,
-      operatingHours: draft.operatingHours,
-      contact: draft.contact,
-      budget: draft.budget,
+      city: draft.city,
+      state: draft.state,
+      phone: draft.phone,
+      website: draft.website,
+      instagramUsername: draft.instagramUsername,
+      priceRange: draft.priceRange,
+      businessHours: draft.businessHours,
       description: draft.description,
       imageUrl: draft.imageUrl,
-      sourcePlatform: draft.sourcePlatform,
-      isVerified: draft.isVerified,
-      rating: draft.rating,
       latitude: draft.latitude,
       longitude: draft.longitude,
     );

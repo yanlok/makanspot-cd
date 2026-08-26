@@ -35,9 +35,11 @@ class SupabaseAdminRepository implements AdminRepository {
   @override
   Future<ReportedContentGroup?> loadReportedContentGroup(
     String contentId,
+    ReportContentType contentType,
   ) async {
-    final isPost = await _contentIsPost(contentId);
-    final column = isPost ? 'post_id' : 'comment_id';
+    final column = contentType == ReportContentType.post
+        ? 'post_id'
+        : 'comment_id';
 
     final rows = await _client
         .from('reports')
@@ -63,9 +65,11 @@ class SupabaseAdminRepository implements AdminRepository {
   }
 
   @override
-  Future<void> removeContent(String contentId) async {
-    final isPost = await _contentIsPost(contentId);
-    final table = isPost ? 'posts' : 'comments';
+  Future<void> removeContent(
+    String contentId,
+    ReportContentType contentType,
+  ) async {
+    final table = contentType == ReportContentType.post ? 'posts' : 'comments';
     final updated = await _client
         .from(table)
         .update({'is_hidden': true})
@@ -80,9 +84,13 @@ class SupabaseAdminRepository implements AdminRepository {
   }
 
   @override
-  Future<void> dismissReports(String contentId) async {
-    final isPost = await _contentIsPost(contentId);
-    final column = isPost ? 'post_id' : 'comment_id';
+  Future<void> dismissReports(
+    String contentId,
+    ReportContentType contentType,
+  ) async {
+    final column = contentType == ReportContentType.post
+        ? 'post_id'
+        : 'comment_id';
     // Soft delete: mark the reports as dismissed so they leave the
     // moderation queue but remain in the table for audit.
     final updated = await _client
@@ -96,78 +104,6 @@ class SupabaseAdminRepository implements AdminRepository {
         'lack admin permissions.',
       );
     }
-  }
-
-  // ── Dashboard ────────────────────────────────────────────────────
-
-  @override
-  Future<AdminDashboardData> loadDashboard() async {
-    final counts = await Future.wait([
-      _client.from('users').select('id').count(),
-      _client.from('restaurants').select('id').count(),
-      _client.from('posts').select('id').count(),
-      _client.from('comments').select('id').count(),
-    ]);
-    final pendingCount = await _countPendingReports();
-
-    final allGroups = await loadReportedContentGroups();
-    final pendingGroups = allGroups.where((g) => !g.isRemoved).take(5).toList();
-
-    return AdminDashboardData(
-      userCount: counts[0].count,
-      restaurantCount: counts[1].count,
-      postCount: counts[2].count,
-      commentCount: counts[3].count,
-      pendingReportCount: pendingCount,
-      recentReports: pendingGroups,
-    );
-  }
-
-  Future<int> _countPendingReports() async {
-    // Count distinct post_ids that have active (non-dismissed) reports
-    // and are not hidden.
-    final postRows = await _client
-        .from('reports')
-        .select('post_id')
-        .not('post_id', 'is', null)
-        .isFilter('dismissed_at', null);
-
-    final commentRows = await _client
-        .from('reports')
-        .select('comment_id')
-        .not('comment_id', 'is', null)
-        .isFilter('dismissed_at', null);
-
-    final postIds = <int>{};
-    for (final row in postRows) {
-      final id = row['post_id'] as int?;
-      if (id != null) postIds.add(id);
-    }
-
-    final commentIds = <int>{};
-    for (final row in commentRows) {
-      final id = row['comment_id'] as int?;
-      if (id != null) commentIds.add(id);
-    }
-
-    int count = 0;
-    if (postIds.isNotEmpty) {
-      final result = await _client
-          .from('posts')
-          .select('id')
-          .inFilter('id', postIds.toList())
-          .eq('is_hidden', false);
-      count += result.length;
-    }
-    if (commentIds.isNotEmpty) {
-      final result = await _client
-          .from('comments')
-          .select('id')
-          .inFilter('id', commentIds.toList())
-          .eq('is_hidden', false);
-      count += result.length;
-    }
-    return count;
   }
 
   // ── Users ────────────────────────────────────────────────────────
@@ -189,20 +125,110 @@ class SupabaseAdminRepository implements AdminRepository {
   Future<AdminUser?> updateUser({
     required String id,
     required String username,
-    required String profileTitle,
+    required String email,
+    required String phone,
+    required AdminUserRole role,
     required int communityScore,
-  }) {
-    throw UnimplementedError('User update is not yet supported via Supabase.');
+  }) async {
+    final updated = await _client
+        .from('users')
+        .update({
+          'username': username,
+          'email': email,
+          'phone_number': phone.trim().isEmpty ? null : phone.trim(),
+          'role': role.value,
+          'community_score': communityScore,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', id)
+        .select();
+    if (updated.isEmpty) {
+      throw StateError(
+        'User update affected no rows. The signed-in account may lack '
+        'admin permissions.',
+      );
+    }
+    return _userFromRow(updated.single);
   }
 
   @override
   Future<AdminUser?> setUserAccountStatus(
     String id,
     AdminAccountStatus status,
-  ) {
-    throw UnimplementedError(
-      'Account status toggle is not yet supported via Supabase.',
-    );
+  ) async {
+    final updated = await _client
+        .from('users')
+        .update({
+          'is_active': status == AdminAccountStatus.active,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', id)
+        .select();
+    if (updated.isEmpty) {
+      throw StateError(
+        'Account status update affected no rows. The signed-in account may '
+        'lack admin permissions.',
+      );
+    }
+    return _userFromRow(updated.single);
+  }
+
+  @override
+  Future<bool> usernameExists(String username, String excludeUserId) async {
+    final rows = await _client
+        .from('users')
+        .select('id')
+        .ilike('username', username)
+        .neq('id', excludeUserId);
+    return rows.isNotEmpty;
+  }
+
+  @override
+  Future<bool> emailExists(String email, String excludeUserId) async {
+    final rows = await _client
+        .from('users')
+        .select('id')
+        .eq('email', email)
+        .neq('id', excludeUserId);
+    return rows.isNotEmpty;
+  }
+
+  @override
+  Future<bool> phoneExists(String phone, String excludeUserId) async {
+    final rows = await _client
+        .from('users')
+        .select('id')
+        .eq('phone_number', phone)
+        .neq('id', excludeUserId);
+    return rows.isNotEmpty;
+  }
+
+  @override
+  Future<void> logAdminAction({
+    required String adminUserId,
+    required String adminUsername,
+    required String action,
+    required String targetUserId,
+    required String targetUsername,
+    Map<String, Map<String, Object?>>? fieldChanges,
+  }) async {
+    await _client.from('admin_audit_log').insert({
+      'admin_user_id': adminUserId,
+      'admin_username': adminUsername,
+      'action': action,
+      'target_user_id': targetUserId,
+      'target_username': targetUsername,
+      'field_changes': fieldChanges ?? {},
+    });
+  }
+
+  @override
+  Future<List<AdminAuditLog>> loadAdminActionLogs() async {
+    final rows = await _client
+        .from('admin_audit_log')
+        .select()
+        .order('created_at', ascending: false);
+    return rows.map(_auditLogFromRow).toList(growable: false);
   }
 
   // ── Restaurants ──────────────────────────────────────────────────
@@ -216,14 +242,22 @@ class SupabaseAdminRepository implements AdminRepository {
               name,
               description,
               address,
+              city,
+              state,
               latitude,
               longitude,
               price_range,
-              rating,
-              operating_hours,
-              phone_number,
-              social_media_source,
-              is_verified,
+              phone,
+              website,
+              instagram_username,
+              instagram_location_id,
+              categories,
+              business_hours,
+              verification_confidence,
+              source_post_count,
+              popularity_score,
+              created_at,
+              updated_at,
               restaurant_images!inner(image_url, is_primary)
             ''')
         .order('name');
@@ -239,14 +273,22 @@ class SupabaseAdminRepository implements AdminRepository {
               name,
               description,
               address,
+              city,
+              state,
               latitude,
               longitude,
               price_range,
-              rating,
-              operating_hours,
-              phone_number,
-              social_media_source,
-              is_verified,
+              phone,
+              website,
+              instagram_username,
+              instagram_location_id,
+              categories,
+              business_hours,
+              verification_confidence,
+              source_post_count,
+              popularity_score,
+              created_at,
+              updated_at,
               restaurant_images!inner(image_url, is_primary)
             ''')
         .eq('id', id)
@@ -289,19 +331,22 @@ class SupabaseAdminRepository implements AdminRepository {
     for (final row in rows) {
       final postId = row['post_id'];
       final commentId = row['comment_id'];
-      final contentId = commentId != null ? '$commentId' : '$postId';
       final contentType = commentId != null
           ? ReportContentType.comment
           : ReportContentType.post;
+      final contentId = commentId != null ? '$commentId' : '$postId';
+      // Key by type too: post and comment IDs share separate identity
+      // sequences, so a post and a comment can have the same numeric ID.
+      final key = '${contentType.name}:$contentId';
 
-      if (!map.containsKey(contentId)) {
-        map[contentId] = {
+      if (!map.containsKey(key)) {
+        map[key] = {
           'contentId': contentId,
           'contentType': contentType,
           'reports': <Map<String, dynamic>>[],
         };
       }
-      (map[contentId]!['reports'] as List<Map<String, dynamic>>).add(row);
+      (map[key]!['reports'] as List<Map<String, dynamic>>).add(row);
     }
 
     // Fetch content preview, owner, and is_hidden for each group.
@@ -383,17 +428,41 @@ class SupabaseAdminRepository implements AdminRepository {
   }
 
   AdminUser _userFromRow(Map<String, dynamic> row) {
+    final createdAt = row['created_at'] as String?;
+    final isActive = row['is_active'] as bool? ?? true;
     return AdminUser(
       id: row['id'] as String,
       username: _stringOrEmpty(row['username']),
       email: _stringOrEmpty(row['email']),
       profilePictureUrl:
           row['avatar_url'] as String? ?? 'assets/images/default_icon.jpg',
-      profileTitle: _profileTitleFromScore(
-        (row['community_score'] as num?)?.toInt() ?? 0,
-      ),
       communityScore: (row['community_score'] as num?)?.toInt() ?? 0,
-      accountStatus: AdminAccountStatus.active,
+      accountStatus: isActive
+          ? AdminAccountStatus.active
+          : AdminAccountStatus.deactivated,
+      role: AdminUserRoleX.fromValue(row['role'] as String?),
+      phone: row['phone_number'] as String? ?? '',
+      joinedAt: createdAt == null ? null : DateTime.tryParse(createdAt),
+    );
+  }
+
+  AdminAuditLog _auditLogFromRow(Map<String, dynamic> row) {
+    final rawChanges =
+        row['field_changes'] as Map<String, dynamic>? ?? const {};
+    return AdminAuditLog(
+      id: '${row['id']}',
+      adminUsername: _stringOrEmpty(row['admin_username']),
+      action: _stringOrEmpty(row['action']),
+      targetUsername: _stringOrEmpty(row['target_username']),
+      fieldChanges: {
+        for (final entry in rawChanges.entries)
+          if (entry.value is Map)
+            entry.key: AdminAuditFieldChange(
+              from: _stringOrEmpty((entry.value as Map)['from']),
+              to: _stringOrEmpty((entry.value as Map)['to']),
+            ),
+      },
+      createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
     );
   }
 
@@ -405,32 +474,37 @@ class SupabaseAdminRepository implements AdminRepository {
     );
     final imageUrl = primaryImage?['image_url'] as String? ?? '';
 
-    final hours = row['operating_hours'];
-    String operatingHours;
-    if (hours is Map) {
-      operatingHours = hours.values
-          .whereType<String>()
-          .where((s) => s.isNotEmpty)
-          .join(', ');
-    } else {
-      operatingHours = hours?.toString() ?? '';
-    }
+    final categoriesRaw = row['categories'];
+    final categories = categoriesRaw is List
+        ? categoriesRaw.cast<String>()
+        : <String>[];
+
+    final businessHoursRaw = row['business_hours'];
+    final businessHours = businessHoursRaw is Map<String, dynamic>
+        ? businessHoursRaw
+        : null;
 
     return AdminRestaurant(
       id: '${row['id']}',
       name: _stringOrEmpty(row['name']),
-      cuisine: row['social_media_source'] as String? ?? '',
-      address: _stringOrEmpty(row['address']),
+      categories: categories,
       imageUrl: imageUrl,
-      operatingHours: operatingHours,
-      contact: row['phone_number'] as String? ?? '',
-      budget: row['price_range'] as String? ?? '',
-      description: row['description'] as String? ?? '',
-      sourcePlatform: row['social_media_source'] as String? ?? 'Manual',
-      isVerified: row['is_verified'] as bool? ?? false,
-      rating: (row['rating'] as num?)?.toDouble(),
+      description: row['description'] as String?,
+      address: row['address'] as String?,
+      city: row['city'] as String?,
+      state: row['state'] as String?,
       latitude: (row['latitude'] as num?)?.toDouble(),
       longitude: (row['longitude'] as num?)?.toDouble(),
+      phone: row['phone'] as String?,
+      website: row['website'] as String?,
+      priceRange: row['price_range'] as String?,
+      businessHours: businessHours,
+      instagramUsername: row['instagram_username'] as String?,
+      instagramLocationId: row['instagram_location_id'] as String?,
+      verificationConfidence: (row['verification_confidence'] as num?)
+          ?.toDouble(),
+      sourcePostCount: row['source_post_count'] as int?,
+      popularityScore: row['popularity_score'] as int?,
     );
   }
 
@@ -467,45 +541,27 @@ class SupabaseAdminRepository implements AdminRepository {
         .select('''
               id,
               content,
-              user:users!comments_user_id_fkey(username)
+              user:users!comments_user_id_fkey(username),
+              post:posts!comments_post_id_fkey(
+                content,
+                restaurants!posts_restaurant_id_fkey(name)
+              )
             ''')
         .eq('id', commentId)
         .maybeSingle();
     if (row == null) return null;
 
     final user = row['user'] as Map<String, dynamic>?;
+    final post = row['post'] as Map<String, dynamic>?;
+    final restaurant = post?['restaurants'] as Map<String, dynamic>?;
     return ReportedContent(
       username: _stringOrEmpty(user?['username']),
+      restaurantName: restaurant?['name'] as String?,
+      postPreview: post?['content'] as String?,
       text: row['content'] as String? ?? '',
       mediaUrls: const [],
     );
   }
 
-  Future<bool> _contentIsPost(String contentId) async {
-    final id = int.parse(contentId);
-    final post = await _client
-        .from('posts')
-        .select('id')
-        .eq('id', id)
-        .maybeSingle();
-    if (post != null) return true;
-    // Hidden posts are filtered from non-admin sessions; fall back to the
-    // comments table before assuming the content is a comment.
-    final comment = await _client
-        .from('comments')
-        .select('id')
-        .eq('id', id)
-        .maybeSingle();
-    return comment == null;
-  }
-
   String _stringOrEmpty(dynamic value) => value?.toString() ?? '';
-
-  String _profileTitleFromScore(int score) {
-    if (score >= 200) return 'Food Legend';
-    if (score >= 150) return 'Makan Master';
-    if (score >= 100) return 'Flavour Explorer';
-    if (score >= 50) return 'Taste Tester';
-    return 'New Foodie';
-  }
 }
