@@ -1,19 +1,19 @@
 /// <reference path="../_shared/deno.d.ts" />
 // ============================================================================
-// v2-pipeline-continue
+// pipeline-continue
 // ----------------------------------------------------------------------------
-// State machine worker for the v2 scraping pipeline. Processes one step per
+// State machine worker for the scraping pipeline. Processes one step per
 // invocation and chains to itself via EdgeRuntime.waitUntil, keeping each
 // call within the Supabase Edge Function timeout.
 //
 // Steps:
 //   1. scrape   — poll Apify run until done, record dataset_id + cost
-//   2. ingest   — fetch 10 posts from dataset, upsert into v2_scraped_posts
-//   3. detect   — filter posts (v2IsLikelyNotRestaurant), derive categories
-//   4. resolve  — match posts to existing restaurants via v2_restaurant_sources
+//   2. ingest   — fetch 10 posts from dataset, upsert into scraped_posts
+//   3. detect   — filter posts (isLikelyNotRestaurant), derive categories
+//   4. resolve  — match posts to existing restaurants via restaurant_sources
 //   5. enrich   — LLM extraction + geocoding, insert new restaurants
 //   6. metrics  — recompute social metrics for restaurants touched by this run
-//   7. complete — update v2_scrape_runs totals, update discovery source metrics
+//   7. complete — update scrape_runs totals, update discovery source metrics
 //
 // POST body: { job_id: string }
 // ============================================================================
@@ -25,31 +25,32 @@ import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { isServiceRoleRequest } from "../_shared/auth.ts";
 import {
   type IgRecord,
-  toV2PlaceCandidate,
-  toV2StagingRow,
-  v2ApplyAuthoritativeLocation,
-  v2BoundLocationPostItems,
-  v2BoundLocationPostTargets,
-  v2IsLikelyFoodPlace,
-  type V2PlaceCandidate,
-  v2PlacePostsToRows,
-  v2ShouldQueueLocationPosts,
-  type V2StagingRow,
+  toPlaceCandidate,
+  toStagingRow,
+  applyAuthoritativeLocation,
+  boundLocationPostItems,
+  boundLocationPostTargets,
+  isLikelyFoodPlace,
+  type PlaceCandidate,
+  placePostsToRows,
+  shouldQueueLocationPosts,
+  type StagingRow,
 } from "../_shared/apify.ts";
 import {
-  v2DeriveCategories,
-  v2ExtractVenue,
-  v2Geocode,
-  v2IsLikelyNotRestaurant,
-  v2NameRelation,
-  v2NormalizeName,
-  v2PersistPrimaryImage,
-  v2PopularityScore,
-  v2ReverseGeocode,
-  v2SelectBestImageCandidate,
-  v2SumComponentCosts,
-  v2TrendScore,
+  deriveCategories,
+  extractVenue,
+  geocode,
+  isLikelyNotRestaurant,
+  nameRelation,
+  normalizeName,
+  persistPrimaryImage,
+  popularityScore,
+  reverseGeocode,
+  selectBestImageCandidate,
+  sumComponentCosts,
+  trendScore,
 } from "../_shared/enrich.ts";
+import { suggestNewSources } from "../auto-suggest-sources/index.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -108,11 +109,11 @@ function nextBusinessHour(dateMs: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Pipeline state stored in v2_scrape_runs.result JSONB
+// Pipeline state stored in scrape_runs.result JSONB
 // ---------------------------------------------------------------------------
 
-interface V2PipelineState {
-  v2_scrape_run_id?: string;
+interface PipelineState {
+  scrape_run_id?: string;
   apify_run_id?: string;
   active_component_id?: string;
   source_ids?: number[];
@@ -189,16 +190,16 @@ Deno.serve(async (req: Request) => {
     .single();
 
   if (readErr || !scrapeRun) {
-    console.error(`[v2-continue] Scrape run ${jobId} not found:`, readErr?.message);
+    console.error(`[pipeline-continue] Scrape run ${jobId} not found:`, readErr?.message);
     return jsonResponse({ error: "Scrape run not found" }, 404);
   }
 
   if (scrapeRun.status !== "running") {
-    console.log(`[v2-continue] Scrape run ${jobId} is ${scrapeRun.status} — skipping`);
+    console.log(`[pipeline-continue] Scrape run ${jobId} is ${scrapeRun.status} — skipping`);
     return jsonResponse({ ok: true, skipped: true });
   }
 
-  const state: V2PipelineState = (scrapeRun.result as V2PipelineState) ?? {
+  const state: PipelineState = (scrapeRun.result as PipelineState) ?? {
     stats: {
       posts_received: 0,
       new_posts: 0,
@@ -230,6 +231,12 @@ Deno.serve(async (req: Request) => {
       await handleMetrics(supabase, jobId, state);
     } else if (step === "complete") {
       await handleComplete(supabase, jobId, state);
+
+      // Fire-and-forget: suggest new discovery sources based on yield data.
+      // If this fails, the pipeline still succeeds.
+      suggestNewSources(supabase).catch((err) =>
+        console.error("[auto-suggest] Background suggestion failed:", err)
+      );
     } else {
       await markFailed(
         supabase,
@@ -240,7 +247,7 @@ Deno.serve(async (req: Request) => {
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[v2-continue] Job ${jobId} failed:`, msg);
+    console.error(`[pipeline-continue] Job ${jobId} failed:`, msg);
     await abortActiveFollowupIfNeeded(state);
     await markFailed(supabase, jobId, state, msg);
   }
@@ -255,7 +262,7 @@ Deno.serve(async (req: Request) => {
 async function handleScrape(
   supabase: DbClient,
   jobId: string,
-  state: V2PipelineState,
+  state: PipelineState,
 ) {
   const runId = state.apify_run_id;
   if (!runId) {
@@ -293,7 +300,7 @@ async function handleScrape(
     state.retry_count = retries;
     await updateState(supabase, jobId, state);
     console.warn(
-      `[v2-continue] Apify poll failed (${resp.status}), retry ${retries}/${MAX_RETRIES}`,
+      `[pipeline-continue] Apify poll failed (${resp.status}), retry ${retries}/${MAX_RETRIES}`,
     );
     await scheduleContinue(jobId, APIFY_POLL_DELAY_MS);
     return;
@@ -337,16 +344,16 @@ async function handleScrape(
         );
       }
     }
-    if (state.v2_scrape_run_id) {
+    if (state.scrape_run_id) {
       const { error: traceError } = await supabase.from("scrape_runs")
         .update({ dataset_id: datasetId, cost_usd: state.cost_usd })
-        .eq("id", state.v2_scrape_run_id);
+        .eq("id", state.scrape_run_id);
       if (traceError) {
         throw new Error(`Scrape trace update failed: ${traceError.message}`);
       }
     }
     console.log(
-      `[v2-continue] Job ${jobId}: scrape done, dataset=${datasetId}, cost=$${state.cost_usd}`,
+      `[pipeline-continue] Job ${jobId}: scrape done, dataset=${datasetId}, cost=$${state.cost_usd}`,
     );
     await scheduleContinue(jobId, 0);
   } else if (
@@ -363,13 +370,13 @@ async function handleScrape(
 }
 
 // ---------------------------------------------------------------------------
-// Step 2: Ingest — fetch 10 posts from dataset, upsert into v2_scraped_posts
+// Step 2: Ingest — fetch 10 posts from dataset, upsert into scraped_posts
 // ---------------------------------------------------------------------------
 
 async function handleIngest(
   supabase: DbClient,
   jobId: string,
-  state: V2PipelineState,
+  state: PipelineState,
 ) {
   const datasetId = state.dataset_id;
   if (!datasetId) {
@@ -404,7 +411,7 @@ async function handleIngest(
     state.retry_count = retries;
     await updateState(supabase, jobId, state);
     console.warn(
-      `[v2-continue] Dataset fetch failed (${resp.status}), retry ${retries}/${MAX_RETRIES}`,
+      `[pipeline-continue] Dataset fetch failed (${resp.status}), retry ${retries}/${MAX_RETRIES}`,
     );
     await scheduleContinue(jobId, APIFY_POLL_DELAY_MS);
     return;
@@ -436,7 +443,7 @@ async function handleIngest(
     state.retry_count = 0;
     await updateState(supabase, jobId, state);
     console.log(
-      `[v2-continue] Job ${jobId}: ingest done, ${state.stats.new_posts} new posts ` +
+      `[pipeline-continue] Job ${jobId}: ingest done, ${state.stats.new_posts} new posts ` +
         `(${state.stats.posts_received} received)`,
     );
     await scheduleContinue(jobId, 0);
@@ -451,14 +458,14 @@ async function handleIngest(
   for (const item of items) {
     if (state.dataset_kind === "place") {
       state.stats.places_received = (state.stats.places_received ?? 0) + 1;
-      const place = toV2PlaceCandidate(item);
+      const place = toPlaceCandidate(item);
       if (!place) {
         state.stats.places_filtered = (state.stats.places_filtered ?? 0) + 1;
         skippedCount++;
         continue;
       }
 
-      if (v2IsLikelyFoodPlace(place)) {
+      if (isLikelyFoodPlace(place)) {
         // Reject places with coordinates outside Malaysia
         if (
           place.latitude !== null && place.longitude !== null &&
@@ -486,7 +493,7 @@ async function handleIngest(
 
       // Embedded posts remain useful staging input even when the parent place
       // is explicitly non-food and therefore not canonicalized.
-      for (const row of v2PlacePostsToRows(place)) {
+      for (const row of placePostsToRows(place)) {
         const postId = await insertNewPost(supabase, row);
         if (postId !== null) {
           addNewPost(state, postId);
@@ -494,7 +501,7 @@ async function handleIngest(
         }
       }
     } else {
-      const row = toV2StagingRow(item);
+      const row = toStagingRow(item);
       if (!row) {
         skippedCount++;
         continue;
@@ -515,7 +522,7 @@ async function handleIngest(
   await updateState(supabase, jobId, state);
 
   console.log(
-    `[v2-continue] Job ${jobId}: ingest batch ${state.batch_index}, ` +
+    `[pipeline-continue] Job ${jobId}: ingest batch ${state.batch_index}, ` +
       `new=${newCount}, skipped=${skippedCount} (total: ${state.stats.new_posts})`,
   );
 
@@ -524,20 +531,20 @@ async function handleIngest(
 
 async function maybeQueueLocationPosts(
   supabase: DbClient,
-  state: V2PipelineState,
+  state: PipelineState,
   restaurantId: number,
-  place: V2PlaceCandidate,
+  place: PlaceCandidate,
 ) {
   if (!place.external_id) return;
   const { data: primary, error } = await supabase.from("restaurant_images")
     .select("id").eq("restaurant_id", restaurantId).eq("is_primary", true)
     .limit(1).maybeSingle();
   if (error) throw new Error(`Primary image check failed: ${error.message}`);
-  const hasEmbeddedCover = v2PlacePostsToRows(place).some((row) =>
+  const hasEmbeddedCover = placePostsToRows(place).some((row) =>
     !!row.cover_url
   );
   if (
-    !v2ShouldQueueLocationPosts({
+    !shouldQueueLocationPosts({
       hasPrimary: !!primary,
       hasEmbeddedCover,
       exactLocationUrl: place.url,
@@ -561,9 +568,9 @@ async function maybeQueueLocationPosts(
 async function startLocationPostsComponent(
   supabase: DbClient,
   jobId: string,
-  state: V2PipelineState,
+  state: PipelineState,
 ) {
-  const runId = state.v2_scrape_run_id;
+  const runId = state.scrape_run_id;
   const token = Deno.env.get("APIFY_TOKEN");
   if (!runId || !token) throw new Error("Cannot start location-post component");
   const { data: component, error } = await supabase
@@ -588,7 +595,7 @@ async function startLocationPostsComponent(
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          directUrls: v2BoundLocationPostTargets(
+          directUrls: boundLocationPostTargets(
             state.location_post_targets ?? [],
           ).map((target) => target.url),
           resultsType: "posts",
@@ -640,7 +647,7 @@ async function startLocationPostsComponent(
 async function handleLocationPostsScrape(
   supabase: DbClient,
   jobId: string,
-  state: V2PipelineState,
+  state: PipelineState,
 ) {
   const runId = state.location_posts_run_id;
   const token = Deno.env.get("APIFY_TOKEN");
@@ -691,7 +698,7 @@ async function handleLocationPostsScrape(
 async function handleLocationPostsIngest(
   supabase: DbClient,
   jobId: string,
-  state: V2PipelineState,
+  state: PipelineState,
 ) {
   const token = Deno.env.get("APIFY_TOKEN");
   const datasetId = state.location_posts_dataset_id;
@@ -712,7 +719,7 @@ async function handleLocationPostsIngest(
   if (!response.ok) {
     throw new Error(`Location-post dataset fetch failed (${response.status})`);
   }
-  const items = v2BoundLocationPostItems<IgRecord>(
+  const items = boundLocationPostItems<IgRecord>(
     await response.json(),
     alreadyProcessed,
   );
@@ -720,14 +727,14 @@ async function handleLocationPostsIngest(
     await finishLocationPostsIngest(supabase, jobId, state);
     return;
   }
-  const target = v2BoundLocationPostTargets(
+  const target = boundLocationPostTargets(
     state.location_post_targets ?? [],
   )[0];
   if (!target) throw new Error("Missing authoritative location-post target");
   for (const item of items) {
-    const row = toV2StagingRow(item);
+    const row = toStagingRow(item);
     if (!row) continue;
-    v2ApplyAuthoritativeLocation(row, target.location_id);
+    applyAuthoritativeLocation(row, target.location_id);
     const postId = await insertNewPost(supabase, row);
     if (postId !== null) {
       addNewPost(state, postId);
@@ -745,7 +752,7 @@ async function handleLocationPostsIngest(
 async function finishLocationPostsIngest(
   supabase: DbClient,
   jobId: string,
-  state: V2PipelineState,
+  state: PipelineState,
 ) {
   const { error } = await supabase.from("scrape_run_components")
     .update({ item_count: Math.min(3, state.component_item_count ?? 0) })
@@ -759,7 +766,7 @@ async function finishLocationPostsIngest(
   await scheduleContinue(jobId, 0);
 }
 
-async function abortActiveFollowupIfNeeded(state: V2PipelineState) {
+async function abortActiveFollowupIfNeeded(state: PipelineState) {
   if (state.location_posts_actor_completed || !state.location_posts_run_id) {
     return;
   }
@@ -792,7 +799,7 @@ async function markComponentFailed(
 
 async function insertNewPost(
   supabase: DbClient,
-  row: V2StagingRow,
+  row: StagingRow,
 ): Promise<number | null> {
   const { data, error } = await supabase
     .from("scraped_posts")
@@ -809,12 +816,12 @@ async function insertNewPost(
   );
 }
 
-function addNewPost(state: V2PipelineState, id: number) {
+function addNewPost(state: PipelineState, id: number) {
   state.new_post_ids ??= [];
   if (!state.new_post_ids.includes(id)) state.new_post_ids.push(id);
 }
 
-function addAffectedRestaurant(state: V2PipelineState, id: number) {
+function addAffectedRestaurant(state: PipelineState, id: number) {
   state.affected_restaurant_ids ??= [];
   if (!state.affected_restaurant_ids.includes(id)) {
     state.affected_restaurant_ids.push(id);
@@ -823,7 +830,7 @@ function addAffectedRestaurant(state: V2PipelineState, id: number) {
 
 async function findPlaceRestaurant(
   supabase: DbClient,
-  place: V2PlaceCandidate,
+  place: PlaceCandidate,
 ): Promise<number | null> {
   if (place.external_id) {
     const { data, error } = await supabase
@@ -837,7 +844,7 @@ async function findPlaceRestaurant(
     if (data) return data.restaurant_id;
   }
 
-  const normalized = v2NormalizeName(place.name);
+  const normalized = normalizeName(place.name);
   if (!normalized || place.latitude === null || place.longitude === null) {
     return null;
   }
@@ -858,11 +865,11 @@ async function findPlaceRestaurant(
 
 async function upsertPlaceRestaurant(
   supabase: DbClient,
-  place: V2PlaceCandidate,
-  state: V2PipelineState,
+  place: PlaceCandidate,
+  state: PipelineState,
 ): Promise<number | null> {
   const existingId = await findPlaceRestaurant(supabase, place);
-  const categories = v2DeriveCategories(place.category, place.name, []);
+  const categories = deriveCategories(place.category, place.name, []);
   let restaurantId = existingId;
   let address = place.address;
   let city = place.city;
@@ -876,7 +883,7 @@ async function upsertPlaceRestaurant(
   if (
     (!address || !city) && place.latitude !== null && place.longitude !== null
   ) {
-    const reverse = await v2ReverseGeocode(place.latitude, place.longitude);
+    const reverse = await reverseGeocode(place.latitude, place.longitude);
     address ??= reverse?.address ?? null;
     city ??= reverse?.city ?? null;
   }
@@ -905,7 +912,7 @@ async function upsertPlaceRestaurant(
     if (!place.name) return null;
     const { data, error } = await supabase.from("restaurants").insert({
       name: place.name,
-      normalized_name: v2NormalizeName(place.name),
+      normalized_name: normalizeName(place.name),
       address,
       city,
       latitude: place.latitude,
@@ -950,7 +957,7 @@ async function findRestaurantForPostCandidate(
   latitude: number | null,
   longitude: number | null,
 ): Promise<number | null> {
-  const name = v2NormalizeName(candidate.name);
+  const name = normalizeName(candidate.name);
   if (!name) return null;
 
   let query = supabase.from("restaurants")
@@ -978,21 +985,21 @@ async function findRestaurantForPostCandidate(
   if (error) {
     throw new Error(`Enrichment semantic dedup failed: ${error.message}`);
   }
-  const address = v2NormalizeName(candidate.address);
-  const city = v2NormalizeName(candidate.city);
+  const address = normalizeName(candidate.address);
+  const city = normalizeName(candidate.city);
   for (const restaurant of data ?? []) {
-    const nameRelation = v2NameRelation(name, restaurant.normalized_name ?? "");
+    const nameRelation = nameRelation(name, restaurant.normalized_name ?? "");
     if (nameRelation === "none") continue;
     if (latitude !== null && longitude !== null) return restaurant.id;
 
     if (address) {
-      const storedAddress = v2NormalizeName(restaurant.address);
-      const addressRelation = v2NameRelation(address, storedAddress);
-      const cityMatches = !city || city === v2NormalizeName(restaurant.city);
+      const storedAddress = normalizeName(restaurant.address);
+      const addressRelation = nameRelation(address, storedAddress);
+      const cityMatches = !city || city === normalizeName(restaurant.city);
       if (addressRelation !== "none" && cityMatches) return restaurant.id;
     } else if (
       city && nameRelation === "equal" &&
-      city === v2NormalizeName(restaurant.city)
+      city === normalizeName(restaurant.city)
     ) {
       return restaurant.id;
     }
@@ -1007,7 +1014,7 @@ async function findRestaurantForPostCandidate(
 async function handleDetect(
   supabase: DbClient,
   jobId: string,
-  state: V2PipelineState,
+  state: PipelineState,
 ) {
   const runPostIds = state.new_post_ids ?? [];
   if (runPostIds.length === 0) {
@@ -1051,7 +1058,7 @@ async function handleDetect(
     state.retry_count = 0;
     await updateState(supabase, jobId, state);
     console.log(
-      `[v2-continue] Job ${jobId}: detect done, ${state.stats.candidates_detected} candidates`,
+      `[pipeline-continue] Job ${jobId}: detect done, ${state.stats.candidates_detected} candidates`,
     );
     await scheduleContinue(jobId, 0);
     return;
@@ -1068,7 +1075,7 @@ async function handleDetect(
       )
       : [];
 
-    if (v2IsLikelyNotRestaurant(caption, hashtags)) {
+    if (isLikelyNotRestaurant(caption, hashtags)) {
       // Mark as skipped
       await supabase
         .from("scraped_posts")
@@ -1097,7 +1104,7 @@ async function handleDetect(
   await updateState(supabase, jobId, state);
 
   console.log(
-    `[v2-continue] Job ${jobId}: detect batch ${state.batch_index}, ` +
+    `[pipeline-continue] Job ${jobId}: detect batch ${state.batch_index}, ` +
       `detected=${detected}, skipped=${skipped} (total detected: ${state.stats.candidates_detected})`,
   );
 
@@ -1111,7 +1118,7 @@ async function handleDetect(
 async function handleResolve(
   supabase: DbClient,
   jobId: string,
-  state: V2PipelineState,
+  state: PipelineState,
 ) {
   const { data: posts, error: fetchErr } = await supabase
     .from("scraped_posts")
@@ -1145,7 +1152,7 @@ async function handleResolve(
     state.batch_index = 0;
     state.retry_count = 0;
     await updateState(supabase, jobId, state);
-    console.log(`[v2-continue] Job ${jobId}: resolve done, moving to enrich`);
+    console.log(`[pipeline-continue] Job ${jobId}: resolve done, moving to enrich`);
     await scheduleContinue(jobId, 0);
     return;
   }
@@ -1220,7 +1227,7 @@ async function handleResolve(
   await updateState(supabase, jobId, state);
 
   console.log(
-    `[v2-continue] Job ${jobId}: resolve batch ${state.batch_index}, ` +
+    `[pipeline-continue] Job ${jobId}: resolve batch ${state.batch_index}, ` +
       `resolved=${resolved} (total resolved via match)`,
   );
 
@@ -1281,7 +1288,7 @@ async function linkPostAndRefreshRestaurant(
       }`,
     );
   }
-  const popularity = v2PopularityScore(
+  const popularity = popularityScore(
     post.likes ?? 0,
     post.comments ?? 0,
     post.views ?? 0,
@@ -1312,7 +1319,7 @@ async function linkPostAndRefreshRestaurant(
 async function handleEnrich(
   supabase: DbClient,
   jobId: string,
-  state: V2PipelineState,
+  state: PipelineState,
 ) {
   // Fetch unresolved candidates for LLM enrichment
   const { data: posts, error: fetchErr } = await supabase
@@ -1363,7 +1370,7 @@ async function handleEnrich(
         : [];
 
       // LLM extraction
-      const extraction = await v2ExtractVenue(
+      const extraction = await extractVenue(
         caption,
         hashtags,
         post.author_username,
@@ -1407,7 +1414,7 @@ async function handleEnrich(
       }
 
       // Geocode the venue
-      const geo = await v2Geocode(
+      const geo = await geocode(
         extraction.name,
         extraction.address,
         extraction.city,
@@ -1417,7 +1424,7 @@ async function handleEnrich(
         longitude = geo.longitude;
       }
 
-      const normalizedName = v2NormalizeName(extraction.name);
+      const normalizedName = normalizeName(extraction.name);
       const existingRestaurantId = await findRestaurantForPostCandidate(
         supabase,
         extraction,
@@ -1455,7 +1462,7 @@ async function handleEnrich(
           verification_confidence: extraction.confidence,
           is_approved: false,
           source_post_count: 1,
-          popularity_score: v2PopularityScore(
+          popularity_score: popularityScore(
             post.likes ?? 0,
             post.comments ?? 0,
             post.views ?? 0,
@@ -1467,7 +1474,7 @@ async function handleEnrich(
 
       if (insertErr || !newRestaurant) {
         console.error(
-          `[v2-continue] Failed to insert restaurant for post ${post.id}:`,
+          `[pipeline-continue] Failed to insert restaurant for post ${post.id}:`,
           insertErr?.message,
         );
         await supabase.from("scraped_posts").update({
@@ -1526,7 +1533,7 @@ async function handleEnrich(
       enriched++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[v2-continue] Enrich error for post ${post.id}:`, msg);
+      console.error(`[pipeline-continue] Enrich error for post ${post.id}:`, msg);
       await supabase
         .from("scraped_posts")
         .update({ status: "failed", error: msg })
@@ -1541,7 +1548,7 @@ async function handleEnrich(
   await updateState(supabase, jobId, state);
 
   console.log(
-    `[v2-continue] Job ${jobId}: enrich batch ${state.batch_index}, ` +
+    `[pipeline-continue] Job ${jobId}: enrich batch ${state.batch_index}, ` +
       `enriched=${enriched}, skipped=${skipped}, failed=${failed} ` +
       `(total restaurants: ${state.stats.restaurants_created})`,
   );
@@ -1556,7 +1563,7 @@ async function handleEnrich(
 async function handleMetrics(
   supabase: DbClient,
   jobId: string,
-  state: V2PipelineState,
+  state: PipelineState,
 ) {
   interface MetricPost {
     author_username: string | null;
@@ -1620,7 +1627,7 @@ async function handleMetrics(
     )
       .filter(Number.isFinite);
     const latest = timestamps.length ? Math.max(...timestamps) : null;
-    const trend = v2TrendScore({
+    const trend = trendScore({
       mentionsLast7d: mention7,
       mentionsPrev7d: previous7,
       uniqueCreators: creators.size,
@@ -1659,7 +1666,7 @@ async function handleMetrics(
     const maxPopularity = posts.reduce((max, post) =>
       Math.max(
         max,
-        v2PopularityScore(post.likes ?? 0, post.comments ?? 0, post.views ?? 0),
+        popularityScore(post.likes ?? 0, post.comments ?? 0, post.views ?? 0),
       ), 0);
     const { error: restaurantError } = await supabase.from("restaurants")
       .update({
@@ -1672,7 +1679,7 @@ async function handleMetrics(
         `Metrics restaurant update failed: ${restaurantError.message}`,
       );
     }
-    const bestImage = v2SelectBestImageCandidate(
+    const bestImage = selectBestImageCandidate(
       posts.map((post) => ({
         cover_url: post.cover_url,
         caption: post.caption,
@@ -1684,7 +1691,7 @@ async function handleMetrics(
       now,
     );
     if (bestImage) {
-      await v2PersistPrimaryImage(
+      await persistPrimaryImage(
         supabase,
         restaurantId,
         bestImage.cover_url,
@@ -1699,13 +1706,13 @@ async function handleMetrics(
 }
 
 // ---------------------------------------------------------------------------
-// Step 7: Complete — update v2_scrape_runs, discovery sources, finish
+// Step 7: Complete — update scrape_runs, discovery sources, finish
 // ---------------------------------------------------------------------------
 
 async function handleComplete(
   supabase: DbClient,
   jobId: string,
-  state: V2PipelineState,
+  state: PipelineState,
 ) {
   const duration = state.started_at
     ? Math.round((Date.now() - new Date(state.started_at).getTime()) / 1000)
@@ -1713,8 +1720,8 @@ async function handleComplete(
 
   state.cost_usd = await settleComponentCosts(supabase, state);
 
-  // Update v2_scrape_runs with totals and final result
-  if (state.v2_scrape_run_id) {
+  // Update scrape_runs with totals and final result
+  if (state.scrape_run_id) {
     const { error } = await supabase
       .from("scrape_runs")
       .update({
@@ -1744,13 +1751,13 @@ async function handleComplete(
           duration_seconds: duration,
         },
       })
-      .eq("id", state.v2_scrape_run_id);
+      .eq("id", state.scrape_run_id);
     if (error) {
       throw new Error(`Scrape-run completion failed: ${error.message}`);
     }
   }
 
-  // Update v2_discovery_sources metrics
+  // Update discovery_sources metrics
   // When multiple sources are combined into one Apify run, divide stats equally
   // to avoid overcounting per-source metrics.
   if (state.source_ids && state.source_ids.length > 0) {
@@ -1841,7 +1848,7 @@ async function handleComplete(
   }
 
   console.log(
-    `[v2-continue] Job ${jobId}: completed successfully ` +
+    `[pipeline-continue] Job ${jobId}: completed successfully ` +
       `(cost=$${state.cost_usd ?? 0}, new_posts=${state.stats.new_posts}, ` +
       `restaurants=${state.stats.restaurants_created}, duration=${duration}s)`,
   );
@@ -1849,14 +1856,14 @@ async function handleComplete(
 
 async function settleComponentCosts(
   supabase: DbClient,
-  state: V2PipelineState,
+  state: PipelineState,
 ): Promise<number> {
   const legacyCost = state.cost_usd ?? 0;
-  if (!state.v2_scrape_run_id) return legacyCost;
+  if (!state.scrape_run_id) return legacyCost;
   const { data: components, error } = await supabase
     .from("scrape_run_components")
     .select("id, apify_run_id, cost_usd")
-    .eq("scrape_run_id", state.v2_scrape_run_id);
+    .eq("scrape_run_id", state.scrape_run_id);
   if (error) throw new Error(`Component cost query failed: ${error.message}`);
   if (!components?.length) {
     return await fetchSettledActorCost(state.apify_run_id, legacyCost);
@@ -1877,7 +1884,7 @@ async function settleComponentCosts(
     }
     settledCosts.push(settled);
   }
-  return v2SumComponentCosts(settledCosts);
+  return sumComponentCosts(settledCosts);
 }
 
 async function fetchSettledActorCost(
@@ -1902,7 +1909,7 @@ async function fetchSettledActorCost(
         }
       }
     } catch (error) {
-      console.warn("[v2-continue] Could not refresh settled Apify cost", error);
+      console.warn("[pipeline-continue] Could not refresh settled Apify cost", error);
     }
     if (attempt < 2) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -1918,7 +1925,7 @@ async function fetchSettledActorCost(
 async function updateState(
   supabase: DbClient,
   jobId: string,
-  state: V2PipelineState,
+  state: PipelineState,
 ) {
   const { error } = await supabase
     .from("scrape_runs")
@@ -1932,13 +1939,13 @@ async function updateState(
 async function markFailed(
   supabase: DbClient,
   jobId: string,
-  state: V2PipelineState,
+  state: PipelineState,
   message: string,
 ) {
   const completedAt = new Date().toISOString();
-  // Update v2_scrape_runs
+  // Update scrape_runs
   let runError: { message: string } | null = null;
-  if (state.v2_scrape_run_id) {
+  if (state.scrape_run_id) {
     const result = await supabase
       .from("scrape_runs")
       .update({
@@ -1946,19 +1953,19 @@ async function markFailed(
         error: message,
         completed_at: completedAt,
       })
-      .eq("id", state.v2_scrape_run_id);
+      .eq("id", state.scrape_run_id);
     runError = result.error;
     await supabase.from("scrape_run_components").update({
       status: "failed",
       error: message,
       completed_at: completedAt,
-    }).eq("scrape_run_id", state.v2_scrape_run_id)
+    }).eq("scrape_run_id", state.scrape_run_id)
       .in("status", ["pending", "running"]);
   }
 
   if (runError) {
     console.error(
-      `[v2-continue] Failed to release lifecycle for ${jobId}:`,
+      `[pipeline-continue] Failed to release lifecycle for ${jobId}:`,
       runError.message,
     );
   }
@@ -1988,7 +1995,7 @@ function scheduleContinue(jobId: string, delayMs: number) {
         })
       )
       .catch(async (err) => {
-        console.error(`[v2-continue] Chain call error for ${jobId}:`, err);
+        console.error(`[pipeline-continue] Chain call error for ${jobId}:`, err);
         try {
           const supabase = createClient(
             Deno.env.get("SUPABASE_URL")!,
@@ -1997,12 +2004,12 @@ function scheduleContinue(jobId: string, delayMs: number) {
           const { data: scrapeRun } = await supabase.from("scrape_runs")
             .select("result").eq("id", jobId).maybeSingle();
           const state =
-            (scrapeRun?.result ?? { stats: emptyStats() }) as V2PipelineState;
-          if (!state.v2_scrape_run_id) {
+            (scrapeRun?.result ?? { stats: emptyStats() }) as PipelineState;
+          if (!state.scrape_run_id) {
             const { data: activeRun } = await supabase.from("scrape_runs")
               .select("id").in("status", ["pending", "running"])
               .order("created_at", { ascending: false }).limit(1).maybeSingle();
-            state.v2_scrape_run_id = activeRun?.id;
+            state.scrape_run_id = activeRun?.id;
           }
           const token = Deno.env.get("APIFY_TOKEN");
           const activeActorRunId =
@@ -2022,7 +2029,7 @@ function scheduleContinue(jobId: string, delayMs: number) {
           );
         } catch {
           console.error(
-            `[v2-continue] Could not mark ${jobId} as failed after chain error`,
+            `[pipeline-continue] Could not mark ${jobId} as failed after chain error`,
           );
         }
       }),
@@ -2041,12 +2048,12 @@ async function failOnlyActiveScrapeRun(supabase: DbClient, message: string) {
   }).eq("id", activeRun.id);
   if (error) {
     console.error(
-      `[v2-continue] Failed to release orphan run: ${error.message}`,
+      `[pipeline-continue] Failed to release orphan run: ${error.message}`,
     );
   }
 }
 
-function emptyStats(): V2PipelineState["stats"] {
+function emptyStats(): PipelineState["stats"] {
   return {
     posts_received: 0,
     new_posts: 0,

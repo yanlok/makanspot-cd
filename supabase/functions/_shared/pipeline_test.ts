@@ -1,22 +1,22 @@
 import {
-  toV2PlaceCandidate,
-  toV2StagingRow,
-  v2ApplyAuthoritativeLocation,
-  v2BoundLocationPostItems,
-  v2BoundLocationPostTargets,
-  v2IsLikelyFoodPlace,
-  v2PlacePostsToRows,
-  v2ShouldQueueLocationPosts,
+  toPlaceCandidate,
+  toStagingRow,
+  applyAuthoritativeLocation,
+  boundLocationPostItems,
+  boundLocationPostTargets,
+  isLikelyFoodPlace,
+  placePostsToRows,
+  shouldQueueLocationPosts,
 } from "./apify.ts";
 import {
-  v2DeriveCategories,
-  v2IsLikelyNotRestaurant,
-  v2NormalizeName,
-  v2PopularityScore,
-  v2ReverseGeocode,
-  v2SelectBestImageCandidate,
-  v2SumComponentCosts,
-  v2TrendScore,
+  deriveCategories,
+  isLikelyNotRestaurant,
+  normalizeName,
+  popularityScore,
+  reverseGeocode,
+  selectBestImageCandidate,
+  sumComponentCosts,
+  trendScore,
 } from "./enrich.ts";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -24,7 +24,7 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 Deno.test("post mapper extracts stable Instagram identity", () => {
-  const row = toV2StagingRow({
+  const row = toStagingRow({
     url: "https://www.instagram.com/reel/ABC_123/",
     ownerUsername: "foodie",
     likesCount: 42,
@@ -42,7 +42,7 @@ Deno.test("post mapper extracts stable Instagram identity", () => {
 });
 
 Deno.test("place mapper carries metadata and injects location into embedded posts", () => {
-  const place = toV2PlaceCandidate({
+  const place = toPlaceCandidate({
     location_id: "9988",
     name: "Kedai Kopi Test",
     lat: 3.1,
@@ -51,7 +51,7 @@ Deno.test("place mapper carries metadata and injects location into embedded post
     posts: [{ url: "https://instagram.com/p/POST1/", caption: "Lunch" }],
   });
   assert(place?.external_id === "9988", "place identity should map");
-  const rows = v2PlacePostsToRows(place!);
+  const rows = placePostsToRows(place!);
   assert(rows.length === 1, "embedded post should map");
   assert(rows[0].location_id === "9988", "place identity should be injected");
   assert(
@@ -61,7 +61,7 @@ Deno.test("place mapper carries metadata and injects location into embedded post
 });
 
 Deno.test("nested place posts normalize and inherit exact location", () => {
-  const place = toV2PlaceCandidate({
+  const place = toPlaceCandidate({
     location_id: "445566",
     name: "Restoran Nested",
     lat: 3.1,
@@ -82,7 +82,7 @@ Deno.test("nested place posts normalize and inherit exact location", () => {
       user: { username: "foodlover" },
     }],
   });
-  const row = v2PlacePostsToRows(place!)[0];
+  const row = placePostsToRows(place!)[0];
   assert(row.external_post_id === "NESTED1", "nested shortcode should map");
   assert(
     row.cover_url === "https://img.test/food.jpg",
@@ -97,7 +97,7 @@ Deno.test("nested place posts normalize and inherit exact location", () => {
 
 Deno.test("place food filter rejects obvious non-food places conservatively", () => {
   assert(
-    v2IsLikelyFoodPlace({
+    isLikelyFoodPlace({
       name: "Ali Cafe",
       category: "Coffee Shop",
       posts: [],
@@ -105,7 +105,7 @@ Deno.test("place food filter rejects obvious non-food places conservatively", ()
     "cafe should pass",
   );
   assert(
-    !v2IsLikelyFoodPlace({
+    !isLikelyFoodPlace({
       name: "Community Gym",
       category: "Fitness",
       posts: [],
@@ -113,11 +113,11 @@ Deno.test("place food filter rejects obvious non-food places conservatively", ()
     "gym should fail",
   );
   assert(
-    !v2IsLikelyFoodPlace({ name: "Unknown Venue", category: null, posts: [] }),
+    !isLikelyFoodPlace({ name: "Unknown Venue", category: null, posts: [] }),
     "unknown metadata without food evidence should fail",
   );
   assert(
-    v2IsLikelyFoodPlace({
+    isLikelyFoodPlace({
       name: "Unknown Venue",
       category: null,
       posts: [{ caption: "Great ramen and sushi restaurant" }],
@@ -125,7 +125,7 @@ Deno.test("place food filter rejects obvious non-food places conservatively", ()
     "embedded food-post evidence should pass",
   );
   assert(
-    !v2IsLikelyFoodPlace({
+    !isLikelyFoodPlace({
       name: "City Hotel",
       category: "Hotel",
       posts: [{ caption: "Great ramen restaurant downstairs" }],
@@ -133,7 +133,7 @@ Deno.test("place food filter rejects obvious non-food places conservatively", ()
     "hotel metadata must override embedded food evidence",
   );
   assert(
-    !v2IsLikelyFoodPlace({
+    !isLikelyFoodPlace({
       name: "Mega Shopping Mall",
       category: "Shopping Mall",
       posts: [{ caption: "Try this cafe and dessert" }],
@@ -141,7 +141,7 @@ Deno.test("place food filter rejects obvious non-food places conservatively", ()
     "mall metadata must override embedded food evidence",
   );
   assert(
-    !v2IsLikelyFoodPlace({
+    !isLikelyFoodPlace({
       name: "Kedai Buku Ilmu",
       category: "Bookstore",
       posts: [],
@@ -152,29 +152,29 @@ Deno.test("place food filter rejects obvious non-food places conservatively", ()
 
 Deno.test("pure filtering and scoring helpers remain deterministic", () => {
   assert(
-    v2IsLikelyNotRestaurant("Cara masak nasi lemak step by step", []),
+    isLikelyNotRestaurant("Cara masak nasi lemak step by step", []),
     "recipe should skip",
   );
   assert(
-    !v2IsLikelyNotRestaurant(
+    !isLikelyNotRestaurant(
       "Try the excellent noodles at Restoran ABC in SS15",
       ["ss15food"],
     ),
     "venue post should pass",
   );
   assert(
-    v2NormalizeName("  Café D'Anis! ") === "cafe d anis",
+    normalizeName("  Café D'Anis! ") === "cafe d anis",
     "name should normalize",
   );
   assert(
-    v2DeriveCategories("Cafe", "Test", []).includes("Cafe"),
+    deriveCategories("Cafe", "Test", []).includes("Cafe"),
     "category should derive",
   );
   assert(
-    v2PopularityScore(10_000, 1_000, 1_000_000) === 100,
+    popularityScore(10_000, 1_000, 1_000_000) === 100,
     "score should cap at 100",
   );
-  const trend = v2TrendScore({
+  const trend = trendScore({
     mentionsLast7d: 4,
     mentionsPrev7d: 2,
     uniqueCreators: 3,
@@ -187,7 +187,7 @@ Deno.test("pure filtering and scoring helpers remain deterministic", () => {
 
 Deno.test("embedded covers suppress paid location follow-up", () => {
   assert(
-    !v2ShouldQueueLocationPosts({
+    !shouldQueueLocationPosts({
       hasPrimary: false,
       hasEmbeddedCover: true,
       exactLocationUrl: "https://instagram.com/explore/locations/123/cafe/",
@@ -195,7 +195,7 @@ Deno.test("embedded covers suppress paid location follow-up", () => {
     "embedded cover should suppress follow-up",
   );
   assert(
-    v2ShouldQueueLocationPosts({
+    shouldQueueLocationPosts({
       hasPrimary: false,
       hasEmbeddedCover: false,
       exactLocationUrl: "https://instagram.com/explore/locations/123/cafe/",
@@ -206,19 +206,19 @@ Deno.test("embedded covers suppress paid location follow-up", () => {
 
 Deno.test("location follow-up is globally bounded and authoritative", () => {
   assert(
-    v2BoundLocationPostTargets(["first", "second"]).join(",") === "first",
+    boundLocationPostTargets(["first", "second"]).join(",") === "first",
     "only one exact location target is allowed",
   );
   assert(
-    v2BoundLocationPostItems([1, 2, 3, 4], 1).join(",") === "1,2",
+    boundLocationPostItems([1, 2, 3, 4], 1).join(",") === "1,2",
     "remaining global item allowance must cap at three",
   );
-  const row = toV2StagingRow({
+  const row = toStagingRow({
     code: "CONFLICT1",
     location: { pk: "wrong-location" },
     image_versions2: { candidates: [{ url: "https://img.test/conflict.jpg" }] },
   })!;
-  v2ApplyAuthoritativeLocation(row, "target-location");
+  applyAuthoritativeLocation(row, "target-location");
   assert(
     row.location_id === "target-location",
     "stored target location must override conflicting actor metadata",
@@ -226,7 +226,7 @@ Deno.test("location follow-up is globally bounded and authoritative", () => {
 });
 
 Deno.test("best image ranking is deterministic and penalizes promotions", () => {
-  const best = v2SelectBestImageCandidate([
+  const best = selectBestImageCandidate([
     {
       cover_url: "https://img.test/ad.jpg",
       caption: "GIVEAWAY sponsored announcement logo",
@@ -254,7 +254,7 @@ Deno.test("reverse geocode uses v6 request and parses context", async () => {
   const previous = Deno.env.get("MAPBOX_TOKEN");
   Deno.env.set("MAPBOX_TOKEN", "test-token");
   let requested = "";
-  const result = await v2ReverseGeocode(3.1, 101.6, (input) => {
+  const result = await reverseGeocode(3.1, 101.6, (input) => {
     requested = String(input);
     return Promise.resolve(
       new Response(
@@ -285,7 +285,7 @@ Deno.test("reverse geocode uses v6 request and parses context", async () => {
 
 Deno.test("component costs aggregate safely", () => {
   assert(
-    v2SumComponentCosts([0.0027, 0.004, null, -1]) === 0.0067,
+    sumComponentCosts([0.0027, 0.004, null, -1]) === 0.0067,
     "component costs should sum non-negative values",
   );
 });

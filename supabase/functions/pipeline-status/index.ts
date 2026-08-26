@@ -1,9 +1,9 @@
 /// <reference path="../_shared/deno.d.ts" />
 // ============================================================================
-// v2-pipeline-status
+// pipeline-status
 // ----------------------------------------------------------------------------
-// Read-only status endpoint for the v2 pipeline. Returns aggregate stats from
-// v2_scraped_posts, active/recent v2_scrape_runs, and discovery source health.
+// Read-only status endpoint for the pipeline. Returns aggregate stats from
+// scraped_posts, active/recent scrape_runs, and discovery source health.
 //
 // POST body: { run_id?: string, job_id?: string }
 //
@@ -93,7 +93,7 @@ Deno.serve(async (req: Request) => {
         : Promise.resolve({ data: null }),
     ]);
 
-  // Aggregate stats from v2_scraped_posts
+  // Aggregate stats from scraped_posts
   const statusCounts = await Promise.all(
     [
       "pending",
@@ -154,7 +154,7 @@ Deno.serve(async (req: Request) => {
     (counts.resolved ?? 0);
 
   console.log(
-    `[v2-pipeline-status] runId=${
+    `[pipeline-status] runId=${
       runId ?? "(none)"
     } → status=${status}, ` +
       `posts=${totalPosts}, restaurants=${totalRestaurants ?? 0}`,

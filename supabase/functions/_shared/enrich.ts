@@ -1,10 +1,10 @@
 /// <reference path="./deno.d.ts" />
 import { type SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { validateImage } from "./image-validation.ts";
 
-// V2 enrichment helpers — same core logic as v1 but targeting v2_ tables
-// and with cleaner, more explicit naming.
+// Enrichment helpers — core logic with cleaner, more explicit naming.
 
-export interface V2VenueExtraction {
+export interface VenueExtraction {
   is_restaurant: boolean;
   name: string | null;
   address: string | null;
@@ -19,18 +19,18 @@ export interface V2VenueExtraction {
   operating_hours: string | null;
 }
 
-export interface V2GeoResult {
+export interface GeoResult {
   latitude: number;
   longitude: number;
   formatted_address: string;
 }
 
-export interface V2ReverseGeoResult {
+export interface ReverseGeoResult {
   address: string | null;
   city: string | null;
 }
 
-export const V2_CATEGORY_TAXONOMY = [
+export const CATEGORY_TAXONOMY = [
   "Malay",
   "Chinese",
   "Indian",
@@ -68,11 +68,11 @@ Return STRICT JSON only, matching this TypeScript type:
 Rules: never invent facts. Only use categories from the list; if none fit, return []. Output JSON with no markdown fences.`;
 
 /** Ask the LLM to extract a structured venue from a caption. */
-export async function v2ExtractVenue(
+export async function extractVenue(
   caption: string,
   hashtags: string[],
   author: string | null,
-): Promise<V2VenueExtraction> {
+): Promise<VenueExtraction> {
   const apiKey = Deno.env.get("MIMO_API_KEY") ?? Deno.env.get("LLM_API_KEY") ??
     Deno.env.get("OPENAI_API_KEY");
   const baseUrl =
@@ -82,7 +82,7 @@ export async function v2ExtractVenue(
   const model = Deno.env.get("MIMO_MODEL") ?? Deno.env.get("LLM_MODEL") ??
     Deno.env.get("OPENAI_MODEL") ?? "gpt-4o-mini";
 
-  const fallback: V2VenueExtraction = {
+  const fallback: VenueExtraction = {
     is_restaurant: false,
     name: null,
     address: null,
@@ -126,7 +126,7 @@ export async function v2ExtractVenue(
     const content = data?.choices?.[0]?.message?.content;
     if (!content) return fallback;
 
-    const parsed = JSON.parse(content) as Partial<V2VenueExtraction>;
+    const parsed = JSON.parse(content) as Partial<VenueExtraction>;
     return {
       is_restaurant: parsed.is_restaurant === true,
       name: parsed.name ?? null,
@@ -135,7 +135,7 @@ export async function v2ExtractVenue(
       cuisine: parsed.cuisine ?? null,
       price_range: parsed.price_range ?? null,
       description: parsed.description ?? null,
-      categories: v2NormalizeCategories(parsed.categories),
+      categories: normalizeCategories(parsed.categories),
       confidence: typeof parsed.confidence === "number"
         ? Math.max(0, Math.min(1, parsed.confidence))
         : 0,
@@ -149,11 +149,11 @@ export async function v2ExtractVenue(
 }
 
 /** Resolve a venue name/address into coordinates via Mapbox Geocoding. */
-export async function v2Geocode(
+export async function geocode(
   name: string | null,
   address: string | null,
   city: string | null,
-): Promise<V2GeoResult | null> {
+): Promise<GeoResult | null> {
   const token = Deno.env.get("MAPBOX_TOKEN");
   if (!token) return null;
 
@@ -191,9 +191,9 @@ export async function v2Geocode(
   }
 }
 
-export function v2ParseReverseGeocode(
+export function parseReverseGeocode(
   payload: unknown,
-): V2ReverseGeoResult | null {
+): ReverseGeoResult | null {
   const data = payload as Record<string, any>;
   const feature = data?.features?.[0];
   if (!feature) return null;
@@ -217,11 +217,11 @@ export function v2ParseReverseGeocode(
 }
 
 /** Reverse geocode a lat/lng into address + city (free-tier safe). */
-export async function v2ReverseGeocode(
+export async function reverseGeocode(
   latitude: number,
   longitude: number,
   fetcher: typeof fetch = fetch,
-): Promise<V2ReverseGeoResult | null> {
+): Promise<ReverseGeoResult | null> {
   const token = Deno.env.get("MAPBOX_TOKEN");
   if (!token) return null;
   const url = new URL("https://api.mapbox.com/search/geocode/v6/reverse");
@@ -232,7 +232,7 @@ export async function v2ReverseGeocode(
   try {
     const response = await fetcher(url.toString());
     if (!response.ok) return null;
-    return v2ParseReverseGeocode(await response.json());
+    return parseReverseGeocode(await response.json());
   } catch {
     return null;
   }
@@ -242,7 +242,7 @@ export async function v2ReverseGeocode(
  * Pre-filter: returns true if the caption/hashtags strongly suggest this
  * is NOT about a specific restaurant. Saves LLM costs.
  */
-export function v2IsLikelyNotRestaurant(
+export function isLikelyNotRestaurant(
   caption: string,
   hashtags: string[],
 ): boolean {
@@ -294,7 +294,7 @@ export function v2IsLikelyNotRestaurant(
 }
 
 /** Popularity score in 0..100 from engagement metrics. */
-export function v2PopularityScore(
+export function popularityScore(
   likes: number,
   comments: number,
   views: number,
@@ -314,7 +314,7 @@ export function v2PopularityScore(
 }
 
 /** Normalize a name: lowercase, strip punctuation/accents, collapse whitespace. */
-export function v2NormalizeName(name: string | null): string {
+export function normalizeName(name: string | null): string {
   return (name ?? "")
     .toLowerCase()
     .normalize("NFKD")
@@ -324,7 +324,7 @@ export function v2NormalizeName(name: string | null): string {
 }
 
 /** Name relationship between two normalized names. */
-export function v2NameRelation(
+export function nameRelation(
   a: string,
   b: string,
 ): "equal" | "prefix" | "none" {
@@ -340,11 +340,11 @@ export function v2NameRelation(
 // ---------------------------------------------------------------------------
 
 const TAXONOMY_LOWER = new Map(
-  V2_CATEGORY_TAXONOMY.map((c) => [c.toLowerCase(), c]),
+  CATEGORY_TAXONOMY.map((c) => [c.toLowerCase(), c]),
 );
 
 /** Keep only valid taxonomy names, de-duplicated. */
-export function v2NormalizeCategories(input: unknown): string[] {
+export function normalizeCategories(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
   const out: string[] = [];
   for (const item of input) {
@@ -422,7 +422,7 @@ const CATEGORY_KEYWORDS: Array<[string, string]> = [
 ];
 
 /** Fallback classifier: scan cuisine + name + hashtags for category keywords. */
-export function v2DeriveCategories(
+export function deriveCategories(
   cuisine: string | null,
   name: string | null,
   hashtags: string[],
@@ -447,7 +447,7 @@ export function v2DeriveCategories(
  * Calculate trend score from social metrics.
  * Components: mention velocity, creator diversity, engagement, recency.
  */
-export function v2TrendScore(opts: {
+export function trendScore(opts: {
   mentionsLast7d: number;
   mentionsPrev7d: number;
   uniqueCreators: number;
@@ -481,10 +481,10 @@ export function v2TrendScore(opts: {
 }
 
 // ---------------------------------------------------------------------------
-// Image utilities (reused from v1)
+// Image utilities
 // ---------------------------------------------------------------------------
 
-export interface V2ImageCandidate {
+export interface ImageCandidate {
   cover_url: string | null;
   caption: string | null;
   hashtags: string[];
@@ -493,12 +493,12 @@ export interface V2ImageCandidate {
   posted_at: string | null;
 }
 
-export interface V2RankedImage extends V2ImageCandidate {
+export interface RankedImage extends ImageCandidate {
   quality_score: number;
 }
 
-export function v2RankImageCandidate(
-  candidate: V2ImageCandidate,
+export function rankImageCandidate(
+  candidate: ImageCandidate,
   nowMs = Date.now(),
 ): number {
   if (!candidate.cover_url || !/^https?:\/\//i.test(candidate.cover_url)) {
@@ -550,13 +550,13 @@ export function v2RankImageCandidate(
   );
 }
 
-export function v2SelectBestImageCandidate(
-  candidates: V2ImageCandidate[],
+export function selectBestImageCandidate(
+  candidates: ImageCandidate[],
   nowMs = Date.now(),
-): V2RankedImage | null {
+): RankedImage | null {
   return candidates.map((candidate) => ({
     ...candidate,
-    quality_score: v2RankImageCandidate(candidate, nowMs),
+    quality_score: rankImageCandidate(candidate, nowMs),
   })).filter((candidate) => candidate.quality_score > 0)
     .sort((a, b) =>
       b.quality_score - a.quality_score ||
@@ -565,7 +565,7 @@ export function v2SelectBestImageCandidate(
     )[0] ?? null;
 }
 
-export function v2SumComponentCosts(
+export function sumComponentCosts(
   costs: Array<number | null | undefined>,
 ): number {
   return costs.reduce<number>(
@@ -576,8 +576,8 @@ export function v2SumComponentCosts(
 
 type DbClient = SupabaseClient<any, any, any, any, any>;
 
-/** Set an image as the restaurant's primary image in v2_restaurant_images. */
-export async function v2SetPrimaryImage(
+/** Set an image as the restaurant's primary image in restaurant_images. */
+export async function setPrimaryImage(
   supabase: DbClient,
   restaurantId: number,
   imageUrl: string | null,
@@ -654,7 +654,7 @@ export async function v2SetPrimaryImage(
 }
 
 /** Download image bytes from a URL. */
-export async function v2FetchImage(
+export async function fetchImage(
   imageUrl: string,
 ): Promise<{ bytes: Uint8Array; contentType: string } | null> {
   try {
@@ -671,7 +671,7 @@ export async function v2FetchImage(
 }
 
 /** Deterministic storage key for an image. */
-export function v2ImageStorageKey(
+export function imageStorageKey(
   restaurantId: number,
   imageUrl: string,
 ): string {
@@ -684,7 +684,7 @@ export function v2ImageStorageKey(
 }
 
 /** Download, re-host to Supabase Storage, and set as primary image. */
-export async function v2PersistPrimaryImage(
+export async function persistPrimaryImage(
   supabase: DbClient,
   restaurantId: number,
   imageUrl: string | null,
@@ -703,7 +703,7 @@ export async function v2PersistPrimaryImage(
     throw new Error(`Hosted image lookup failed: ${previousError.message}`);
   }
   if (previouslyHosted?.image_url) {
-    await v2SetPrimaryImage(
+    await setPrimaryImage(
       supabase,
       restaurantId,
       previouslyHosted.image_url,
@@ -718,7 +718,7 @@ export async function v2PersistPrimaryImage(
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const storageHost = new URL(supabaseUrl).host;
     if (new URL(imageUrl).host === storageHost) {
-      await v2SetPrimaryImage(
+      await setPrimaryImage(
         supabase,
         restaurantId,
         imageUrl,
@@ -731,10 +731,42 @@ export async function v2PersistPrimaryImage(
     return;
   }
 
-  const fetched = await v2FetchImage(imageUrl);
+  const fetched = await fetchImage(imageUrl);
   if (!fetched) return;
 
-  const path = v2ImageStorageKey(restaurantId, imageUrl);
+  // Validate image with LLM before uploading
+  let restaurantName = "";
+  try {
+    const { data: restaurant } = await supabase
+      .from("restaurants")
+      .select("name")
+      .eq("id", restaurantId)
+      .maybeSingle();
+    restaurantName = restaurant?.name ?? "";
+  } catch {
+    // Continue without name — validation still works
+  }
+
+  const validation = await validateImage(imageUrl, restaurantName);
+  if (!validation.approved) {
+    console.log(
+      `[image-validation] Rejected image for restaurant ${restaurantId}: ${validation.reason} — ${validation.notes}`,
+    );
+    // Store validation result for admin review
+    await supabase.from("restaurant_images").insert({
+      restaurant_id: restaurantId,
+      source_url: imageUrl,
+      image_url: imageUrl,
+      image_type: "other",
+      quality_score: 0,
+      is_primary: false,
+      validation_score: validation.score,
+      validation_reason: validation.reason,
+    });
+    return;
+  }
+
+  const path = imageStorageKey(restaurantId, imageUrl);
   const { error } = await supabase.storage
     .from("restaurant-photos")
     .upload(path, fetched.bytes, {
@@ -748,7 +780,7 @@ export async function v2PersistPrimaryImage(
   const publicUrl = `${
     Deno.env.get("SUPABASE_URL")
   }/storage/v1/object/public/restaurant-photos/${path}`;
-  await v2SetPrimaryImage(
+  await setPrimaryImage(
     supabase,
     restaurantId,
     publicUrl,

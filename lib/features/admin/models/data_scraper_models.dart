@@ -1,12 +1,12 @@
-/// V2 pipeline models — clean versions for the v2 scraping pipeline.
+/// Pipeline models for the scraping pipeline.
 library;
 
-enum V2PipelineStatus { idle, scanning, processing, complete, error }
+enum PipelineStatus { idle, scanning, processing, complete, error }
 
-enum V2PipelineStep { scrape, ingest, detect, resolve, enrich, metrics }
+enum PipelineStep { scrape, ingest, detect, resolve, enrich, metrics }
 
-class V2ScanResult {
-  const V2ScanResult({
+class ScanResult {
+  const ScanResult({
     required this.postsReceived,
     required this.newPosts,
     required this.restaurantCandidates,
@@ -31,7 +31,7 @@ class V2ScanResult {
     'costUsd': costUsd,
   };
 
-  factory V2ScanResult.fromJson(Map<String, dynamic> json) => V2ScanResult(
+  factory ScanResult.fromJson(Map<String, dynamic> json) => ScanResult(
     postsReceived: json['postsReceived'] as int? ?? 0,
     newPosts: json['newPosts'] as int? ?? 0,
     restaurantCandidates: json['restaurantCandidates'] as int? ?? 0,
@@ -41,8 +41,8 @@ class V2ScanResult {
   );
 }
 
-class V2DiscoverySourceSummary {
-  const V2DiscoverySourceSummary({
+class DiscoverySourceSummary {
+  const DiscoverySourceSummary({
     required this.id,
     required this.sourceType,
     required this.sourceValue,
@@ -55,6 +55,7 @@ class V2DiscoverySourceSummary {
     required this.costPerNewRestaurant,
     required this.priorityScore,
     this.lastScrapedAt,
+    this.createdAt,
   });
 
   final int id;
@@ -69,9 +70,10 @@ class V2DiscoverySourceSummary {
   final double? costPerNewRestaurant;
   final double priorityScore;
   final DateTime? lastScrapedAt;
+  final DateTime? createdAt;
 
-  factory V2DiscoverySourceSummary.fromMap(Map<String, dynamic> m) =>
-    V2DiscoverySourceSummary(
+  factory DiscoverySourceSummary.fromMap(Map<String, dynamic> m) =>
+    DiscoverySourceSummary(
       id: m['id'] as int,
       sourceType: m['source_type'] as String? ?? 'unknown',
       sourceValue: m['source_value'] as String? ?? '',
@@ -86,11 +88,14 @@ class V2DiscoverySourceSummary {
       lastScrapedAt: m['last_scraped_at'] != null
           ? DateTime.tryParse(m['last_scraped_at'] as String)
           : null,
+      createdAt: m['created_at'] != null
+          ? DateTime.tryParse(m['created_at'] as String)
+          : null,
     );
 }
 
-class V2ScrapeRunSummary {
-  const V2ScrapeRunSummary({
+class ScrapeRunSummary {
+  const ScrapeRunSummary({
     required this.id,
     required this.status,
     required this.postsReceived,
@@ -112,8 +117,8 @@ class V2ScrapeRunSummary {
   final DateTime? completedAt;
   final String? error;
 
-  factory V2ScrapeRunSummary.fromMap(Map<String, dynamic> m) =>
-    V2ScrapeRunSummary(
+  factory ScrapeRunSummary.fromMap(Map<String, dynamic> m) =>
+    ScrapeRunSummary(
       id: m['id'] as String,
       status: m['status'] as String? ?? 'pending',
       postsReceived: m['posts_received'] as int? ?? 0,
@@ -130,9 +135,9 @@ class V2ScrapeRunSummary {
     );
 }
 
-class V2PipelineState {
-  const V2PipelineState({
-    this.status = V2PipelineStatus.idle,
+class PipelineState {
+  const PipelineState({
+    this.status = PipelineStatus.idle,
     this.currentStep,
     this.stepMessage = '',
     this.initMessage = '',
@@ -151,11 +156,11 @@ class V2PipelineState {
     this.recentRuns = const [],
   });
 
-  final V2PipelineStatus status;
-  final V2PipelineStep? currentStep;
+  final PipelineStatus status;
+  final PipelineStep? currentStep;
   final String stepMessage;
   final String initMessage;
-  final V2ScanResult? result;
+  final ScanResult? result;
   final DateTime? lastScanTime;
   final int totalRestaurants;
   final int totalPosts;
@@ -164,17 +169,17 @@ class V2PipelineState {
   final String? activeRunId;
   final String? activeJobId;
   final int resultLimit;
-  final V2ScanResult? persistedResult;
+  final ScanResult? persistedResult;
   final DateTime? persistedScanTime;
-  final List<V2DiscoverySourceSummary> discoverySources;
-  final List<V2ScrapeRunSummary> recentRuns;
+  final List<DiscoverySourceSummary> discoverySources;
+  final List<ScrapeRunSummary> recentRuns;
 
-  V2PipelineState copyWith({
-    V2PipelineStatus? status,
-    V2PipelineStep? currentStep,
+  PipelineState copyWith({
+    PipelineStatus? status,
+    PipelineStep? currentStep,
     String? stepMessage,
     String? initMessage,
-    V2ScanResult? result,
+    ScanResult? result,
     DateTime? lastScanTime,
     int? totalRestaurants,
     int? totalPosts,
@@ -183,12 +188,12 @@ class V2PipelineState {
     String? activeRunId,
     String? activeJobId,
     int? resultLimit,
-    V2ScanResult? persistedResult,
+    ScanResult? persistedResult,
     DateTime? persistedScanTime,
-    List<V2DiscoverySourceSummary>? discoverySources,
-    List<V2ScrapeRunSummary>? recentRuns,
+    List<DiscoverySourceSummary>? discoverySources,
+    List<ScrapeRunSummary>? recentRuns,
   }) {
-    return V2PipelineState(
+    return PipelineState(
       status: status ?? this.status,
       currentStep: currentStep ?? this.currentStep,
       stepMessage: stepMessage ?? this.stepMessage,

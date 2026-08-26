@@ -1,10 +1,10 @@
 /// <reference path="../_shared/deno.d.ts" />
 // ============================================================================
-// v2-trigger-pipeline
+// trigger-pipeline
 // ----------------------------------------------------------------------------
-// Entry point for the v2 scraping pipeline. Selects discovery sources,
+// Entry point for the scraping pipeline. Selects discovery sources,
 // starts an Apify run, creates tracking rows, and hands off to
-// v2-pipeline-continue for batched processing.
+// pipeline-continue for batched processing.
 //
 // POST body: { source_ids?: number[], result_limit?: number }
 // Response:  { job_id, run_id, status: "pending" }
@@ -67,7 +67,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "admin_required" }, 403);
   }
 
-  // --- Guard: no active v2_scrape_runs ---
+  // --- Guard: no active scrape_runs ---
   const { data: activeRun, error: activeRunError } = await supabase
     .from("scrape_runs")
     .select("id")
@@ -83,7 +83,7 @@ Deno.serve(async (req: Request) => {
   if (activeRun) {
     return jsonResponse({
       error: "run_already_active",
-      message: "A v2 scrape run is already in progress. Wait for it to finish.",
+      message: "A scrape run is already in progress. Wait for it to finish.",
     }, 409);
   }
 
@@ -101,7 +101,7 @@ Deno.serve(async (req: Request) => {
 
     if (error) {
       console.error(
-        "[v2-trigger] Failed to load specified sources:",
+        "[trigger] Failed to load specified sources:",
         error.message,
       );
       return jsonResponse(
@@ -122,7 +122,7 @@ Deno.serve(async (req: Request) => {
       .limit(1);
 
     if (error) {
-      console.error("[v2-trigger] Failed to load due sources:", error.message);
+      console.error("[trigger] Failed to load due sources:", error.message);
       return jsonResponse(
         { error: `Failed to load sources: ${error.message}` },
         500,
@@ -139,7 +139,7 @@ Deno.serve(async (req: Request) => {
   }
 
   console.log(
-    `[v2-trigger] Selected ${sources.length} sources:`,
+    `[trigger] Selected ${sources.length} sources:`,
     sources.map((s) => `${s.source_type}:${s.source_value}`),
   );
 
@@ -152,7 +152,7 @@ Deno.serve(async (req: Request) => {
 
   if (skippedSources.length > 0) {
     console.log(
-      `[v2-trigger] Skipping ${skippedSources.length} account/location sources (not yet supported)`,
+      `[trigger] Skipping ${skippedSources.length} account/location sources (not yet supported)`,
       skippedSources.map((s) => `${s.source_type}:${s.source_value}`),
     );
   }
@@ -180,7 +180,7 @@ Deno.serve(async (req: Request) => {
 
     if (searchSources.length > 0) {
       console.log(
-        `[v2-trigger] ${searchSources.length} search_query sources deferred to next run`,
+        `[trigger] ${searchSources.length} search_query sources deferred to next run`,
       );
     }
   } else if (searchSources.length > 0) {
@@ -277,7 +277,7 @@ Deno.serve(async (req: Request) => {
 
   const startedAt = new Date().toISOString();
   const result = {
-    v2_scrape_run_id: scrapeRun.id,
+    scrape_run_id: scrapeRun.id,
     apify_run_id: apifyRunId,
     active_component_id: component.id,
     source_ids: runSourceIds,
@@ -374,12 +374,12 @@ async function abortApifyRun(token: string, runId: string | null) {
     );
     if (!response.ok) {
       console.error(
-        `[v2-trigger] Apify abort failed (${response.status}): ${await response
+        `[trigger] Apify abort failed (${response.status}): ${await response
           .text()}`,
       );
     }
   } catch (error) {
-    console.error(`[v2-trigger] Apify abort error:`, error);
+    console.error(`[trigger] Apify abort error:`, error);
   }
 }
 

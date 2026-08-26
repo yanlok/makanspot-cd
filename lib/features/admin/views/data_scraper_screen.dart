@@ -8,24 +8,24 @@ import '../controllers/data_scraper_controller.dart';
 import '../models/data_scraper_models.dart';
 import 'widgets/admin_page_header.dart';
 
-/// V2 Data Scraper screen — trigger and monitor the v2 Instagram pipeline.
-class V2DataScraperScreen extends ConsumerWidget {
-  const V2DataScraperScreen({super.key});
+/// Data Scraper screen — trigger and monitor the Instagram pipeline.
+class DataScraperScreen extends ConsumerWidget {
+  const DataScraperScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(v2DataScraperControllerProvider);
-    final controller = ref.read(v2DataScraperControllerProvider.notifier);
+    final state = ref.watch(dataScraperControllerProvider);
+    final controller = ref.read(dataScraperControllerProvider.notifier);
 
     return SafeArea(
       bottom: false,
       child: ListView(
-        key: const Key('v2-data-scraper-scroll'),
+        key: const Key('data-scraper-scroll'),
         padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
         children: [
           const AdminPageHeader(
-            title: 'V2 Data Scraper',
-            subtitle: 'Clean pipeline — Instagram-native restaurant discovery',
+            title: 'Data Scraper',
+            subtitle: 'Instagram-native restaurant discovery pipeline',
           ),
           const SizedBox(height: 24),
 
@@ -38,10 +38,10 @@ class V2DataScraperScreen extends ConsumerWidget {
           const SizedBox(height: 16),
 
           // Scan controls or progress
-          if (state.initMessage.isNotEmpty && state.status == V2PipelineStatus.idle)
+          if (state.initMessage.isNotEmpty && state.status == PipelineStatus.idle)
             _LoadingBar(message: state.initMessage)
-          else if (state.status == V2PipelineStatus.scanning ||
-              state.status == V2PipelineStatus.processing)
+          else if (state.status == PipelineStatus.scanning ||
+              state.status == PipelineStatus.processing)
             _ScanProgress(state: state)
           else
             _ScanControls(
@@ -51,13 +51,13 @@ class V2DataScraperScreen extends ConsumerWidget {
             ),
 
           // Error state
-          if (state.status == V2PipelineStatus.error) ...[
+          if (state.status == PipelineStatus.error) ...[
             const SizedBox(height: 16),
             _ErrorCard(message: state.error ?? 'Unknown error'),
           ],
 
           // Results
-          if (state.status == V2PipelineStatus.complete && state.result != null) ...[
+          if (state.status == PipelineStatus.complete && state.result != null) ...[
             const SizedBox(height: 16),
             _ResultsCard(result: state.result!),
           ],
@@ -116,7 +116,7 @@ class _StatsOverview extends StatelessWidget {
         children: [
           _StatItem(
             icon: LucideIcons.store,
-            label: 'V2 Restaurants',
+            label: 'Restaurants',
             value: '$totalRestaurants',
             color: AppColors.success,
           ),
@@ -343,7 +343,7 @@ class _ScanControls extends StatelessWidget {
               onPressed: onPressed,
               icon: const Icon(LucideIcons.scan, size: 18),
               label: const Text(
-                'Start V2 Scan',
+                'Start Scan',
                 style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 15,
@@ -372,7 +372,7 @@ class _ScanControls extends StatelessWidget {
 class _ScanProgress extends StatelessWidget {
   const _ScanProgress({required this.state});
 
-  final V2PipelineState state;
+  final PipelineState state;
 
   @override
   Widget build(BuildContext context) {
@@ -418,17 +418,17 @@ class _ScanProgress extends StatelessWidget {
 class _ProgressSteps extends StatelessWidget {
   const _ProgressSteps({required this.currentStep});
 
-  final V2PipelineStep? currentStep;
+  final PipelineStep? currentStep;
 
   @override
   Widget build(BuildContext context) {
     const steps = [
-      (V2PipelineStep.scrape, 'Scraping', LucideIcons.download),
-      (V2PipelineStep.ingest, 'Ingesting', LucideIcons.database),
-      (V2PipelineStep.detect, 'Detecting', LucideIcons.brain),
-      (V2PipelineStep.resolve, 'Resolving', LucideIcons.gitMerge),
-      (V2PipelineStep.enrich, 'Enriching', LucideIcons.utensilsCrossed),
-      (V2PipelineStep.metrics, 'Metrics', LucideIcons.barChart3),
+      (PipelineStep.scrape, 'Scraping', LucideIcons.download),
+      (PipelineStep.ingest, 'Ingesting', LucideIcons.database),
+      (PipelineStep.detect, 'Detecting', LucideIcons.brain),
+      (PipelineStep.resolve, 'Resolving', LucideIcons.gitMerge),
+      (PipelineStep.enrich, 'Enriching', LucideIcons.utensilsCrossed),
+      (PipelineStep.metrics, 'Metrics', LucideIcons.barChart3),
     ];
 
     final currentIndex = currentStep != null
@@ -521,7 +521,7 @@ class _StepIcon extends StatelessWidget {
 class _ResultsCard extends StatelessWidget {
   const _ResultsCard({required this.result});
 
-  final V2ScanResult result;
+  final ScanResult result;
 
   @override
   Widget build(BuildContext context) {
@@ -547,7 +547,7 @@ class _ResultsCard extends StatelessWidget {
                 child: const Icon(LucideIcons.checkCircle, size: 18, color: AppColors.success),
               ),
               const SizedBox(width: 12),
-              Text('V2 Scan Complete', style: Theme.of(context).textTheme.titleMedium),
+              Text('Scan Complete', style: Theme.of(context).textTheme.titleMedium),
             ],
           ),
           const SizedBox(height: 16),
@@ -706,7 +706,7 @@ class _ErrorCard extends StatelessWidget {
 class _DiscoverySourcesSection extends StatelessWidget {
   const _DiscoverySourcesSection({required this.sources});
 
-  final List<V2DiscoverySourceSummary> sources;
+  final List<DiscoverySourceSummary> sources;
 
   @override
   Widget build(BuildContext context) {
@@ -736,8 +736,17 @@ class _DiscoverySourcesSection extends StatelessWidget {
 class _SourceRow extends StatelessWidget {
   const _SourceRow({required this.source, required this.showDivider});
 
-  final V2DiscoverySourceSummary source;
+  final DiscoverySourceSummary source;
   final bool showDivider;
+
+  String _formatDate(DateTime? dt) {
+    if (dt == null) return '';
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -746,6 +755,8 @@ class _SourceRow extends StatelessWidget {
         : source.status == 'cooldown'
             ? AppColors.accent
             : AppColors.mutedForeground;
+
+    final isAutomation = source.sourceType == 'automation';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -766,19 +777,46 @@ class _SourceRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  source.sourceValue,
-                  style: const TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.foreground,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        source.sourceValue,
+                        style: const TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.foreground,
+                        ),
+                      ),
+                    ),
+                    if (isAutomation)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.accent.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'AI',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.accent,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
                 Text(
                   '${source.sourceType} · ${source.area ?? "—"}',
                   style: TextStyle(fontSize: 11, color: AppColors.mutedForeground),
                 ),
+                if (source.createdAt != null)
+                  Text(
+                    'added ${_formatDate(source.createdAt)}',
+                    style: TextStyle(fontSize: 10, color: AppColors.mutedForeground),
+                  ),
               ],
             ),
           ),
@@ -813,7 +851,7 @@ class _SourceRow extends StatelessWidget {
 class _RecentRunsSection extends StatelessWidget {
   const _RecentRunsSection({required this.runs});
 
-  final List<V2ScrapeRunSummary> runs;
+  final List<ScrapeRunSummary> runs;
 
   @override
   Widget build(BuildContext context) {
@@ -834,7 +872,20 @@ class _RecentRunsSection extends StatelessWidget {
 class _RunCard extends StatelessWidget {
   const _RunCard({required this.run});
 
-  final V2ScrapeRunSummary run;
+  final ScrapeRunSummary run;
+
+  String _formatRunDate(DateTime? dt) {
+    if (dt == null) return '—';
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final day = dt.day;
+    final month = months[dt.month - 1];
+    final hour = dt.hour.toString().padLeft(2, '0');
+    final minute = dt.minute.toString().padLeft(2, '0');
+    return '$day $month ${dt.year}, $hour:$minute';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -875,6 +926,10 @@ class _RunCard extends StatelessWidget {
                 Text(
                   '\$${run.costUsd.toStringAsFixed(3)} · ${run.status}',
                   style: TextStyle(fontSize: 11, color: AppColors.mutedForeground),
+                ),
+                Text(
+                  _formatRunDate(run.startedAt ?? run.completedAt),
+                  style: TextStyle(fontSize: 10, color: AppColors.mutedForeground),
                 ),
               ],
             ),

@@ -206,7 +206,7 @@ GoRouter createAppRouter({
         routes: [
           GoRoute(
             path: AppRoutes.adminScraper,
-            builder: (context, state) => const V2DataScraperScreen(),
+            builder: (context, state) => const DataScraperScreen(),
           ),
           GoRoute(
             path: AppRoutes.adminUsers,
