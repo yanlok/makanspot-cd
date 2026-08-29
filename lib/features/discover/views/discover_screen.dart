@@ -325,7 +325,7 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
   static const Duration _maximumCachedLocationAge = Duration(minutes: 10);
 
   mp.MapboxMap? _mapboxMap;
-  mp.CircleAnnotationManager? _markerManager;
+  mp.PointAnnotationManager? _markerManager;
   Future<void> _markerRenderQueue = Future<void>.value();
   int _markerRenderGeneration = 0;
   Future<void>? _locationRequest;
@@ -537,10 +537,22 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
         return;
       }
       final markerManager = await controller.annotations
-          .createCircleAnnotationManager();
+          .createPointAnnotationManager();
       if (!mounted || !identical(_mapboxMap, controller)) {
         return;
       }
+      markerManager.tapEvents(
+        onTap: (annotation) {
+          if (!mounted) {
+            return;
+          }
+          final restaurantId = annotation.customData?['restaurantId']?.toString();
+          if (restaurantId == null || restaurantId.isEmpty) {
+            return;
+          }
+          context.push('/restaurant/$restaurantId');
+        },
+      );
       _markerManager = markerManager;
       _mapSetupComplete = true;
       await _completeMapInitialization(controller);
@@ -760,17 +772,24 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
     }
     await manager.createMulti(
       located.map((restaurant) {
-        return mp.CircleAnnotationOptions(
+        return mp.PointAnnotationOptions(
           geometry: mp.Point(
             coordinates: mp.Position(
               restaurant.longitude!,
               restaurant.latitude!,
             ),
           ),
-          circleColor: AppColors.primary.toARGB32(),
-          circleRadius: 8,
-          circleStrokeColor: AppColors.surface.toARGB32(),
-          circleStrokeWidth: 3,
+          iconImage: 'marker-15',
+          iconSize: 1.2,
+          iconColor: AppColors.primary.toARGB32(),
+          textField: restaurant.name,
+          textAnchor: mp.TextAnchor.TOP,
+          textOffset: [0.0, -1.5],
+          textSize: 12,
+          textColor: AppColors.foreground.toARGB32(),
+          textHaloColor: AppColors.surface.toARGB32(),
+          textHaloWidth: 1.5,
+          customData: {'restaurantId': restaurant.id},
         );
       }).toList(),
     );
@@ -822,7 +841,7 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
 
   bool _isActiveMarkerRender(
     mp.MapboxMap map,
-    mp.CircleAnnotationManager manager,
+    mp.PointAnnotationManager manager,
     int generation,
   ) {
     return mounted &&
