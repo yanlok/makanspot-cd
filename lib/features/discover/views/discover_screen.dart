@@ -16,6 +16,8 @@ import 'widgets/discover_restaurant_card.dart';
 import 'package:geolocator/geolocator.dart' as gl;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 
+import 'package:makanspot/shared/services/location_service.dart';
+
 class _MapActionButton extends StatelessWidget {
   const _MapActionButton({
     required this.icon,
@@ -321,8 +323,6 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
   );
   static const double _malaysiaZoom = 6;
   static const double _userLocationZoom = 13.5;
-  static const Duration _freshLocationTimeout = Duration(seconds: 6);
-  static const Duration _maximumCachedLocationAge = Duration(minutes: 10);
 
   mp.MapboxMap? _mapboxMap;
   mp.PointAnnotationManager? _markerManager;
@@ -336,6 +336,8 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
   bool _mapInitializationCompleting = false;
   bool _isMapReady = false;
   bool _mapLoadFailed = false;
+  bool _initialLocationAttempted = false;
+  final LocationService _locationService = LocationService();
 
   late final TextEditingController _searchController = TextEditingController(
     text: widget.arguments.query,
@@ -606,6 +608,10 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
         _isMapReady = true;
         _mapLoadFailed = false;
       });
+      if (!_initialLocationAttempted) {
+        _initialLocationAttempted = true;
+        unawaited(_centerOnCurrentLocation());
+      }
     } catch (error, stackTrace) {
       debugPrint('Unable to finish map initialization: $error');
       debugPrintStack(stackTrace: stackTrace);
@@ -644,67 +650,20 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
       return;
     }
 
-    try {
-      final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
-      if (!mounted || !identical(_mapboxMap, map)) {
-        return;
-      }
-      if (!serviceEnabled) {
-        await _useMalaysiaCamera(map);
-        return;
-      }
-
-      var permission = await gl.Geolocator.checkPermission();
-      if (!mounted || !identical(_mapboxMap, map)) {
-        return;
-      }
-      if (permission == gl.LocationPermission.denied) {
-        permission = await gl.Geolocator.requestPermission();
-        if (!mounted || !identical(_mapboxMap, map)) {
-          return;
-        }
-      }
-      if (permission == gl.LocationPermission.denied ||
-          permission == gl.LocationPermission.deniedForever) {
-        await _useMalaysiaCamera(map);
-        return;
-      }
-
-      final lastKnownPosition = await gl.Geolocator.getLastKnownPosition();
-      if (!mounted || !identical(_mapboxMap, map)) {
-        return;
-      }
-      final cachedPosition =
-          lastKnownPosition != null &&
-              DateTime.now().difference(lastKnownPosition.timestamp) <=
-                  _maximumCachedLocationAge
-          ? lastKnownPosition
-          : null;
-      if (cachedPosition != null) {
-        await _useUserLocation(map, cachedPosition);
-      }
-
-      try {
-        final freshPosition = await gl.Geolocator.getCurrentPosition(
-          locationSettings: const gl.LocationSettings(
-            accuracy: gl.LocationAccuracy.medium,
-            timeLimit: _freshLocationTimeout,
-          ),
-        );
-        if (!mounted || !identical(_mapboxMap, map)) {
-          return;
-        }
-        await _useUserLocation(map, freshPosition);
-      } catch (error) {
-        debugPrint('Unable to refresh current location: $error');
-        if (cachedPosition == null) {
-          await _useMalaysiaCamera(map);
-        }
-      }
-    } catch (error) {
-      debugPrint('Unable to use current location: $error');
-      await _useMalaysiaCamera(map);
+    final result = await _locationService.requestCurrentLocation();
+    if (!mounted || !identical(_mapboxMap, map)) {
+      return;
     }
+    if (!result.hasFix) {
+      // No fix this round (service off, permission denied, or timed out with
+      // no cached fallback). Keep the current camera unless we had previously
+      // locked on to the user, in which case drop back to the default view.
+      if (_keepUserLocationCamera) {
+        await _useMalaysiaCamera(map);
+      }
+      return;
+    }
+    await _useUserLocation(map, result.fix!.position);
   }
 
   Future<void> _useUserLocation(mp.MapboxMap map, gl.Position position) async {
