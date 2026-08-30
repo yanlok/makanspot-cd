@@ -47,6 +47,7 @@ Deno.serve(async (req: Request) => {
   // After the pipeline_jobs removal, job_id is the scrape_run_id.
   const runId = (body.run_id as string | undefined) ??
     (body.job_id as string | undefined);
+  const autoRunId = body.auto_run_id as string | undefined;
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -59,8 +60,8 @@ Deno.serve(async (req: Request) => {
   // --- Parallel queries ---
 
   // Active/recent scrape runs (or specific run if run_id provided)
-  const [activeRunResult, recentRunsResult, specificRunResult] = await Promise
-    .all([
+  const [activeRunResult, recentRunsResult, specificRunResult, autoRunResult] =
+    await Promise.all([
       runId
         ? supabase.from("scrape_runs").select(
           "*, discovery_sources(source_type, source_value, area, created_at)",
@@ -91,6 +92,14 @@ Deno.serve(async (req: Request) => {
             "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, cost_usd, error, created_at, discovery_sources(source_type, source_value, area, created_at)",
           )
           .eq("id", runId)
+          .maybeSingle()
+        : Promise.resolve({ data: null }),
+      // Auto-run state (optional)
+      autoRunId
+        ? supabase
+          .from("auto_runs")
+          .select("*")
+          .eq("id", autoRunId)
           .maybeSingle()
         : Promise.resolve({ data: null }),
     ]);
@@ -164,6 +173,7 @@ Deno.serve(async (req: Request) => {
     status,
     active_run: activeRun ?? null,
     specific_run: specificRun ?? null,
+    auto_run: autoRunResult.data ?? null,
     stats: {
       total_posts: totalPosts,
       pending: counts.pending ?? 0,

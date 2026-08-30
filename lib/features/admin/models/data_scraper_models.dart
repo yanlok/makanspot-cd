@@ -5,6 +5,145 @@ enum PipelineStatus { idle, scanning, processing, complete, error }
 
 enum PipelineStep { scrape, ingest, detect, resolve, enrich, metrics }
 
+/// Status of an auto-run session.
+enum AutoRunStatus { idle, running, paused, completed, failed, stopped }
+
+/// Configuration for an auto-run session.
+class AutoRunConfig {
+  const AutoRunConfig({
+    this.resultsPerQuery = 30,
+    this.maxQueries = 10,
+    this.costLimitUsd = 5.0,
+  });
+
+  final int resultsPerQuery;
+  final int maxQueries;
+  final double costLimitUsd;
+
+  Map<String, dynamic> toJson() => {
+    'results_per_query': resultsPerQuery,
+    'max_queries': maxQueries,
+    'cost_limit_usd': costLimitUsd,
+  };
+
+  factory AutoRunConfig.fromJson(Map<String, dynamic> json) => AutoRunConfig(
+    resultsPerQuery: json['results_per_query'] as int? ?? 30,
+    maxQueries: json['max_queries'] as int? ?? 10,
+    costLimitUsd: (json['cost_limit_usd'] as num?)?.toDouble() ?? 5.0,
+  );
+}
+
+/// State of an auto-run session.
+class AutoRunState {
+  const AutoRunState({
+    this.id,
+    this.status = AutoRunStatus.idle,
+    this.config = const AutoRunConfig(),
+    this.currentQuerySourceId,
+    this.queriesCompleted = 0,
+    this.newRestaurants = 0,
+    this.existingMatched = 0,
+    this.skippedNoImage = 0,
+    this.failedCandidates = 0,
+    this.totalCostUsd = 0,
+    this.stopReason,
+    this.startedAt,
+    this.completedAt,
+  });
+
+  final String? id;
+  final AutoRunStatus status;
+  final AutoRunConfig config;
+  final int? currentQuerySourceId;
+  final int queriesCompleted;
+  final int newRestaurants;
+  final int existingMatched;
+  final int skippedNoImage;
+  final int failedCandidates;
+  final double totalCostUsd;
+  final String? stopReason;
+  final DateTime? startedAt;
+  final DateTime? completedAt;
+
+  bool get isActive =>
+      status == AutoRunStatus.running || status == AutoRunStatus.paused;
+
+  factory AutoRunState.fromMap(Map<String, dynamic> m) {
+    final configRaw = m['config'];
+    final config = configRaw is Map<String, dynamic>
+        ? AutoRunConfig.fromJson(configRaw)
+        : const AutoRunConfig();
+    return AutoRunState(
+      id: m['id'] as String?,
+      status: _parseAutoRunStatus(m['status'] as String?),
+      config: config,
+      currentQuerySourceId: m['current_query_source_id'] as int?,
+      queriesCompleted: m['queries_completed'] as int? ?? 0,
+      newRestaurants: m['new_restaurants'] as int? ?? 0,
+      existingMatched: m['existing_matched'] as int? ?? 0,
+      skippedNoImage: m['skipped_no_image'] as int? ?? 0,
+      failedCandidates: m['failed_candidates'] as int? ?? 0,
+      totalCostUsd: (m['total_cost_usd'] as num?)?.toDouble() ?? 0,
+      stopReason: m['stop_reason'] as String?,
+      startedAt: m['started_at'] != null
+          ? DateTime.tryParse(m['started_at'] as String)
+          : null,
+      completedAt: m['completed_at'] != null
+          ? DateTime.tryParse(m['completed_at'] as String)
+          : null,
+    );
+  }
+
+  AutoRunState copyWith({
+    String? id,
+    AutoRunStatus? status,
+    AutoRunConfig? config,
+    int? currentQuerySourceId,
+    int? queriesCompleted,
+    int? newRestaurants,
+    int? existingMatched,
+    int? skippedNoImage,
+    int? failedCandidates,
+    double? totalCostUsd,
+    String? stopReason,
+    DateTime? startedAt,
+    DateTime? completedAt,
+  }) {
+    return AutoRunState(
+      id: id ?? this.id,
+      status: status ?? this.status,
+      config: config ?? this.config,
+      currentQuerySourceId: currentQuerySourceId ?? this.currentQuerySourceId,
+      queriesCompleted: queriesCompleted ?? this.queriesCompleted,
+      newRestaurants: newRestaurants ?? this.newRestaurants,
+      existingMatched: existingMatched ?? this.existingMatched,
+      skippedNoImage: skippedNoImage ?? this.skippedNoImage,
+      failedCandidates: failedCandidates ?? this.failedCandidates,
+      totalCostUsd: totalCostUsd ?? this.totalCostUsd,
+      stopReason: stopReason ?? this.stopReason,
+      startedAt: startedAt ?? this.startedAt,
+      completedAt: completedAt ?? this.completedAt,
+    );
+  }
+}
+
+AutoRunStatus _parseAutoRunStatus(String? value) {
+  switch (value) {
+    case 'running':
+      return AutoRunStatus.running;
+    case 'paused':
+      return AutoRunStatus.paused;
+    case 'completed':
+      return AutoRunStatus.completed;
+    case 'failed':
+      return AutoRunStatus.failed;
+    case 'stopped':
+      return AutoRunStatus.stopped;
+    default:
+      return AutoRunStatus.idle;
+  }
+}
+
 class ScanResult {
   const ScanResult({
     required this.postsReceived,
@@ -173,11 +312,12 @@ class PipelineState {
     this.error,
     this.activeRunId,
     this.activeJobId,
-    this.resultLimit = 1,
+    this.resultLimit = 30,
     this.persistedResult,
     this.persistedScanTime,
     this.discoverySources = const [],
     this.recentRuns = const [],
+    this.autoRun,
   });
 
   final PipelineStatus status;
@@ -197,6 +337,7 @@ class PipelineState {
   final DateTime? persistedScanTime;
   final List<DiscoverySourceSummary> discoverySources;
   final List<ScrapeRunSummary> recentRuns;
+  final AutoRunState? autoRun;
 
   PipelineState copyWith({
     PipelineStatus? status,
@@ -216,6 +357,7 @@ class PipelineState {
     DateTime? persistedScanTime,
     List<DiscoverySourceSummary>? discoverySources,
     List<ScrapeRunSummary>? recentRuns,
+    AutoRunState? autoRun,
   }) {
     return PipelineState(
       status: status ?? this.status,
@@ -235,6 +377,7 @@ class PipelineState {
       persistedScanTime: persistedScanTime ?? this.persistedScanTime,
       discoverySources: discoverySources ?? this.discoverySources,
       recentRuns: recentRuns ?? this.recentRuns,
+      autoRun: autoRun ?? this.autoRun,
     );
   }
 }

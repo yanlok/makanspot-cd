@@ -36,6 +36,7 @@ class DataScraperController extends StateNotifier<PipelineState> {
   static const _persistedKey = 'v2_data_scraper_last_scan';
   static const _persistedJobId = 'v2_active_job_id';
   static const _persistedRunId = 'v2_active_run_id';
+  static const _persistedAutoRunId = 'v2_active_auto_run_id';
 
   Future<void> _loadPersistedResult() async {
     try {
@@ -94,30 +95,101 @@ class DataScraperController extends StateNotifier<PipelineState> {
     }
   }
 
+  Future<void> _persistAutoRunId(String autoRunId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_persistedAutoRunId, autoRunId);
+    } catch (e) {
+      developer.log('Failed to persist auto-run id: $e', name: 'DataScraper');
+    }
+  }
+
+  Future<void> _clearAutoRunId() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_persistedAutoRunId);
+    } catch (e) {
+      developer.log('Failed to clear auto-run id: $e', name: 'DataScraper');
+    }
+  }
+
+  Future<String?> _loadAutoRunId() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(_persistedAutoRunId);
+    } catch (e) {
+      return null;
+    }
+  }
+
   Future<void> _init() async {
     _updateState((s) => s.copyWith(initMessage: 'Loading stats...'));
     await _loadStats();
     if (!_isDisposed) await _loadPersistedResult();
 
-    // Resume any persisted active job
-    final (persistedJobId, persistedRunId) = await _loadActiveJob();
-    if (!_isDisposed && persistedRunId != null) {
-      _updateState(
-        (s) => s.copyWith(
-          status: PipelineStatus.processing,
-          currentStep: PipelineStep.ingest,
-          stepMessage: 'Reconnecting to active scan...',
-          activeJobId: persistedJobId,
-          activeRunId: persistedRunId,
-        ),
-      );
-      _startPolling(persistedRunId, jobId: persistedJobId);
-    } else if (!_isDisposed) {
-      await _checkForActiveRuns();
+    // Check for a persisted active auto-run first
+    final persistedAutoRunId = await _loadAutoRunId();
+    if (!_isDisposed && persistedAutoRunId != null) {
+      await _reconnectAutoRun(persistedAutoRunId);
+    } else {
+      // Resume any persisted active job
+      final (persistedJobId, persistedRunId) = await _loadActiveJob();
+      if (!_isDisposed && persistedRunId != null) {
+        _updateState(
+          (s) => s.copyWith(
+            status: PipelineStatus.processing,
+            currentStep: PipelineStep.ingest,
+            stepMessage: 'Reconnecting to active scan...',
+            activeJobId: persistedJobId,
+            activeRunId: persistedRunId,
+          ),
+        );
+        _startPolling(persistedRunId, jobId: persistedJobId);
+      } else if (!_isDisposed) {
+        await _checkForActiveRuns();
+      }
     }
 
     if (!_isDisposed && state.status == PipelineStatus.idle) {
       _updateState((s) => s.copyWith(initMessage: ''));
+    }
+  }
+
+  /// Reconnect to an existing auto-run session from a previous app session.
+  Future<void> _reconnectAutoRun(String autoRunId) async {
+    try {
+      final resp = await _supabase.functions.invoke(
+        'pipeline-status',
+        body: {'auto_run_id': autoRunId},
+      );
+      final data = resp.data as Map<String, dynamic>?;
+      final autoRunData = data?['auto_run'] as Map<String, dynamic>?;
+      if (autoRunData == null) {
+        await _clearAutoRunId();
+        return;
+      }
+      final autoRun = AutoRunState.fromMap(autoRunData);
+      if (!autoRun.isActive) {
+        await _clearAutoRunId();
+        _updateState((s) => s.copyWith(autoRun: autoRun));
+        return;
+      }
+
+      _updateState(
+        (s) => s.copyWith(
+          status: PipelineStatus.processing,
+          stepMessage: 'Reconnecting to auto-run...',
+          autoRun: autoRun,
+        ),
+      );
+
+      // Start polling the auto-run
+      if (!_isDisposed) {
+        _startAutoRunPolling(autoRunId);
+      }
+    } catch (e) {
+      developer.log('Failed to reconnect auto-run: $e', name: 'DataScraper');
+      await _clearAutoRunId();
     }
   }
 
@@ -224,11 +296,6 @@ class DataScraperController extends StateNotifier<PipelineState> {
     }
   }
 
-  /// Set the result limit for the next scan.
-  void setResultLimit(int limit) {
-    _updateState((s) => s.copyWith(resultLimit: limit.clamp(1, 20)));
-  }
-
   /// Start a new pipeline scan.
   Future<void> startScan() async {
     if (state.status == PipelineStatus.scanning ||
@@ -327,6 +394,296 @@ class DataScraperController extends StateNotifier<PipelineState> {
         ),
       );
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Auto Run methods
+  // -------------------------------------------------------------------------
+
+  /// Start a new auto-run session.
+  Future<void> startAutoRun({
+    int resultsPerQuery = 30,
+    int maxQueries = 10,
+    double costLimitUsd = 5.0,
+  }) async {
+    if (state.status == PipelineStatus.scanning ||
+        state.status == PipelineStatus.processing) {
+      return;
+    }
+
+    _updateState(
+      (s) => s.copyWith(
+        status: PipelineStatus.scanning,
+        stepMessage: 'Starting auto-run...',
+        error: null,
+        result: null,
+      ),
+    );
+
+    try {
+      final resp = await _supabase.functions.invoke(
+        'auto-run',
+        body: {
+          'action': 'start',
+          'config': {
+            'results_per_query': resultsPerQuery,
+            'max_queries': maxQueries,
+            'cost_limit_usd': costLimitUsd,
+          },
+        },
+      );
+
+      final data = resp.data as Map<String, dynamic>?;
+      final autoRunId = data?['auto_run_id'] as String?;
+
+      if (autoRunId == null) {
+        final errorMsg = data?['error'] as String? ?? 'No auto-run ID returned';
+        final message = data?['message'] as String? ?? errorMsg;
+        throw Exception(message);
+      }
+
+      await _persistAutoRunId(autoRunId);
+
+      // Fetch initial auto-run state
+      final statusResp = await _supabase.functions.invoke(
+        'pipeline-status',
+        body: {'auto_run_id': autoRunId},
+      );
+      final statusData = statusResp.data as Map<String, dynamic>?;
+      final autoRunData = statusData?['auto_run'] as Map<String, dynamic>?;
+      final autoRun = autoRunData != null
+          ? AutoRunState.fromMap(autoRunData)
+          : const AutoRunState();
+
+      _updateState(
+        (s) => s.copyWith(
+          status: PipelineStatus.processing,
+          stepMessage: 'Auto-run started...',
+          autoRun: autoRun,
+        ),
+      );
+
+      if (!_isDisposed) {
+        _startAutoRunPolling(autoRunId);
+      }
+    } on FunctionException catch (e) {
+      String message = 'Auto-run could not start.';
+      if (e.status == 409) {
+        final details = e.details;
+        if (details is Map) {
+          message =
+              (details as Map<String, dynamic>)['message'] as String? ?? message;
+        }
+      }
+      _updateState(
+        (s) => s.copyWith(status: PipelineStatus.error, error: message),
+      );
+    } catch (e) {
+      _updateState(
+        (s) => s.copyWith(status: PipelineStatus.error, error: e.toString()),
+      );
+    }
+  }
+
+  /// Pause the active auto-run.
+  Future<void> pauseAutoRun() async {
+    final autoRunId = state.autoRun?.id;
+    if (autoRunId == null) return;
+
+    try {
+      final resp = await _supabase.functions.invoke(
+        'auto-run',
+        body: {'action': 'pause', 'auto_run_id': autoRunId},
+      );
+      final data = resp.data as Map<String, dynamic>?;
+      if (data?['error'] != null) {
+        developer.log(
+          'Server rejected pause: ${data!['error']}',
+          name: 'DataScraper',
+        );
+        return;
+      }
+      _updateState(
+        (s) => s.copyWith(
+          stepMessage: 'Auto-run paused',
+          autoRun: s.autoRun?.copyWith(status: AutoRunStatus.paused),
+        ),
+      );
+    } catch (e) {
+      developer.log('Failed to pause auto-run: $e', name: 'DataScraper');
+    }
+  }
+
+  /// Resume a paused auto-run.
+  Future<void> resumeAutoRun() async {
+    final autoRunId = state.autoRun?.id;
+    if (autoRunId == null) return;
+
+    try {
+      final resp = await _supabase.functions.invoke(
+        'auto-run',
+        body: {'action': 'resume', 'auto_run_id': autoRunId},
+      );
+      final data = resp.data as Map<String, dynamic>?;
+      if (data?['error'] != null) {
+        developer.log(
+          'Server rejected resume: ${data!['error']}',
+          name: 'DataScraper',
+        );
+        return;
+      }
+      _updateState(
+        (s) => s.copyWith(
+          status: PipelineStatus.processing,
+          stepMessage: 'Resuming auto-run...',
+          autoRun: s.autoRun?.copyWith(status: AutoRunStatus.running),
+        ),
+      );
+      if (!_isDisposed) {
+        _startAutoRunPolling(autoRunId);
+      }
+    } catch (e) {
+      developer.log('Failed to resume auto-run: $e', name: 'DataScraper');
+    }
+  }
+
+  /// Stop the active auto-run.
+  Future<void> stopAutoRun() async {
+    final autoRunId = state.autoRun?.id;
+    if (autoRunId == null) return;
+
+    _pollTimer?.cancel();
+    _updateState((s) => s.copyWith(stepMessage: 'Stopping auto-run...'));
+
+    try {
+      await _supabase.functions.invoke(
+        'auto-run',
+        body: {'action': 'stop', 'auto_run_id': autoRunId},
+      );
+      await _clearAutoRunId();
+
+      // Fetch final state
+      final statusResp = await _supabase.functions.invoke(
+        'pipeline-status',
+        body: {'auto_run_id': autoRunId},
+      );
+      final statusData = statusResp.data as Map<String, dynamic>?;
+      final autoRunData = statusData?['auto_run'] as Map<String, dynamic>?;
+      final autoRun = autoRunData != null
+          ? AutoRunState.fromMap(autoRunData)
+          : null;
+
+      _updateState(
+        (s) => s.copyWith(
+          status: PipelineStatus.complete,
+          stepMessage: 'Auto-run stopped',
+          autoRun: autoRun,
+          activeRunId: null,
+          activeJobId: null,
+        ),
+      );
+      await _loadStats();
+    } catch (e) {
+      _updateState(
+        (s) => s.copyWith(
+          status: PipelineStatus.error,
+          error: 'Could not stop auto-run: $e',
+        ),
+      );
+    }
+  }
+
+  /// Poll auto-run progress periodically.
+  void _startAutoRunPolling(String autoRunId, {int attempt = 0}) {
+    _pollTimer?.cancel();
+    const maxAttempts = 600; // 50 minutes at 5s intervals
+
+    _pollTimer = Timer(const Duration(seconds: 5), () async {
+      if (_isDisposed) return;
+
+      final nextAttempt = attempt + 1;
+      if (nextAttempt >= maxAttempts) {
+        await _clearAutoRunId();
+        _updateState(
+          (s) => s.copyWith(
+            status: PipelineStatus.error,
+            error: 'Auto-run timed out after 50 minutes',
+            autoRun: null,
+            activeRunId: null,
+            activeJobId: null,
+          ),
+        );
+        return;
+      }
+
+      try {
+        final resp = await _supabase.functions.invoke(
+          'pipeline-status',
+          body: {'auto_run_id': autoRunId},
+        );
+        final data = resp.data as Map<String, dynamic>?;
+        final autoRunData = data?['auto_run'] as Map<String, dynamic>?;
+
+        if (autoRunData == null) {
+          await _clearAutoRunId();
+          _updateState(
+            (s) => s.copyWith(
+              status: PipelineStatus.complete,
+              stepMessage: 'Auto-run finished',
+              autoRun: null,
+            ),
+          );
+          await _loadStats();
+          return;
+        }
+
+        final autoRun = AutoRunState.fromMap(autoRunData);
+
+        // Check if auto-run has finished
+        if (!autoRun.isActive) {
+          await _clearAutoRunId();
+          _updateState(
+            (s) => s.copyWith(
+              status: PipelineStatus.complete,
+              stepMessage: autoRun.stopReason ?? 'Auto-run finished',
+              autoRun: autoRun,
+              activeRunId: null,
+              activeJobId: null,
+            ),
+          );
+          await _loadStats();
+          return;
+        }
+
+        // Still active — update state and continue polling
+        final activeRun = data?['active_run'] as Map<String, dynamic>?;
+        final stepMessage = activeRun != null
+            ? 'Query ${autoRun.queriesCompleted + 1} in progress...'
+            : 'Preparing next query...';
+
+        _updateState(
+          (s) => s.copyWith(
+            status: PipelineStatus.processing,
+            stepMessage: stepMessage,
+            autoRun: autoRun,
+          ),
+        );
+
+        if (!_isDisposed) {
+          _startAutoRunPolling(autoRunId, attempt: nextAttempt);
+        }
+      } catch (e) {
+        developer.log('Auto-run poll failed: $e', name: 'DataScraper');
+        if (!_isDisposed) {
+          _startAutoRunPolling(autoRunId, attempt: nextAttempt);
+        }
+      }
+    });
+  }
+
+  /// Set the result limit for the next scan.
+  void setResultLimit(int limit) {
+    _updateState((s) => s.copyWith(resultLimit: limit.clamp(20, 40)));
   }
 
   void _startPolling(String runId, {String? jobId, int attempt = 0}) {

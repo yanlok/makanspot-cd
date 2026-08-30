@@ -38,17 +38,20 @@ import {
 } from "../_shared/apify.ts";
 import {
   deriveCategories,
+  ensurePlaceholder,
   extractVenue,
   geocode,
   isLikelyNotRestaurant,
   nameRelation,
   normalizeName,
   persistPrimaryImage,
+  persistRestaurantImageChain,
   popularityScore,
   reverseGeocode,
   selectBestImageCandidate,
   sumComponentCosts,
   trendScore,
+  tryPersist,
 } from "../_shared/enrich.ts";
 import { suggestNewSources } from "../auto-suggest-sources/index.ts";
 import { fetchWithTimeout } from "../_shared/http.ts";
@@ -161,6 +164,8 @@ interface PipelineState {
     candidates_detected: number;
     candidates_enriched: number;
     restaurants_created: number;
+    existing_restaurants_matched?: number;
+    restaurants_no_image?: number;
     places_received?: number;
     places_filtered?: number;
     location_posts_received?: number;
@@ -931,6 +936,56 @@ function addAffectedRestaurant(state: PipelineState, id: number) {
   }
 }
 
+/**
+ * Read the Apify dataset (free API call) and return the first
+ * owner.profile_pic_url for a post whose authorUsername matches one of
+ * the supplied usernames. Used as the Tier-2 image fallback when the
+ * post's own photo is rejected.
+ *
+ * addParentData: true is set on the location-posts actor, so each record
+ * carries parentData.owner.profile_pic_url.
+ */
+async function fetchOwnerProfilePicFromDataset(
+  datasetId: string,
+  ownerUsernames: Set<string>,
+): Promise<string | null> {
+  const token = Deno.env.get("APIFY_TOKEN");
+  if (!token || ownerUsernames.size === 0) return null;
+  try {
+    const url =
+      `https://api.apify.com/v2/datasets/${datasetId}/items?format=json&limit=200`;
+    const resp = await fetchWithTimeout(
+      url,
+      { headers: { Authorization: `Bearer ${token}` } },
+      10_000,
+    );
+    if (!resp.ok) return null;
+    const items = await resp.json() as Array<Record<string, unknown>>;
+    for (const item of items) {
+      const parent = (item.parentData ?? {}) as Record<string, unknown>;
+      const owner = (parent.owner ?? item.owner ?? {}) as Record<
+        string,
+        unknown
+      >;
+      const ownerUsername = (parent.ownerUsername ??
+        owner.username ??
+        item.ownerUsername) as string | undefined;
+      if (ownerUsername && ownerUsernames.has(ownerUsername)) {
+        const pic = owner.profile_pic_url as string | undefined;
+        if (pic && /^https?:\/\//i.test(pic)) return pic;
+      }
+    }
+    return null;
+  } catch (e) {
+    console.warn(
+      `[image-chain] Apify dataset read failed: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+    return null;
+  }
+}
+
 async function findPlaceRestaurant(
   supabase: DbClient,
   place: PlaceCandidate,
@@ -1009,6 +1064,8 @@ async function upsertPlaceRestaurant(
     if (error) {
       throw new Error(`Place restaurant update failed: ${error.message}`);
     }
+    state.stats.existing_restaurants_matched =
+      (state.stats.existing_restaurants_matched ?? 0) + 1;
   } else {
     if (!place.name) return null;
     const { data, error } = await supabase.from("restaurants").insert({
@@ -1810,13 +1867,109 @@ async function handleMetrics(
       })),
       now,
     );
-    if (bestImage) {
-      await persistPrimaryImage(
+
+    // Skip the chain entirely when the restaurant already has a primary
+    // image (existing restaurant re-matched this run, or a previously
+    // selected photo).  Running the chain against an existing primary can
+    // only add junk rows (e.g. a non-primary placeholder when the post tier
+    // fails) or overwrite an image we did not choose.
+    const { data: existingPrimary, error: existingPrimaryError } =
+      await supabase
+        .from("restaurant_images")
+        .select("id")
+        .eq("restaurant_id", restaurantId)
+        .eq("is_primary", true)
+        .limit(1)
+        .maybeSingle();
+    if (existingPrimaryError) {
+      throw new Error(
+        `Primary image check failed: ${existingPrimaryError.message}`,
+      );
+    }
+
+    if (!existingPrimary) {
+      // Load restaurant metadata for the fallback chain (website + categories).
+      const { data: restaurantMeta } = await supabase
+        .from("restaurants")
+        .select("website, categories")
+        .eq("id", restaurantId)
+        .maybeSingle();
+
+      // Try to recover the IG owner profile_pic_url from the Apify dataset.
+      // The location_posts dataset has addParentData: true, so each record
+      // carries parentData.owner.profile_pic_url. This is a free dataset read.
+      let ownerProfilePicUrl: string | null = null;
+      const ownerUsernames = new Set(
+        posts.map((p) => p.author_username).filter((u): u is string => !!u),
+      );
+      const datasetId = state.location_posts_dataset_id ?? state.dataset_id;
+      if (datasetId && ownerUsernames.size > 0) {
+        ownerProfilePicUrl = await fetchOwnerProfilePicFromDataset(
+          datasetId,
+          ownerUsernames,
+        );
+      }
+
+      // Run the full chain.  Tier 1 is the post image (and runs the validator);
+      // tiers 2-4 are the new free fallbacks.  Never throws.
+      const chainResult = await persistRestaurantImageChain(
         supabase,
         restaurantId,
-        bestImage.cover_url,
-        bestImage.quality_score,
+        {
+          postImageUrl: bestImage?.cover_url ?? null,
+          postImageScore: bestImage?.quality_score ?? 0,
+          ownerProfilePicUrl,
+          websiteUrl: restaurantMeta?.website ?? null,
+          category: (restaurantMeta?.categories ?? [])[0] ?? null,
+        },
       );
+      if (chainResult.source && chainResult.source !== "post") {
+        console.log(
+          `[image-chain] Used fallback "${chainResult.source}" for restaurant ${restaurantId}: ${chainResult.imageUrl}`,
+        );
+      }
+
+      // Image requirement: check if restaurant now has a primary image.
+      // Restaurants without a primary image are not display-ready.
+      const { data: primaryImg } = await supabase
+        .from("restaurant_images")
+        .select("id")
+        .eq("restaurant_id", restaurantId)
+        .eq("is_primary", true)
+        .limit(1)
+        .maybeSingle();
+      if (!primaryImg) {
+        // Final safety net: the chain should have written a placeholder, but if
+        // every tier reported success without actually persisting, try once
+        // more inline before counting this restaurant as no-image.
+        const placeholderUrl = await ensurePlaceholder(
+          supabase,
+          (restaurantMeta?.categories ?? [])[0] ?? null,
+        );
+        if (placeholderUrl) {
+          await tryPersist(
+            supabase,
+            restaurantId,
+            placeholderUrl,
+            0.1,
+            "placeholder_emergency",
+          );
+          const { data: retryImg } = await supabase
+            .from("restaurant_images")
+            .select("id")
+            .eq("restaurant_id", restaurantId)
+            .eq("is_primary", true)
+            .limit(1)
+            .maybeSingle();
+          if (!retryImg) {
+            state.stats.restaurants_no_image =
+              (state.stats.restaurants_no_image ?? 0) + 1;
+          }
+        } else {
+          state.stats.restaurants_no_image =
+            (state.stats.restaurants_no_image ?? 0) + 1;
+        }
+      }
     }
     state.metrics_index = index + 1;
     if (!hasProcessingBudget(processingDeadline)) {
@@ -1866,11 +2019,15 @@ async function handleComplete(
           result_limit: state.result_limit,
           new_posts: state.stats.new_posts,
           new_restaurants: state.stats.restaurants_created,
+          existing_restaurants_matched:
+            state.stats.existing_restaurants_matched ?? 0,
+          restaurants_no_image: state.stats.restaurants_no_image ?? 0,
           candidates_detected: state.stats.candidates_detected,
           candidates_enriched: state.stats.candidates_enriched,
           mapbox_requests_used: state.mapbox_requests_used ?? 0,
           skipped: state.stats.posts_skipped,
           failed: state.stats.posts_failed,
+          posts_failed: state.stats.posts_failed,
           cost_usd: state.cost_usd ?? 0,
           posts_received: state.stats.posts_received,
           places_received: state.stats.places_received ?? 0,
@@ -1942,10 +2099,10 @@ async function handleComplete(
         ? newCost / newRestaurants
         : 0;
 
-      // Cooldown: 7 days if productive, 14 days if not
+      // Cooldown: 4 hours if productive, 24 hours if not
       const cooldownMs = state.stats.restaurants_created > 0
-        ? 7 * DAY_MS
-        : 14 * DAY_MS;
+        ? 4 * 60 * 60 * 1000  // 4 hours
+        : DAY_MS;  // 24 hours
       const nextScrapeAt = nextBusinessHour(now + cooldownMs);
 
       const sourceUpdate: Record<string, unknown> = {
@@ -1980,6 +2137,44 @@ async function handleComplete(
       `(cost=$${state.cost_usd ?? 0}, new_posts=${state.stats.new_posts}, ` +
       `restaurants=${state.stats.restaurants_created}, duration=${duration}s)`,
   );
+
+  // If this run is part of an auto-run session, chain to auto-run-continue
+  // so the next query can be picked up automatically.
+  if (state.scrape_run_id) {
+    const { data: runRow } = await supabase
+      .from("scrape_runs")
+      .select("auto_run_id")
+      .eq("id", state.scrape_run_id)
+      .maybeSingle();
+    if (runRow?.auto_run_id) {
+      console.log(
+        `[pipeline-continue] Job ${jobId}: chaining to auto-run ${runRow.auto_run_id}`,
+      );
+      EdgeRuntime.waitUntil(
+        fetch(
+          `${Deno.env.get("SUPABASE_URL")}/functions/v1/auto-run`,
+          {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${
+                Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
+              }`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              action: "continue",
+              auto_run_id: runRow.auto_run_id,
+            }),
+          },
+        ).catch((err) =>
+          console.error(
+            `[pipeline-continue] Auto-run chain error:`,
+            err,
+          )
+        ),
+      );
+    }
+  }
 }
 
 async function settleComponentCosts(
@@ -2195,6 +2390,8 @@ function emptyStats(): PipelineState["stats"] {
     candidates_detected: 0,
     candidates_enriched: 0,
     restaurants_created: 0,
+    existing_restaurants_matched: 0,
+    restaurants_no_image: 0,
     posts_skipped: 0,
     posts_failed: 0,
   };
