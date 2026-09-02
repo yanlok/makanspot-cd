@@ -12,7 +12,6 @@ import 'widgets/admin_filter_dropdown.dart';
 import 'widgets/admin_page_header.dart';
 import 'widgets/admin_search_field.dart';
 import 'widgets/admin_skeletons.dart';
-import 'widgets/admin_status_badge.dart';
 
 class RestaurantManagementScreen extends ConsumerWidget {
   const RestaurantManagementScreen({super.key});
@@ -25,122 +24,185 @@ class RestaurantManagementScreen extends ConsumerWidget {
     );
     return SafeArea(
       bottom: false,
-      child: ListView(
-        key: const Key('restaurant-management-scroll'),
-        padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
-        children: [
-          const AdminPageHeader(
-            title: 'Restaurants',
-            subtitle: 'Manage restaurant records',
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: AdminFilterDropdown<RestaurantVerificationFilter>(
-                  width: null,
-                  value: state.verificationFilter,
-                  options: const [
-                    ('All statuses', RestaurantVerificationFilter.all),
-                    ('Verified', RestaurantVerificationFilter.verified),
-                    ('Pending', RestaurantVerificationFilter.pending),
-                  ],
-                  onChanged: controller.selectVerificationFilter,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: AdminFilterDropdown<RestaurantSort>(
-                  width: null,
-                  value: state.sort,
-                  options: const [
-                    ('Name: A–Z', RestaurantSort.nameAscending),
-                    ('Name: Z–A', RestaurantSort.nameDescending),
-                    ('Rating: High–Low', RestaurantSort.ratingDescending),
-                    ('Rating: Low–High', RestaurantSort.ratingAscending),
-                    ('Verification status', RestaurantSort.verificationStatus),
-                  ],
-                  onChanged: controller.selectSort,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: AdminSearchField(
-                  hint: 'Search restaurants...',
-                  value: state.searchQuery,
-                  onChanged: controller.updateSearch,
-                  fieldKey: const Key('admin-restaurant-search'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              IconButton(
-                key: const Key('admin-add-restaurant'),
-                tooltip: 'Add restaurant',
-                onPressed: () => context.go('/admin/restaurants/new'),
-                style: IconButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: AppColors.surface,
-                  fixedSize: const Size(44, 44),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadii.control),
-                  ),
-                ),
-                icon: const Icon(LucideIcons.plus, size: 20),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          if (state.status == RestaurantManagementStatus.error)
-            _RestaurantManagementError(onRetry: controller.load)
-          else if (state.status == RestaurantManagementStatus.loading)
-            const AdminListSkeleton(count: 5, cardHeight: 144)
-          else if (state.status == RestaurantManagementStatus.empty)
-            const AdminEmptyState(
-              icon: LucideIcons.utensilsCrossed,
-              title: 'No Restaurants Found',
-              message: 'No restaurants match your search.',
-            )
-          else
-            for (final restaurant in state.restaurants) ...[
-              _RestaurantCard(restaurant: restaurant),
-              const SizedBox(height: 12),
-            ],
-        ],
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (notification) {
+          if (notification is ScrollEndNotification) {
+            final metrics = notification.metrics;
+            // Only paginate when the list actually scrolls; on a short list
+            // maxScrollExtent is 0 and every scroll gesture would otherwise
+            // trigger a page fetch.
+            final atEnd = metrics.maxScrollExtent > 0 &&
+                metrics.pixels >= metrics.maxScrollExtent - 40;
+            if (atEnd) {
+              controller.loadMore();
+            }
+          }
+          return false;
+        },
+        child: ListView.builder(
+          key: const Key('restaurant-management-scroll'),
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+          itemCount: _itemCount(state),
+          itemBuilder: (context, index) {
+            if (index == 0) {
+              return _buildHeader(context, ref, controller, state);
+            }
+            final restaurantIndex = index - 1;
+            if (restaurantIndex < state.restaurants.length) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _RestaurantCard(restaurant: state.restaurants[restaurantIndex]),
+                  const SizedBox(height: 12),
+                ],
+              );
+            }
+
+            return _buildFooter(controller, state);
+          },
+        ),
       ),
     );
   }
-}
 
-class _RestaurantManagementError extends StatelessWidget {
-  const _RestaurantManagementError({required this.onRetry});
+  int _itemCount(RestaurantManagementState state) {
+    final hasList = state.status != RestaurantManagementStatus.loading;
+    final footer = hasList ? 1 : 0;
+    return 1 + (hasList ? state.restaurants.length : 0) + footer;
+  }
 
-  final VoidCallback onRetry;
+  Widget _buildHeader(
+    BuildContext context,
+    WidgetRef ref,
+    RestaurantManagementController controller,
+    RestaurantManagementState state,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const AdminPageHeader(
+          title: 'Restaurants',
+          subtitle: 'Manage restaurant records',
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: AdminFilterDropdown<RestaurantStatusFilter>(
+                width: null,
+                value: state.statusFilter,
+                options: const [
+                  ('All restaurants', RestaurantStatusFilter.all),
+                  ('Active', RestaurantStatusFilter.active),
+                  ('Deleted', RestaurantStatusFilter.deleted),
+                ],
+                onChanged: controller.selectStatusFilter,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: AdminFilterDropdown<RestaurantSort>(
+                width: null,
+                value: state.sort,
+                options: const [
+                  ('Name: A–Z', RestaurantSort.nameAscending),
+                  ('Name: Z–A', RestaurantSort.nameDescending),
+                ],
+                onChanged: controller.selectSort,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        AdminSearchField(
+          hint: 'Search restaurants...',
+          value: state.searchQuery,
+          onChanged: controller.updateSearch,
+          fieldKey: const Key('admin-restaurant-search'),
+        ),
+        const SizedBox(height: 20),
+        if (state.status == RestaurantManagementStatus.loading)
+          const AdminListSkeleton(count: 5, cardHeight: 144)
+        else if (state.status == RestaurantManagementStatus.empty)
+          const AdminEmptyState(
+            icon: LucideIcons.utensilsCrossed,
+            title: 'No Restaurants Found',
+            message: 'No restaurants match your filters.',
+          ),
+      ],
+    );
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 48),
+  Widget _buildFooter(
+    RestaurantManagementController controller,
+    RestaurantManagementState state,
+  ) {
+    if (state.status == RestaurantManagementStatus.error) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(
               LucideIcons.triangleAlert,
-              size: 44,
+              size: 24,
               color: AppColors.mutedForeground,
             ),
-            const SizedBox(height: 12),
-            const Text('We could not load restaurant records right now.'),
+            const SizedBox(height: 8),
+            Text(
+              state.pageError ?? 'We could not load restaurant records right now.',
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 16),
-            FilledButton(onPressed: onRetry, child: const Text('Try Again')),
+            FilledButton(
+              onPressed: controller.loadFirstPage,
+              child: const Text('Try Again'),
+            ),
           ],
         ),
-      ),
-    );
+      );
+    }
+
+    if (state.status == RestaurantManagementStatus.loadingMore) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (state.pageError != null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Could not load more restaurants.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton(
+              onPressed: controller.loadMore,
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (!state.hasMore && state.restaurants.isNotEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Text(
+          'All restaurants loaded.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: AppColors.mutedForeground),
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
   }
 }
 
@@ -189,34 +251,21 @@ class _RestaurantCard extends StatelessWidget {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          AdminStatusBadge(
-                            label: restaurant.verificationStatus,
-                          ),
                         ],
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        restaurant.ownerName.isEmpty
-                            ? (restaurant.description.isEmpty
-                                  ? 'Restaurant details not provided'
-                                  : restaurant.description)
-                            : 'Owner: ${restaurant.ownerName}',
+                        restaurant.isDeleted
+                            ? 'Deleted'
+                            : ((restaurant.instagramUsername ?? '').isEmpty
+                                ? 'Instagram not provided'
+                                : 'IG: ${restaurant.instagramUsername}'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppColors.mutedForeground,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        restaurant.cuisine.isEmpty
-                            ? 'Cuisine not provided'
-                            : restaurant.cuisine,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppColors.mutedForeground,
+                          color: restaurant.isDeleted
+                              ? AppColors.destructive
+                              : AppColors.mutedForeground,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -234,9 +283,9 @@ class _RestaurantCard extends StatelessWidget {
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
-                              restaurant.address.isEmpty
+                              (restaurant.address ?? '').isEmpty
                                   ? 'No address'
-                                  : restaurant.address,
+                                  : restaurant.address!,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: Theme.of(context).textTheme.bodySmall
@@ -260,35 +309,30 @@ class _RestaurantCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      restaurant.sourcePlatform.isEmpty
-                          ? 'Manual'
-                          : restaurant.sourcePlatform,
+                      restaurant.categoriesDisplay,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: AppColors.mutedForeground,
                       ),
                     ),
                   ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        LucideIcons.star,
-                        size: 14,
-                        color: AppColors.accent,
+                  if (restaurant.priceRange != null) ...[
+                    const Icon(
+                      LucideIcons.star,
+                      size: 14,
+                      color: AppColors.accent,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      restaurant.priceRange!,
+                      style: const TextStyle(
+                        fontFamily: 'Poppins',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.foreground,
                       ),
-                      const SizedBox(width: 4),
-                      Text(
-                        restaurant.ratingDisplay,
-                        style: const TextStyle(
-                          fontFamily: 'Poppins',
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.foreground,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(width: 12),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
                   const Text(
                     'Manage',
                     style: TextStyle(

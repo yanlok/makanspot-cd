@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:makanspot/core/router/not_migrated_screen.dart';
-import 'package:makanspot/features/admin/views/admin_dashboard_screen.dart';
 import 'package:makanspot/features/admin/views/admin_action_log_screen.dart';
 import 'package:makanspot/features/admin/views/admin_shell.dart';
 import 'package:makanspot/features/admin/views/edit_user_screen.dart';
@@ -15,6 +14,7 @@ import 'package:makanspot/features/admin/views/restaurant_information_screen.dar
 import 'package:makanspot/features/admin/views/restaurant_management_screen.dart';
 import 'package:makanspot/features/admin/views/user_details_screen.dart';
 import 'package:makanspot/features/admin/views/user_management_screen.dart';
+import 'package:makanspot/features/admin/views/data_scraper_screen.dart';
 import 'package:makanspot/features/auth/controllers/auth_controller.dart';
 import 'package:makanspot/features/auth/controllers/auth_state.dart';
 import 'package:makanspot/features/auth/views/change_password_screen.dart';
@@ -26,11 +26,13 @@ import 'package:makanspot/features/community/views/community_screen.dart';
 import 'package:makanspot/features/community/views/my_posts_screen.dart';
 import 'package:makanspot/features/community/views/post_details_screen.dart';
 import 'package:makanspot/features/community/views/review_editor_screen.dart';
+import 'package:makanspot/features/community/views/saved_posts_screen.dart';
 import 'package:makanspot/features/discover/controllers/discover_state.dart';
 import 'package:makanspot/features/discover/views/discover_screen.dart';
 import 'package:makanspot/features/discover/views/restaurant_details_screen.dart';
+import 'package:makanspot/features/discover/views/saved_restaurant_screen.dart';
 import 'package:makanspot/features/home/views/home_screen.dart';
-import 'package:makanspot/features/journey/views/achievements_screen.dart';
+import 'package:makanspot/features/journey/views/achievements_progress_screen.dart';
 import 'package:makanspot/features/journey/views/exploration_map_screen.dart';
 import 'package:makanspot/features/journey/views/journey_screen.dart';
 import 'package:makanspot/features/journey/views/visit_history_screen.dart';
@@ -50,12 +52,12 @@ abstract final class AppRoutes {
   static const forgotPassword = '/forgot-password';
   static const resetPassword = '/reset-password';
   static const changePassword = '/profile/change-password';
-  static const adminDashboard = '/admin';
   static const adminUsers = '/admin/users';
   static const adminActionLog = '/admin/action-log';
   static const adminRestaurants = '/admin/restaurants';
   static const adminNewRestaurant = '/admin/restaurants/new';
   static const adminModeration = '/admin/moderation';
+  static const adminScraper = '/admin/scraper';
 }
 
 /// Routes that can be visited without signing in.
@@ -90,9 +92,11 @@ GoRouter createAppRouter({
         return AppRoutes.login;
       }
       if (_publicRoutes.contains(location)) {
-        return session.isAdmin ? AppRoutes.adminDashboard : AppRoutes.home;
+        // Allow /reset-password during password recovery (session is temporary).
+        if (location == AppRoutes.resetPassword) return null;
+        return session.isAdmin ? AppRoutes.adminScraper : AppRoutes.home;
       }
-      if (location.startsWith(AppRoutes.adminDashboard) && !session.isAdmin) {
+      if (location.startsWith('/admin') && !session.isAdmin) {
         return AppRoutes.home;
       }
       return null;
@@ -118,6 +122,10 @@ GoRouter createAppRouter({
                 ),
               );
             },
+          ),
+          GoRoute(
+            path: '/saved-restaurants',
+            builder: (context, state) => const SavedRestaurantScreen(),
           ),
           GoRoute(
             path: '/restaurant/:id',
@@ -152,6 +160,10 @@ GoRouter createAppRouter({
             builder: (context, state) => const MyPostsScreen(),
           ),
           GoRoute(
+            path: '/saved-posts',
+            builder: (context, state) => const SavedPostsScreen(),
+          ),
+          GoRoute(
             path: AppRoutes.journey,
             builder: (context, state) => const JourneyScreen(),
           ),
@@ -165,7 +177,7 @@ GoRouter createAppRouter({
           ),
           GoRoute(
             path: '/achievements',
-            builder: (context, state) => const AchievementsScreen(),
+            builder: (context, state) => const AchievementsProgressScreen(),
           ),
           GoRoute(
             path: AppRoutes.profile,
@@ -196,7 +208,7 @@ GoRouter createAppRouter({
       GoRoute(
         path: AppRoutes.resetPassword,
         builder: (context, state) {
-          return ResetPasswordScreen(token: state.uri.queryParameters['token']);
+          return const ResetPasswordScreen();
         },
       ),
       ShellRoute(
@@ -205,8 +217,8 @@ GoRouter createAppRouter({
         },
         routes: [
           GoRoute(
-            path: AppRoutes.adminDashboard,
-            builder: (context, state) => const AdminDashboardScreen(),
+            path: AppRoutes.adminScraper,
+            builder: (context, state) => const DataScraperScreen(),
           ),
           GoRoute(
             path: AppRoutes.adminUsers,
@@ -253,8 +265,12 @@ GoRouter createAppRouter({
           ),
           GoRoute(
             path: '/admin/moderation/:id',
-            builder: (context, state) =>
-                ModerationDetailsScreen(contentId: state.pathParameters['id']!),
+            builder: (context, state) => ModerationDetailsScreen(
+              contentId: state.pathParameters['id']!,
+              contentType: ModerationDetailsScreen.contentTypeFromQuery(
+                state.uri.queryParameters['type'],
+              ),
+            ),
           ),
         ],
       ),

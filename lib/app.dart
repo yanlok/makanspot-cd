@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supa;
 
 import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
@@ -18,18 +21,31 @@ class MakanSpotApp extends ConsumerStatefulWidget {
 
 class _MakanSpotAppState extends ConsumerState<MakanSpotApp> {
   late final GoRouter _router;
+  StreamSubscription<supa.AuthState>? _authSub;
 
   @override
   void initState() {
     super.initState();
     _router = widget.router ?? createAppRouter(ref: ref);
-    // Restore the saved session (if any) so a logged-in user lands on the
-    // dashboard after a restart; the router redirect follows the state.
     ref.read(authControllerProvider.notifier).restoreSession();
+
+    // Let the Supabase SDK handle the deep link internally (it exchanges the
+    // auth code for a session). Listen for auth state changes to navigate
+    // after the SDK processes the reset link.
+    _authSub = supa.Supabase.instance.client.auth.onAuthStateChange.listen((
+      data,
+    ) {
+      // ignore: avoid_print
+      print('[Auth] event=${data.event} session=${data.session != null}');
+      if (data.event == supa.AuthChangeEvent.passwordRecovery) {
+        if (mounted) _router.go('/reset-password');
+      }
+    });
   }
 
   @override
   void dispose() {
+    _authSub?.cancel();
     if (widget.router == null) {
       _router.dispose();
     }
@@ -38,9 +54,9 @@ class _MakanSpotAppState extends ConsumerState<MakanSpotApp> {
 
   @override
   Widget build(BuildContext context) {
-    // Re-run the router redirect whenever the auth state changes (login,
-    // logout, session restore), so navigation follows the session.
-    ref.listen<AuthState>(authControllerProvider, (_, _) => _router.refresh());
+    ref.listen<AuthState>(authControllerProvider, (prev, next) {
+      _router.refresh();
+    });
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
       title: 'MakanSpot',

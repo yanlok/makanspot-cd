@@ -47,10 +47,13 @@ class SupabaseAuthRepository implements AuthRepository {
         email: email,
         password: password,
       );
+      // When email confirmation is enabled, signUp returns a user but no
+      // session — the user must confirm their email before signing in.
+      if (response.session == null) {
+        return null;
+      }
       final user = response.user;
       if (user == null) {
-        // Email confirmation is enabled server-side; the account cannot be
-        // signed into until the user confirms, so no session is returned.
         return null;
       }
       return await _sessionForUser(user);
@@ -79,9 +82,18 @@ class SupabaseAuthRepository implements AuthRepository {
       if (profile == null) {
         throw const AuthFailure('No account found with this email address.');
       }
-      await Supabase.instance.client.auth.resetPasswordForEmail(email);
+      await Supabase.instance.client.auth.resetPasswordForEmail(
+        email,
+        redirectTo: 'com.example.makanspot://reset-password',
+      );
     } on AuthException catch (error) {
+      // ignore: avoid_print
+      print('[PasswordReset] AuthException: ${error.message} (code: ${error.code})');
       throw AuthFailure(authErrorMessage(error));
+    } on Exception catch (error) {
+      // ignore: avoid_print
+      print('[PasswordReset] Exception: $error');
+      throw AuthFailure('Password reset failed: ${error.toString()}');
     }
   }
 
@@ -91,11 +103,37 @@ class SupabaseAuthRepository implements AuthRepository {
     required String newPassword,
   }) async {
     try {
-      // The reset email link authenticates the session; updating the password
-      // is then done against the current (confirmed) user.
+      // The Supabase SDK exchanges the code from the deep link for a session
+      // automatically. updateUser works against that session.
+      final session = Supabase.instance.client.auth.currentSession;
+      // ignore: avoid_print
+      print('[PasswordReset] session=${session != null} user=${Supabase.instance.client.auth.currentUser?.id}');
       await Supabase.instance.client.auth.updateUser(
         UserAttributes(password: newPassword),
       );
+      // Sign out after reset so the user logs in with the new password.
+      await Supabase.instance.client.auth.signOut();
+    } on AuthException catch (error) {
+      // ignore: avoid_print
+      print('[PasswordReset] AuthException: ${error.message} (code: ${error.code})');
+      throw AuthFailure(authErrorMessage(error));
+    } on Exception catch (error) {
+      // ignore: avoid_print
+      print('[PasswordReset] Exception: $error');
+      throw AuthFailure('Password reset failed: ${error.toString()}');
+    }
+  }
+
+  @override
+  Future<void> deleteAccount() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) {
+        throw const AuthFailure('No signed-in account to delete.');
+      }
+      // Call a server-side function that cleans up public data then deletes
+      // the auth user (which requires elevated privileges).
+      await Supabase.instance.client.rpc('delete_current_user');
     } on AuthException catch (error) {
       throw AuthFailure(authErrorMessage(error));
     }
@@ -163,6 +201,9 @@ String authErrorMessage(AuthException error) {
       message.contains('already registered') ||
       message.contains('already been registered')) {
     return 'An account with this email already exists.';
+  }
+  if (code == 'same_password') {
+    return 'New password must be different from your current password.';
   }
   return 'Authentication failed. Please try again.';
 }

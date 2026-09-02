@@ -22,7 +22,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
       'id,user_id,restaurant_id,content,rating,media_urls,status,created_at,'
       'users!posts_user_id_fkey(username,avatar_url,community_score),'
       'restaurants!posts_restaurant_id_fkey(name,restaurant_images(image_url,is_primary)),'
-      'likes(user_id)';
+      'likes(user_id),comments(id),bookmarks(user_id)';
 
   @override
   Future<List<CommunityPost>> loadCommunityPosts() async {
@@ -45,13 +45,42 @@ class SupabaseCommunityRepository implements CommunityRepository {
   }
 
   @override
+  Future<List<CommunityPost>> loadSavedPosts() async {
+    final bookmarkRows = await _client
+        .from('bookmarks')
+        .select('post_id')
+        .eq('user_id', _user.id)
+        .order('created_at', ascending: false);
+    final orderedPostIds = bookmarkRows
+        .map<String>((row) => row['post_id'].toString())
+        .toList(growable: false);
+    if (orderedPostIds.isEmpty) {
+      return const [];
+    }
+
+    final rows = await _client
+        .from('posts')
+        .select(_postSelect)
+        .inFilter('id', orderedPostIds)
+        .eq('status', 'active');
+    final postsById = {
+      for (final row in rows) row['id'].toString(): _postFromRow(row),
+    };
+
+    return orderedPostIds
+        .map((id) => postsById[id])
+        .whereType<CommunityPost>()
+        .toList(growable: false);
+  }
+
+  @override
   Future<List<CommunityRestaurant>> loadRestaurants() async {
     final rows = await _client
         .from('restaurants')
         // Keep this query independent of optional category/image relationships.
         // A restaurant should still be reviewable before enrichment is complete.
         .select('id,name')
-        .eq('is_approved', true)
+        .isFilter('deleted_at', null)
         .order('name');
     return rows
         .map<CommunityRestaurant>(
@@ -75,7 +104,9 @@ class SupabaseCommunityRepository implements CommunityRepository {
     if (row == null) return null;
     final comments = await _client
         .from('comments')
-        .select('id,post_id,content,user_id,users(username,avatar_url)')
+        .select(
+          'id,post_id,content,user_id,parent_comment_id,is_pinned,created_at,users(username,avatar_url)',
+        )
         .eq('post_id', id)
         .order('created_at');
     return CommunityPostDetails(
@@ -89,6 +120,16 @@ class SupabaseCommunityRepository implements CommunityRepository {
               username: user['username']?.toString() ?? 'Food explorer',
               userAvatar: user['avatar_url']?.toString() ?? '',
               text: item['content']?.toString() ?? '',
+              userId: item['user_id']?.toString() ?? '',
+              isOwn:
+                  item['user_id']?.toString() == _client.auth.currentUser?.id,
+              canPin:
+                  row['user_id']?.toString() == _client.auth.currentUser?.id,
+              isPinned: item['is_pinned'] as bool? ?? false,
+              createdAt: DateTime.tryParse(
+                item['created_at']?.toString() ?? '',
+              ),
+              parentCommentId: item['parent_comment_id']?.toString(),
             );
           })
           .toList(growable: false),
@@ -177,8 +218,11 @@ class SupabaseCommunityRepository implements CommunityRepository {
           'post_id': int.parse(postId),
           'user_id': _user.id,
           'content': text,
+          'parent_comment_id': parentCommentId == null
+              ? null
+              : int.parse(parentCommentId),
         })
-        .select('id,post_id,content')
+        .select('id,post_id,content,parent_comment_id')
         .single();
     final metadata = _user.userMetadata ?? const {};
     return CommunityComment(
@@ -187,7 +231,10 @@ class SupabaseCommunityRepository implements CommunityRepository {
       username: metadata['username']?.toString() ?? 'You',
       userAvatar: metadata['avatar_url']?.toString() ?? '',
       text: row['content'].toString(),
-      parentCommentId: parentCommentId,
+      parentCommentId: row['parent_comment_id']?.toString(),
+      userId: _user.id,
+      isOwn: true,
+      canPin: true,
     );
   }
 
@@ -219,6 +266,104 @@ class SupabaseCommunityRepository implements CommunityRepository {
     return row == null ? null : _postFromRow(row);
   }
 
+  @override
+  Future<CommunityPost?> toggleSave(String id) async {
+    final existing = await _client
+        .from('bookmarks')
+        .select('id')
+        .eq('post_id', int.parse(id))
+        .eq('user_id', _user.id)
+        .maybeSingle();
+    if (existing == null) {
+      await _client.from('bookmarks').insert({
+        'post_id': int.parse(id),
+        'user_id': _user.id,
+      });
+    } else {
+      await _client.from('bookmarks').delete().eq('id', existing['id']);
+    }
+    final row = await _client
+        .from('posts')
+        .select(_postSelect)
+        .eq('id', id)
+        .maybeSingle();
+    return row == null ? null : _postFromRow(row);
+  }
+
+  @override
+  Future<void> reportPost({
+    required String postId,
+    required CommunityReportReason reason,
+    String? additionalInfo,
+  }) => _insertReport(
+    postId: postId,
+    reason: reason,
+    additionalInfo: additionalInfo,
+  );
+
+  @override
+  Future<void> reportComment({
+    required String commentId,
+    required CommunityReportReason reason,
+    String? additionalInfo,
+  }) => _insertReport(
+    commentId: commentId,
+    reason: reason,
+    additionalInfo: additionalInfo,
+  );
+
+  Future<void> _insertReport({
+    String? postId,
+    String? commentId,
+    required CommunityReportReason reason,
+    String? additionalInfo,
+  }) async {
+    final duplicate = await _client
+        .from('reports')
+        .select('id')
+        .eq('reporter_id', _user.id)
+        .eq(
+          postId == null ? 'comment_id' : 'post_id',
+          int.parse(postId ?? commentId!),
+        )
+        .maybeSingle();
+    if (duplicate != null) return;
+    await _client.from('reports').insert({
+      'reporter_id': _user.id,
+      if (postId != null) 'post_id': int.parse(postId),
+      if (commentId != null) 'comment_id': int.parse(commentId),
+      'reason': reason.label,
+      if (additionalInfo != null && additionalInfo.trim().isNotEmpty)
+        'additional_info': additionalInfo.trim(),
+    });
+  }
+
+  @override
+  Future<void> deleteComment(String id) async {
+    final deleted = await _client
+        .from('comments')
+        .delete()
+        .eq('id', int.parse(id))
+        .eq('user_id', _user.id)
+        .select('id');
+    if (deleted.isEmpty) {
+      throw StateError(
+        'Comment could not be deleted. Check ownership and permissions.',
+      );
+    }
+  }
+
+  @override
+  Future<void> togglePinComment({
+    required String id,
+    required bool pinned,
+  }) async {
+    await _client
+        .from('comments')
+        .update({'is_pinned': pinned})
+        .eq('id', int.parse(id));
+  }
+
   Future<List<String>> _uploadMedia(List<ReviewMedia> media) async {
     final result = <String>[];
     for (final item in media) {
@@ -247,6 +392,8 @@ class SupabaseCommunityRepository implements CommunityRepository {
     final user = row['users'] as Map? ?? const {};
     final restaurant = row['restaurants'] as Map? ?? const {};
     final likes = row['likes'] as List? ?? const [];
+    final comments = row['comments'] as List? ?? const [];
+    final bookmarks = row['bookmarks'] as List? ?? const [];
     final currentUserId = _client.auth.currentUser?.id;
     return CommunityPost(
       id: row['id'].toString(),
@@ -261,9 +408,15 @@ class SupabaseCommunityRepository implements CommunityRepository {
       rating: row['rating'] as int? ?? 0,
       mediaUrls: List<String>.from(row['media_urls'] as List? ?? const []),
       likes: likes.length,
+      commentCount: comments.length,
       isLiked:
           currentUserId != null &&
           likes.any((like) => (like as Map)['user_id'] == currentUserId),
+      isSaved:
+          currentUserId != null &&
+          bookmarks.any(
+            (bookmark) => (bookmark as Map)['user_id'] == currentUserId,
+          ),
       status: row['status']?.toString() ?? 'active',
       createdAt:
           DateTime.tryParse(row['created_at']?.toString() ?? '') ??

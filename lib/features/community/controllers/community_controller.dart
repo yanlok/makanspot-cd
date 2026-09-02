@@ -92,6 +92,27 @@ class CommunityController extends StateNotifier<CommunityState> {
     _filter();
   }
 
+  Future<void> toggleSave(String id) async {
+    final updated = await _repository.toggleSave(id);
+    if (updated == null) return;
+    _allPosts = _allPosts
+        .map((post) => post.id == id ? updated : post)
+        .toList(growable: false);
+    _filter();
+  }
+
+  Future<void> reportPost(
+    String id,
+    CommunityReportReason reason, {
+    String? details,
+  }) {
+    return _repository.reportPost(
+      postId: id,
+      reason: reason,
+      additionalInfo: details,
+    );
+  }
+
   void _filter() {
     final query = state.searchQuery.trim().toLowerCase();
     final posts = _allPosts

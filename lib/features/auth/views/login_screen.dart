@@ -20,6 +20,27 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  bool _passwordResetBannerShown = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Show the snackbar on the first frame if we arrived from a password reset.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final state = ref.read(authControllerProvider);
+      if (state.passwordResetSucceeded && !_passwordResetBannerShown) {
+        _passwordResetBannerShown = true;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Password reset successfully! Please log in with your new password.',
+            ),
+          ),
+        );
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -45,6 +66,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(authControllerProvider);
+
     return AuthLayout(
       icon: LucideIcons.logIn,
       title: 'Welcome back',
@@ -70,7 +92,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               child: Semantics(
                 liveRegion: true,
                 child: const Text(
-                  'Account created. Log in to continue.',
+                  'Account created! Please check your email to verify, then log in.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: AppColors.primary),
                 ),

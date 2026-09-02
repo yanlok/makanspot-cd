@@ -214,8 +214,7 @@ async function main() {
 
   await enrich();
 
-  console.log("\nDone. New restaurants land as is_approved = false — approve them " +
-    "in the admin dashboard.");
+  console.log("\nDone. New restaurants are now available to the app.");
 }
 
 main().catch((err) => {

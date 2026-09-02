@@ -195,13 +195,34 @@ Creates a restaurant row with `is_approved = false`. It won't appear in the publ
 app until an admin approves it. Only LLM-extracted data and geocoding results are
 stored — no Google Places phone/rating/hours/photo data is attached.
 
-### Stage E — Photo re-hosting
+### Stage E — Image fallback chain
 
-*Removed from the pipeline.* Photo re-hosting via Google Places API was stripped out
-due to cost. Scraped cover URLs from Apify are still stored (`cover_url` column) but
-are not re-hosted to Supabase Storage anymore. If photos are needed in the future,
-they should be sourced differently (e.g. manual upload by admins, or a cheaper image
-service).
+The original Google Places photo re-hosting was stripped out due to cost. In its
+place the pipeline runs a 4-tier image chain (`_shared/enrich.ts`) during the
+metrics step, for every affected restaurant that does **not** already have a
+primary image:
+
+1. **Post image** — the best `cover_url` across the restaurant's linked posts
+   (`selectBestImageCandidate`), validated by a vision LLM
+   (`_shared/image-validation.ts`, tuned to accept anything restaurant-related:
+   food, promos, menus with branding, influencer-at-venue shots) and re-hosted
+   to `restaurant-photos/` in Supabase Storage.
+2. **Instagram profile pic** — the post owner's `profile_pic_url` from the
+   Apify dataset (requires `addParentData: true`).
+3. **Website OG image** — `og:image` from the restaurant's website.
+4. **Category placeholder** — a generated SVG under
+   `restaurant-photos/placeholders/<category>.svg` (quality score 0.1).
+
+Every restaurant must end up with a primary image; `restaurants_no_image` in
+the run stats counts any that somehow don't. `backfill-images` re-runs the same
+shared chain over a list of restaurant IDs to repair placeholder primaries.
+`restaurant_images` is kept strictly 1-1 with `restaurants`: the app reads only
+the primary row, so when a new image is promoted every other row for the
+restaurant is deleted, and a candidate that loses the score comparison is
+deleted rather than lingering as non-primary.
+Ephemeral Instagram CDN URLs are never stored as `image_url` — the re-hosted
+storage URL is the canonical `image_url` and the CDN URL is kept in
+`source_url`.
 
 ---
 

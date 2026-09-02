@@ -1,5 +1,3 @@
-import 'dart:developer' as developer;
-
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_models.dart';
@@ -10,9 +8,6 @@ class SupabaseAdminRepository implements AdminRepository {
   SupabaseAdminRepository(this._client);
 
   final SupabaseClient _client;
-
-  @override
-  bool get restaurantUpdatesAreAutomaticallyAudited => true;
 
   static const _reportSelect = '''
     id,
@@ -40,9 +35,11 @@ class SupabaseAdminRepository implements AdminRepository {
   @override
   Future<ReportedContentGroup?> loadReportedContentGroup(
     String contentId,
+    ReportContentType contentType,
   ) async {
-    final isPost = await _contentIsPost(contentId);
-    final column = isPost ? 'post_id' : 'comment_id';
+    final column = contentType == ReportContentType.post
+        ? 'post_id'
+        : 'comment_id';
 
     final rows = await _client
         .from('reports')
@@ -68,9 +65,11 @@ class SupabaseAdminRepository implements AdminRepository {
   }
 
   @override
-  Future<void> removeContent(String contentId) async {
-    final isPost = await _contentIsPost(contentId);
-    final table = isPost ? 'posts' : 'comments';
+  Future<void> removeContent(
+    String contentId,
+    ReportContentType contentType,
+  ) async {
+    final table = contentType == ReportContentType.post ? 'posts' : 'comments';
     final updated = await _client
         .from(table)
         .update({'is_hidden': true})
@@ -85,9 +84,13 @@ class SupabaseAdminRepository implements AdminRepository {
   }
 
   @override
-  Future<void> dismissReports(String contentId) async {
-    final isPost = await _contentIsPost(contentId);
-    final column = isPost ? 'post_id' : 'comment_id';
+  Future<void> dismissReports(
+    String contentId,
+    ReportContentType contentType,
+  ) async {
+    final column = contentType == ReportContentType.post
+        ? 'post_id'
+        : 'comment_id';
     // Soft delete: mark the reports as dismissed so they leave the
     // moderation queue but remain in the table for audit.
     final updated = await _client
@@ -101,78 +104,6 @@ class SupabaseAdminRepository implements AdminRepository {
         'lack admin permissions.',
       );
     }
-  }
-
-  // ── Dashboard ────────────────────────────────────────────────────
-
-  @override
-  Future<AdminDashboardData> loadDashboard() async {
-    final counts = await Future.wait([
-      _client.from('users').select('id').count(),
-      _client.from('restaurants').select('id').count(),
-      _client.from('posts').select('id').count(),
-      _client.from('comments').select('id').count(),
-    ]);
-    final pendingCount = await _countPendingReports();
-
-    final allGroups = await loadReportedContentGroups();
-    final pendingGroups = allGroups.where((g) => !g.isRemoved).take(5).toList();
-
-    return AdminDashboardData(
-      userCount: counts[0].count,
-      restaurantCount: counts[1].count,
-      postCount: counts[2].count,
-      commentCount: counts[3].count,
-      pendingReportCount: pendingCount,
-      recentReports: pendingGroups,
-    );
-  }
-
-  Future<int> _countPendingReports() async {
-    // Count distinct post_ids that have active (non-dismissed) reports
-    // and are not hidden.
-    final postRows = await _client
-        .from('reports')
-        .select('post_id')
-        .not('post_id', 'is', null)
-        .isFilter('dismissed_at', null);
-
-    final commentRows = await _client
-        .from('reports')
-        .select('comment_id')
-        .not('comment_id', 'is', null)
-        .isFilter('dismissed_at', null);
-
-    final postIds = <int>{};
-    for (final row in postRows) {
-      final id = row['post_id'] as int?;
-      if (id != null) postIds.add(id);
-    }
-
-    final commentIds = <int>{};
-    for (final row in commentRows) {
-      final id = row['comment_id'] as int?;
-      if (id != null) commentIds.add(id);
-    }
-
-    int count = 0;
-    if (postIds.isNotEmpty) {
-      final result = await _client
-          .from('posts')
-          .select('id')
-          .inFilter('id', postIds.toList())
-          .eq('is_hidden', false);
-      count += result.length;
-    }
-    if (commentIds.isNotEmpty) {
-      final result = await _client
-          .from('comments')
-          .select('id')
-          .inFilter('id', commentIds.toList())
-          .eq('is_hidden', false);
-      count += result.length;
-    }
-    return count;
   }
 
   // ── Users ────────────────────────────────────────────────────────
@@ -273,41 +204,22 @@ class SupabaseAdminRepository implements AdminRepository {
   }
 
   @override
-  Future<bool> restaurantNameExists(
-    String name, {
-    String? excludeRestaurantId,
-  }) async {
-    // Avoid an `ilike` filter here: a restaurant name can legitimately
-    // contain PostgREST wildcard characters. Comparing the small set of IDs
-    // and names locally is exact and works on every deployed schema.
-    final rows = await _client.from('restaurants').select('id, name');
-    final normalizedName = _normalizeRestaurantName(name);
-    return rows.any(
-      (row) =>
-          '${row['id']}' != excludeRestaurantId &&
-          _normalizeRestaurantName(_stringOrEmpty(row['name'])) ==
-              normalizedName,
-    );
-  }
-
-  @override
   Future<void> logAdminAction({
     required String adminUserId,
     required String adminUsername,
     required String action,
-    String? targetUserId,
+    required String targetUserId,
     required String targetUsername,
     Map<String, Map<String, Object?>>? fieldChanges,
   }) async {
-    final values = <String, Object?>{
+    await _client.from('admin_audit_log').insert({
       'admin_user_id': adminUserId,
       'admin_username': adminUsername,
       'action': action,
+      'target_user_id': targetUserId,
       'target_username': targetUsername,
       'field_changes': fieldChanges ?? {},
-    };
-    if (targetUserId != null) values['target_user_id'] = targetUserId;
-    await _client.from('admin_audit_log').insert(values);
+    });
   }
 
   @override
@@ -322,40 +234,114 @@ class SupabaseAdminRepository implements AdminRepository {
   // ── Restaurants ──────────────────────────────────────────────────
 
   @override
-  Future<List<AdminRestaurant>> loadRestaurants() async {
-    // The production database has evolved independently from the original
-    // app schema. In particular, some deployments do not expose the
-    // `restaurant_categories` relationship (or fields such as `rating`).
-    // Selecting the base record keeps the admin catalogue available across
-    // both schema versions; optional image data is fetched separately below.
-    final rows = await _client.from('restaurants').select().order('name');
-    final primaryImages = await _loadPrimaryImages(
-      rows.map((row) => row['id']),
-    );
+  Future<AdminRestaurantPage> loadRestaurants({
+    required RestaurantStatusFilter statusFilter,
+    required RestaurantSort sort,
+    String? search,
+    required int limit,
+    required int offset,
+  }) async {
+    // NOTE: postgrest 2.8.0 builders are immutable — every filter/transform
+    // returns a NEW builder, so the result must be reassigned. Calling
+    // `query.ilike(...)` as a statement silently discards the filter and the
+    // request goes out as a bare select (no search, filter, sort, or paging).
+    var query = _client
+        .from('restaurants')
+        .select('''
+              id,
+              name,
+              description,
+              address,
+              city,
+              state,
+              latitude,
+              longitude,
+              price_range,
+              phone,
+              website,
+              instagram_username,
+              instagram_location_id,
+              categories,
+              business_hours,
+              verification_confidence,
+              source_post_count,
+              popularity_score,
+              created_at,
+              updated_at,
+              deleted_at,
+              restaurant_images(image_url, is_primary)
+            ''');
 
-    return rows
-        .map(
-          (row) => _restaurantFromRow(
-            row,
-            primaryImageUrl: primaryImages['${row['id']}'],
-          ),
-        )
-        .toList(growable: false);
+    final text = search?.trim() ?? '';
+    if (text.isNotEmpty) {
+      // Escape LIKE wildcards so user input is matched literally, and strip
+      // characters that would break the or() filter syntax.
+      final term = text
+          .replaceAll(RegExp(r'[,()]'), ' ')
+          .replaceAll('\\', '\\\\')
+          .replaceAll('%', r'\%')
+          .replaceAll('_', r'\_');
+      query = query.or(
+        'name.ilike.%$term%,'
+        'address.ilike.%$term%,'
+        'categories::text.ilike.%$term%',
+      );
+    }
+
+    if (statusFilter == RestaurantStatusFilter.active) {
+      query = query.isFilter('deleted_at', null);
+    } else if (statusFilter == RestaurantStatusFilter.deleted) {
+      query = query.not('deleted_at', 'is', null);
+    }
+
+    final ascending = sort == RestaurantSort.nameAscending;
+    // Request one extra row so hasMore is exact: no false "more" when
+    // the last page happens to be exactly full, and no extra request
+    // for an empty page after the final one.
+    final rows = await query
+        .order('name', ascending: ascending)
+        .order('id', ascending: true)
+        .range(offset, offset + limit);
+
+    final pageRows = rows.length > limit ? rows.sublist(0, limit) : rows;
+    return AdminRestaurantPage(
+      items: pageRows.map(_restaurantFromRow).toList(growable: false),
+      hasMore: rows.length > limit,
+    );
   }
 
   @override
   Future<AdminRestaurant?> loadRestaurant(String id) async {
     final row = await _client
         .from('restaurants')
-        .select()
-        .eq('id', int.tryParse(id) ?? id)
+        .select('''
+              id,
+              name,
+              description,
+              address,
+              city,
+              state,
+              latitude,
+              longitude,
+              price_range,
+              phone,
+              website,
+              instagram_username,
+              instagram_location_id,
+              categories,
+              business_hours,
+              verification_confidence,
+              source_post_count,
+              popularity_score,
+              created_at,
+              updated_at,
+              deleted_at,
+              restaurant_images(image_url, is_primary)
+            ''')
+        .eq('id', id)
         .maybeSingle();
     if (row == null) return null;
-    final primaryImages = await _loadPrimaryImages([row['id']]);
-    return _restaurantFromRow(
-      row,
-      primaryImageUrl: primaryImages['${row['id']}'],
-    );
+    return _restaurantFromRow(row);
   }
 
   @override
@@ -368,147 +354,49 @@ class SupabaseAdminRepository implements AdminRepository {
   @override
   Future<AdminRestaurant?> updateRestaurant(
     String id,
-    AdminRestaurantDraft draft, {
-    Set<String>? changedFields,
-  }) async {
-    final restaurantId = int.tryParse(id);
-    if (restaurantId == null) return null;
-
-    final response = await _runRestaurantUpdateRpc(
-      restaurantId,
-      _adminRestaurantChanges(draft, changedFields),
-    );
-    if (response is! List || response.isEmpty || response.first is! Map) {
-      throw StateError(
-        'update_restaurant_admin returned an invalid response for restaurant '
-        '$restaurantId',
-      );
-    }
-    final row = Map<String, dynamic>.from(response.first as Map);
-    final primaryImages = await _loadPrimaryImages([row['id']]);
-    final existingImageUrl = primaryImages['${row['id']}'] ?? '';
-    final requestedImageUrl = draft.imageUrl.trim();
-    if (requestedImageUrl.isNotEmpty &&
-        requestedImageUrl != existingImageUrl.trim()) {
-      await _persistPrimaryImage(row['id'], requestedImageUrl);
-    }
-    return _restaurantFromRow(
-      row,
-      primaryImageUrl: requestedImageUrl.isNotEmpty
-          ? requestedImageUrl
-          : primaryImages['${row['id']}'],
-    );
-  }
-
-  Future<dynamic> _runRestaurantUpdateRpc(
-    int restaurantId,
-    Map<String, Object?> changes,
-  ) async {
-    try {
-      return await _client.rpc(
-        'update_restaurant_admin',
-        params: {
-          'p_restaurant_id': restaurantId,
-          'p_changes': changes,
-        },
-      );
-    } on PostgrestException catch (error, stackTrace) {
-      developer.log(
-        'Supabase restaurant update RPC failed',
-        name: 'makanspot.admin.restaurant_update',
-        error: {
-          'restaurantId': restaurantId,
-          'code': error.code,
-          'message': error.message,
-          'details': error.details,
-          'hint': error.hint,
-        },
-        stackTrace: stackTrace,
-      );
-      rethrow;
-    }
-  }
-
-  Map<String, Object?> _adminRestaurantChanges(
     AdminRestaurantDraft draft,
-    Set<String>? changedFields,
-  ) {
-    bool changed(String field) =>
-        changedFields == null || changedFields.contains(field);
-
-    return {
-      if (changed('name')) 'name': draft.name.trim(),
-      if (changed('description')) 'description': draft.description.trim(),
-      if (changed('address')) 'address': draft.address.trim(),
-      if (changed('latitude')) 'latitude': draft.latitude,
-      if (changed('longitude')) 'longitude': draft.longitude,
-      if (changed('contact')) 'phone_number': draft.contact.trim(),
-      if (changed('owner_name')) 'owner_name': draft.ownerName.trim(),
-      if (changed('budget')) 'price_range': _legacyPriceRange(draft.budget),
-      if (changed('rating')) 'rating': draft.rating,
-      if (changed('cuisine')) 'cuisine': _categoryValues(draft.cuisine),
-      if (changed('operating_hours'))
-        'operating_hours': {'status': draft.operatingHours.trim()},
-      if (changed('source_platform'))
-        'social_media_source': draft.sourcePlatform.trim(),
-      if (changed('verification_status')) 'is_approved': draft.isVerified,
-    };
-  }
-
-  Future<AdminRestaurant?> _updateRestaurantLegacy(
-    String id,
-    AdminRestaurantDraft draft, {
-    Set<String>? changedFields,
-  }) async {
-    final restaurantId = int.tryParse(id) ?? id;
-    Map<String, dynamic> row;
-    try {
-      // Current production schema. It stores categories and business hours
-      // directly on `restaurants` rather than via the original join table.
-      final updated = await _client
-          .from('restaurants')
-          .update(_currentRestaurantPayload(draft, changedFields))
-          .eq('id', restaurantId)
-          .select();
-      if (updated.isEmpty) {
-        throw const RestaurantUpdateNoRowsException();
-      }
-      row = updated.single;
-    } on PostgrestException catch (error) {
-      if (!_isMissingColumn(error)) rethrow;
-      // Compatibility with the original MakanSpot schema used by local and
-      // older Supabase deployments.
-      final updated = await _client
-          .from('restaurants')
-          .update(_legacyRestaurantPayload(draft, changedFields))
-          .eq('id', restaurantId)
-          .select();
-      if (updated.isEmpty) {
-        throw const RestaurantUpdateNoRowsException();
-      }
-      row = updated.single;
-    }
-
-    final primaryImages = await _loadPrimaryImages([row['id']]);
-    final existingImageUrl = primaryImages['${row['id']}'] ?? '';
-    final requestedImageUrl = draft.imageUrl.trim();
-    if (requestedImageUrl.isNotEmpty &&
-        requestedImageUrl != existingImageUrl.trim()) {
-      await _persistPrimaryImage(row['id'], requestedImageUrl);
-    }
-    return _restaurantFromRow(
-      row,
-      primaryImageUrl: requestedImageUrl.isNotEmpty
-          ? requestedImageUrl
-          : primaryImages['${row['id']}'],
+  ) async {
+    final didUpdate = await _client.rpc(
+      'admin_update_restaurant',
+      params: {
+        'p_restaurant_id': int.parse(id),
+        'p_name': draft.name,
+        'p_normalized_name': _normalizeRestaurantName(draft.name),
+        'p_description': _nullIfBlank(draft.description),
+        'p_address': _nullIfBlank(draft.address),
+        'p_city': _nullIfBlank(draft.city),
+        'p_state': _nullIfBlank(draft.state),
+        'p_latitude': draft.latitude,
+        'p_longitude': draft.longitude,
+        'p_phone': _nullIfBlank(draft.phone),
+        'p_website': _nullIfBlank(draft.website),
+        'p_price_range': _nullIfBlank(draft.priceRange),
+        'p_instagram_username': _nullIfBlank(draft.instagramUsername),
+        'p_categories': draft.categories,
+        'p_business_hours': draft.businessHours,
+        'p_image_url': _nullIfBlank(draft.imageUrl),
+      },
     );
+
+    if (didUpdate != true) {
+      return null;
+    }
+    return loadRestaurant(id);
   }
 
   @override
-  Future<void> deleteRestaurant(String id) {
-    throw UnimplementedError(
-      'Restaurant deletion is not yet supported via Supabase.',
-    );
+  Future<void> deleteRestaurant(String id) async {
+    final updated = await _client
+        .from('restaurants')
+        .update({'deleted_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('id', int.parse(id))
+        .select('id');
+    if (updated.isEmpty) {
+      throw StateError(
+        'Restaurant deletion affected no rows. The restaurant may already be '
+        'deleted or the signed-in account may lack admin permissions.',
+      );
+    }
   }
 
   // ── Private helpers ──────────────────────────────────────────────
@@ -521,19 +409,22 @@ class SupabaseAdminRepository implements AdminRepository {
     for (final row in rows) {
       final postId = row['post_id'];
       final commentId = row['comment_id'];
-      final contentId = commentId != null ? '$commentId' : '$postId';
       final contentType = commentId != null
           ? ReportContentType.comment
           : ReportContentType.post;
+      final contentId = commentId != null ? '$commentId' : '$postId';
+      // Key by type too: post and comment IDs share separate identity
+      // sequences, so a post and a comment can have the same numeric ID.
+      final key = '${contentType.name}:$contentId';
 
-      if (!map.containsKey(contentId)) {
-        map[contentId] = {
+      if (!map.containsKey(key)) {
+        map[key] = {
           'contentId': contentId,
           'contentType': contentType,
           'reports': <Map<String, dynamic>>[],
         };
       }
-      (map[contentId]!['reports'] as List<Map<String, dynamic>>).add(row);
+      (map[key]!['reports'] as List<Map<String, dynamic>>).add(row);
     }
 
     // Fetch content preview, owner, and is_hidden for each group.
@@ -653,254 +544,63 @@ class SupabaseAdminRepository implements AdminRepository {
     );
   }
 
-  Future<Map<String, String>> _loadPrimaryImages(
-    Iterable<dynamic> restaurantIds,
-  ) async {
-    final ids = restaurantIds.whereType<num>().toList(growable: false);
-    if (ids.isEmpty) return const {};
-
-    // Images are helpful in the catalogue, but a missing image table or a
-    // permissions issue must never prevent the restaurant records themselves
-    // from rendering.
-    try {
-      final rows = await _client
-          .from('restaurant_images')
-          .select('restaurant_id, image_url, is_primary')
-          .inFilter('restaurant_id', ids);
-      final imageUrls = <String, String>{};
-      for (final row in rows) {
-        final restaurantId = row['restaurant_id'];
-        final imageUrl = row['image_url']?.toString() ?? '';
-        if (restaurantId == null || imageUrl.isEmpty) continue;
-        final key = '$restaurantId';
-        if (row['is_primary'] == true || !imageUrls.containsKey(key)) {
-          imageUrls[key] = imageUrl;
-        }
-      }
-      return imageUrls;
-    } on Object {
-      return const {};
-    }
+  String? _nullIfBlank(String? value) {
+    final trimmed = value?.trim();
+    return trimmed == null || trimmed.isEmpty ? null : trimmed;
   }
 
-  Future<void> _persistPrimaryImage(
-    dynamic restaurantId,
-    String imageUrl,
-  ) async {
-    final trimmedUrl = imageUrl.trim();
-    if (trimmedUrl.isEmpty) return;
-
-    final existing = await _client
-        .from('restaurant_images')
-        .select('id, image_url')
-        .eq('restaurant_id', restaurantId)
-        .eq('is_primary', true)
-        .limit(1);
-    if (existing.isEmpty) {
-      await _client.from('restaurant_images').insert({
-        'restaurant_id': restaurantId,
-        'image_url': trimmedUrl,
-        'is_primary': true,
-      });
-      return;
-    }
-    if (_stringOrEmpty(existing.first['image_url']) == trimmedUrl) return;
-    await _client
-        .from('restaurant_images')
-        .update({'image_url': trimmedUrl})
-        .eq('id', existing.first['id']);
+  String _normalizeRestaurantName(String name) {
+    return name
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ');
   }
 
-  AdminRestaurant _restaurantFromRow(
-    Map<String, dynamic> row, {
-    String? primaryImageUrl,
-  }) {
-    final hours = row['operating_hours'] ?? row['business_hours'];
-    String operatingHours;
-    if (hours is Map) {
-      operatingHours = hours.values
-          .map((value) => value?.toString() ?? '')
-          .where((value) => value.isNotEmpty)
-          .join(', ');
-    } else {
-      operatingHours = hours?.toString() ?? '';
-    }
+  AdminRestaurant _restaurantFromRow(Map<String, dynamic> row) {
+    final images = row['restaurant_images'] as List<dynamic>?;
+    final primaryImage = images?.cast<Map<String, dynamic>>().firstWhere(
+      (img) => img['is_primary'] == true,
+      orElse: () => {'image_url': ''},
+    );
+    final imageUrl = primaryImage?['image_url'] as String? ?? '';
+
+    final categoriesRaw = row['categories'];
+    final categories = categoriesRaw is List
+        ? categoriesRaw.cast<String>()
+        : <String>[];
+
+    final businessHoursRaw = row['business_hours'];
+    final businessHours = businessHoursRaw is Map<String, dynamic>
+        ? businessHoursRaw
+        : null;
 
     return AdminRestaurant(
       id: '${row['id']}',
       name: _stringOrEmpty(row['name']),
-      cuisine: _cuisineFromRow(row),
-      address: _addressFromRow(row),
-      imageUrl: primaryImageUrl ?? _primaryImageFromEmbeddedRow(row),
-      operatingHours: operatingHours,
-      contact: _stringOrEmpty(row['phone_number'] ?? row['phone']),
-      ownerName: _stringOrEmpty(row['owner_name']),
-      budget: _budgetFromRow(row['price_range']),
-      description: row['description'] as String? ?? '',
-      sourcePlatform: _sourcePlatformFromRow(row),
-      isVerified:
-          row['is_approved'] as bool? ??
-          ((row['verification_confidence'] as num?)?.toDouble() ?? 0) >= 0.8,
-      rating: (row['rating'] as num?)?.toDouble(),
+      categories: categories,
+      imageUrl: imageUrl,
+      description: row['description'] as String?,
+      address: row['address'] as String?,
+      city: row['city'] as String?,
+      state: row['state'] as String?,
       latitude: (row['latitude'] as num?)?.toDouble(),
       longitude: (row['longitude'] as num?)?.toDouble(),
+      phone: row['phone'] as String?,
+      website: row['website'] as String?,
+      priceRange: row['price_range'] as String?,
+      businessHours: businessHours,
+      instagramUsername: row['instagram_username'] as String?,
+      instagramLocationId: row['instagram_location_id'] as String?,
+      verificationConfidence: (row['verification_confidence'] as num?)
+          ?.toDouble(),
+      sourcePostCount: row['source_post_count'] as int?,
+      popularityScore: row['popularity_score'] as int?,
+      deletedAt: row['deleted_at'] == null
+          ? null
+          : DateTime.tryParse(row['deleted_at'].toString()),
     );
   }
-
-  String _cuisineFromRow(Map<String, dynamic> row) {
-    final rawCategories = row['categories'];
-    if (rawCategories is List) {
-      return rawCategories
-          .map(
-            (category) => category is Map
-                ? category['name']?.toString() ?? ''
-                : category?.toString() ?? '',
-          )
-          .where((name) => name.isNotEmpty)
-          .join(', ');
-    }
-    final relationships = row['restaurant_categories'];
-    if (relationships is! List) return '';
-    return relationships
-        .map((relationship) {
-          final category = relationship is Map
-              ? relationship['categories']
-              : null;
-          return category is Map ? category['name']?.toString() ?? '' : '';
-        })
-        .where((name) => name.isNotEmpty)
-        .join(', ');
-  }
-
-  String _primaryImageFromEmbeddedRow(Map<String, dynamic> row) {
-    final images = row['restaurant_images'];
-    if (images is! List) return '';
-    var fallback = '';
-    for (final image in images) {
-      if (image is! Map) continue;
-      final url = image['image_url']?.toString() ?? '';
-      if (url.isEmpty) continue;
-      fallback = fallback.isEmpty ? url : fallback;
-      if (image['is_primary'] == true) return url;
-    }
-    return fallback;
-  }
-
-  String _addressFromRow(Map<String, dynamic> row) {
-    final address = _stringOrEmpty(row['address']);
-    if (address.isNotEmpty) return address;
-    return [
-      row['city'],
-      row['state'],
-    ].map(_stringOrEmpty).where((part) => part.isNotEmpty).join(', ');
-  }
-
-  String _budgetFromRow(dynamic value) {
-    final priceRange = _stringOrEmpty(value);
-    return switch (priceRange) {
-      r'$' || '0' || '1' => 'Low',
-      r'$$' || '2' => 'Medium',
-      r'$$$' || r'$$$$' || '3' || '4' => 'High',
-      _ => priceRange,
-    };
-  }
-
-  String _sourcePlatformFromRow(Map<String, dynamic> row) {
-    final source = _stringOrEmpty(row['social_media_source']);
-    if (source.isNotEmpty) return source;
-    if (_stringOrEmpty(row['instagram_username']).isNotEmpty) {
-      return 'Instagram';
-    }
-    return 'Manual';
-  }
-
-  Map<String, Object?> _currentRestaurantPayload(
-    AdminRestaurantDraft draft,
-    Set<String>? changedFields,
-  ) {
-    bool changed(String field) =>
-        changedFields == null || changedFields.contains(field);
-
-    return {
-      if (changed('name')) 'name': draft.name.trim(),
-      if (changed('name'))
-        'normalized_name': _normalizeRestaurantName(draft.name),
-      if (changed('description'))
-        'description': _nullWhenBlank(draft.description),
-      if (changed('address')) 'address': draft.address.trim(),
-      if (changed('latitude')) 'latitude': draft.latitude,
-      if (changed('longitude')) 'longitude': draft.longitude,
-      if (changed('contact')) 'phone': _nullWhenBlank(draft.contact),
-      if (changed('owner_name')) 'owner_name': _nullWhenBlank(draft.ownerName),
-      if (changed('budget')) 'price_range': _currentPriceRange(draft.budget),
-      if (changed('rating')) 'rating': draft.rating,
-      if (changed('cuisine')) 'categories': _categoryValues(draft.cuisine),
-      if (changed('operating_hours'))
-        'business_hours': {'status': draft.operatingHours.trim()},
-      if (changed('source_platform'))
-        'social_media_source': _nullWhenBlank(draft.sourcePlatform),
-      if (changed('verification_status'))
-        'verification_confidence': draft.isVerified ? 0.9 : 0.0,
-      'updated_at': DateTime.now().toUtc().toIso8601String(),
-    };
-  }
-
-  Map<String, Object?> _legacyRestaurantPayload(
-    AdminRestaurantDraft draft,
-    Set<String>? changedFields,
-  ) {
-    bool changed(String field) =>
-        changedFields == null || changedFields.contains(field);
-
-    return {
-      if (changed('name')) 'name': draft.name.trim(),
-      if (changed('description'))
-        'description': _nullWhenBlank(draft.description),
-      if (changed('address')) 'address': draft.address.trim(),
-      if (changed('latitude') && draft.latitude != null)
-        'latitude': draft.latitude,
-      if (changed('longitude') && draft.longitude != null)
-        'longitude': draft.longitude,
-      if (changed('contact')) 'phone_number': _nullWhenBlank(draft.contact),
-      if (changed('owner_name')) 'owner_name': _nullWhenBlank(draft.ownerName),
-      if (changed('budget')) 'price_range': _legacyPriceRange(draft.budget),
-      if (changed('rating')) 'rating': draft.rating,
-      if (changed('operating_hours'))
-        'operating_hours': {'status': draft.operatingHours.trim()},
-      if (changed('source_platform'))
-        'social_media_source': _nullWhenBlank(draft.sourcePlatform),
-      if (changed('verification_status')) 'is_approved': draft.isVerified,
-      'last_updated': DateTime.now().toUtc().toIso8601String(),
-    };
-  }
-
-  List<String> _categoryValues(String cuisine) => cuisine
-      .split(',')
-      .map((value) => value.trim())
-      .where((value) => value.isNotEmpty)
-      .toList(growable: false);
-
-  String _currentPriceRange(String budget) => switch (budget) {
-    'Low' => '1',
-    'Medium' => '2',
-    'High' => '3',
-    _ => budget,
-  };
-
-  String _legacyPriceRange(String budget) => switch (budget) {
-    'Low' => r'$',
-    'Medium' => r'$$',
-    'High' => r'$$$',
-    _ => budget,
-  };
-
-  String? _nullWhenBlank(String value) {
-    final trimmed = value.trim();
-    return trimmed.isEmpty ? null : trimmed;
-  }
-
-  String _normalizeRestaurantName(String value) =>
-      value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 
   Future<ReportedContent?> _loadPostContent(String postId) async {
     final row = await _client
@@ -935,43 +635,27 @@ class SupabaseAdminRepository implements AdminRepository {
         .select('''
               id,
               content,
-              user:users!comments_user_id_fkey(username)
+              user:users!comments_user_id_fkey(username),
+              post:posts!comments_post_id_fkey(
+                content,
+                restaurants!posts_restaurant_id_fkey(name)
+              )
             ''')
         .eq('id', commentId)
         .maybeSingle();
     if (row == null) return null;
 
     final user = row['user'] as Map<String, dynamic>?;
+    final post = row['post'] as Map<String, dynamic>?;
+    final restaurant = post?['restaurants'] as Map<String, dynamic>?;
     return ReportedContent(
       username: _stringOrEmpty(user?['username']),
+      restaurantName: restaurant?['name'] as String?,
+      postPreview: post?['content'] as String?,
       text: row['content'] as String? ?? '',
       mediaUrls: const [],
     );
   }
 
-  Future<bool> _contentIsPost(String contentId) async {
-    final id = int.parse(contentId);
-    final post = await _client
-        .from('posts')
-        .select('id')
-        .eq('id', id)
-        .maybeSingle();
-    if (post != null) return true;
-    // Hidden posts are filtered from non-admin sessions; fall back to the
-    // comments table before assuming the content is a comment.
-    final comment = await _client
-        .from('comments')
-        .select('id')
-        .eq('id', id)
-        .maybeSingle();
-    return comment == null;
-  }
-
   String _stringOrEmpty(dynamic value) => value?.toString() ?? '';
-
-  bool _isMissingColumn(PostgrestException error) =>
-      error.code == '42703' ||
-      error.code == 'PGRST204' ||
-      error.message.contains('Could not find') &&
-          error.message.contains('column');
 }

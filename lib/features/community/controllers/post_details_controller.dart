@@ -12,6 +12,7 @@ class PostDetailsState {
     this.post,
     this.comments = const [],
     this.errorMessage,
+    this.isLikePending = false,
   });
 
   const PostDetailsState.loading() : this(status: PostDetailsStatus.loading);
@@ -20,18 +21,21 @@ class PostDetailsState {
   final CommunityPost? post;
   final List<CommunityComment> comments;
   final String? errorMessage;
+  final bool isLikePending;
 
   PostDetailsState copyWith({
     PostDetailsStatus? status,
     CommunityPost? post,
     List<CommunityComment>? comments,
     String? errorMessage,
+    bool? isLikePending,
   }) {
     return PostDetailsState(
       status: status ?? this.status,
       post: post ?? this.post,
       comments: comments ?? this.comments,
       errorMessage: errorMessage ?? this.errorMessage,
+      isLikePending: isLikePending ?? this.isLikePending,
     );
   }
 }
@@ -75,10 +79,43 @@ class PostDetailsController extends StateNotifier<PostDetailsState> {
   }
 
   Future<void> toggleLike() async {
-    final updated = await _repository.toggleLike(postId);
-    if (updated != null) {
-      state = state.copyWith(post: updated);
+    if (state.isLikePending) return;
+    state = state.copyWith(isLikePending: true);
+    try {
+      final updated = await _repository.toggleLike(postId);
+      if (updated != null) {
+        state = state.copyWith(post: updated);
+      }
+    } finally {
+      if (mounted) {
+        state = state.copyWith(isLikePending: false);
+      }
     }
+  }
+
+  Future<void> toggleSave() async {
+    final updated = await _repository.toggleSave(postId);
+    if (updated != null && mounted) state = state.copyWith(post: updated);
+  }
+
+  Future<void> reportPost(CommunityReportReason reason, {String? details}) {
+    return _repository.reportPost(
+      postId: postId,
+      reason: reason,
+      additionalInfo: details,
+    );
+  }
+
+  Future<void> reportComment(
+    String commentId,
+    CommunityReportReason reason, {
+    String? details,
+  }) {
+    return _repository.reportComment(
+      commentId: commentId,
+      reason: reason,
+      additionalInfo: details,
+    );
   }
 
   Future<void> addComment(String text, {String? parentCommentId}) async {
@@ -92,7 +129,51 @@ class PostDetailsController extends StateNotifier<PostDetailsState> {
       parentCommentId: parentCommentId,
     );
     state = state.copyWith(
+      post: state.post?.copyWith(
+        commentCount: (state.post?.commentCount ?? state.comments.length) + 1,
+      ),
       comments: List.unmodifiable([comment, ...state.comments]),
+    );
+  }
+
+  Future<void> deleteComment(String id) async {
+    await _repository.deleteComment(id);
+    if (!mounted) return;
+    state = state.copyWith(
+      post: state.post?.copyWith(
+        commentCount: (state.post?.commentCount ?? state.comments.length) - 1,
+      ),
+      comments: List.unmodifiable(
+        state.comments.where((comment) => comment.id != id),
+      ),
+    );
+  }
+
+  Future<void> togglePinComment(CommunityComment comment) async {
+    await _repository.togglePinComment(
+      id: comment.id,
+      pinned: !comment.isPinned,
+    );
+    if (!mounted) return;
+    state = state.copyWith(
+      comments: List.unmodifiable(
+        state.comments.map((item) {
+          if (item.id != comment.id) return item;
+          return CommunityComment(
+            id: item.id,
+            postId: item.postId,
+            username: item.username,
+            userAvatar: item.userAvatar,
+            text: item.text,
+            userId: item.userId,
+            isOwn: item.isOwn,
+            canPin: item.canPin,
+            isPinned: !item.isPinned,
+            createdAt: item.createdAt,
+            parentCommentId: item.parentCommentId,
+          );
+        }),
+      ),
     );
   }
 }

@@ -10,7 +10,6 @@ import '../models/admin_models.dart';
 import 'widgets/admin_form_widgets.dart';
 import 'widgets/admin_page_header.dart';
 import 'widgets/admin_skeletons.dart';
-import 'widgets/admin_status_badge.dart';
 
 class RestaurantInformationScreen extends ConsumerWidget {
   const RestaurantInformationScreen({required this.restaurantId, super.key});
@@ -101,15 +100,11 @@ class _RestaurantInformationCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      restaurant.cuisine.isEmpty
-                          ? 'Cuisine not provided'
-                          : restaurant.cuisine,
+                      restaurant.categoriesDisplay,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: AppColors.mutedForeground,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    AdminStatusBadge(label: restaurant.verificationStatus),
                   ],
                 ),
               ),
@@ -120,7 +115,7 @@ class _RestaurantInformationCard extends StatelessWidget {
           _InformationRow(
             icon: LucideIcons.hash,
             label: 'Restaurant ID',
-            value: restaurant.displayId,
+            value: restaurant.id,
           ),
           _InformationRow(
             icon: LucideIcons.store,
@@ -134,57 +129,20 @@ class _RestaurantInformationCard extends StatelessWidget {
           ),
           _InformationRow(
             icon: LucideIcons.clock3,
-            label: 'Operating Hours',
-            value: _orNotProvided(restaurant.operatingHours),
-          ),
-          _InformationRow(
-            icon: Icons.restaurant_menu_outlined,
-            label: 'Cuisine',
-            value: _orNotProvided(restaurant.cuisine),
-          ),
-          _InformationRow(
-            icon: Icons.payments_outlined,
-            label: 'Budget',
-            value: _orNotProvided(restaurant.budget),
-          ),
-          _InformationRow(
-            icon: LucideIcons.star,
-            label: 'Rating',
-            value: restaurant.ratingDisplay,
-          ),
-          _InformationRow(
-            icon: Icons.description_outlined,
-            label: 'Description',
-            value: _orNotProvided(restaurant.description),
-          ),
-          _InformationRow(
-            icon: Icons.public_outlined,
-            label: 'Source Platform',
-            value: _orNotProvided(restaurant.sourcePlatform),
-          ),
-          _InformationRow(
-            icon: LucideIcons.mapPin,
-            label: 'Coordinates',
-            value: restaurant.latitude == null || restaurant.longitude == null
-                ? 'Not provided'
-                : '${restaurant.latitude}, ${restaurant.longitude}',
+            label: 'Business Hours',
+            value: _formatBusinessHours(restaurant.businessHours),
           ),
           const SizedBox(height: 12),
           const _InformationSectionTitle('Owner Information'),
           _InformationRow(
             icon: LucideIcons.userRound,
-            label: 'Owner Name',
-            value: _orNotProvided(restaurant.ownerName),
+            label: 'Instagram',
+            value: _orNotProvided(restaurant.instagramUsername),
           ),
           _InformationRow(
             icon: LucideIcons.phone,
-            label: 'Owner Phone',
-            value: _orNotProvided(restaurant.contact),
-          ),
-          _InformationRow(
-            icon: LucideIcons.badgeCheck,
-            label: 'Status',
-            value: restaurant.verificationStatus,
+            label: 'Phone',
+            value: _orNotProvided(restaurant.phone),
             last: true,
           ),
         ],
@@ -192,8 +150,13 @@ class _RestaurantInformationCard extends StatelessWidget {
     );
   }
 
-  static String _orNotProvided(String value) =>
-      value.isEmpty ? 'Not provided' : value;
+  static String _orNotProvided(String? value) =>
+      (value == null || value.isEmpty) ? 'Not provided' : value;
+
+  static String _formatBusinessHours(Map<String, dynamic>? hours) {
+    if (hours == null || hours.isEmpty) return 'Not provided';
+    return hours.entries.map((e) => '${e.key}: ${e.value}').join(', ');
+  }
 }
 
 class _InformationSectionTitle extends StatelessWidget {

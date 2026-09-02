@@ -1,32 +1,20 @@
+import 'dart:convert';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'discover_repository.dart';
 import 'discover_restaurant.dart';
 
-/// Loads the public restaurant catalogue and its community posts from
-/// Supabase. Only approved records are exposed in the customer experience.
 class SupabaseDiscoverRepository implements DiscoverRepository {
   SupabaseDiscoverRepository(this._client);
 
   final SupabaseClient _client;
 
   static const _restaurantSelect = '''
-    id,
-    name,
-    description,
-    address,
-    latitude,
-    longitude,
-    price_range,
-    rating,
+    id, name, description, address, city, state, latitude, longitude,
+    phone, price_range, categories, business_hours, popularity_score,
     created_at,
-    is_hidden_gem,
-    is_trending,
-    is_approved,
-    operating_hours,
-    phone_number,
-    restaurant_images(image_url, is_primary),
-    restaurant_categories(categories(name))
+    restaurant_images(image_url, is_primary)
   ''';
 
   @override
@@ -34,9 +22,12 @@ class SupabaseDiscoverRepository implements DiscoverRepository {
     final rows = await _client
         .from('restaurants')
         .select(_restaurantSelect)
-        .eq('is_approved', true)
+        .isFilter('deleted_at', null)
         .order('created_at', ascending: false);
-    return rows.map(_restaurantFromRow).toList(growable: false);
+
+    return rows
+        .map<DiscoverRestaurant>(_restaurantFromRow)
+        .toList(growable: false);
   }
 
   @override
@@ -44,123 +35,88 @@ class SupabaseDiscoverRepository implements DiscoverRepository {
     final row = await _client
         .from('restaurants')
         .select(_restaurantSelect)
-        .eq('id', int.parse(id))
-        .eq('is_approved', true)
+        .isFilter('deleted_at', null)
+        .eq('id', id)
         .maybeSingle();
     if (row == null) return null;
 
+    final posts = await _client
+        .from('posts')
+        .select(
+          'id,content,media_urls,rating,'
+          'users!posts_user_id_fkey(username,avatar_url)',
+        )
+        .eq('restaurant_id', id)
+        .order('created_at', ascending: false);
+
     return RestaurantDetailsData(
       restaurant: _restaurantFromRow(row),
-      reviews: await _loadReviews(id),
+      reviews: posts
+          .map<RestaurantReview>(_reviewFromRow)
+          .toList(growable: false),
     );
   }
 
-  Future<List<RestaurantReview>> _loadReviews(String restaurantId) async {
-    // Community reviews are posts attached to this restaurant. The relation
-    // gives us the author and like records in a single read.
-    final rows = await _client
-        .from('posts')
-        .select('''
-          id,
-          content,
-          media_urls,
-          user:users!posts_user_id_fkey(username, avatar_url),
-          likes(post_id)
-        ''')
-        .eq('restaurant_id', int.parse(restaurantId))
-        .eq('is_hidden', false)
-        .order('created_at', ascending: false);
-
-    return rows
-        .map((row) {
-          final user = row['user'] as Map<String, dynamic>?;
-          final mediaUrls = (row['media_urls'] as List<dynamic>? ?? const [])
-              .whereType<String>()
-              .toList(growable: false);
-          final likes = row['likes'] as List<dynamic>? ?? const [];
-          return RestaurantReview(
-            id: '${row['id']}',
-            username: user?['username'] as String? ?? 'MakanSpot member',
-            profileTitle: 'Community member',
-            reviewText: row['content'] as String? ?? '',
-            avatarUrl: user?['avatar_url'] as String? ?? '',
-            imageUrl: mediaUrls.isEmpty ? '' : mediaUrls.first,
-            likes: likes.length,
-            isLiked: false,
-          );
-        })
-        .toList(growable: false);
-  }
-
   DiscoverRestaurant _restaurantFromRow(Map<String, dynamic> row) {
-    final isHiddenGem = row['is_hidden_gem'] as bool? ?? false;
-    final isTrending = row['is_trending'] as bool? ?? false;
-    final labels = <String>[
-      if (isHiddenGem) 'Hidden Gem',
-      if (isTrending) 'Trending',
-      if (row['is_approved'] as bool? ?? false) 'Verified',
-    ];
+    final categories = (row['categories'] as List?)
+        ?.map((category) => category.toString())
+        .where((category) => category.isNotEmpty)
+        .toList(growable: false);
+    final images = row['restaurant_images'] as List? ?? const [];
+    final image = images.cast<Map>().firstWhere(
+      (item) => item['is_primary'] == true,
+      orElse: () =>
+          images.cast<Map>().isNotEmpty ? images.cast<Map>().first : const {},
+    );
+    final cuisine = categories?.firstOrNull ?? 'Restaurant';
 
     return DiscoverRestaurant(
-      id: '${row['id']}',
-      name: row['name'] as String? ?? 'Unnamed restaurant',
-      cuisine: _cuisineFromRow(row),
-      budget: _budgetFromPriceRange(row['price_range'] as String?),
-      isHiddenGem: isHiddenGem,
-      labels: labels,
-      imageUrl: _primaryImageFromRow(row),
-      rating: (row['rating'] as num?)?.toDouble(),
+      id: row['id'].toString(),
+      name: row['name']?.toString() ?? 'Restaurant',
+      cuisine: cuisine,
+      budget: _budget(row['price_range']),
+      isHiddenGem: false,
+      labels: const [],
+      imageUrl: image['image_url']?.toString() ?? '',
       createdAt:
-          DateTime.tryParse(row['created_at'] as String? ?? '') ??
-          DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
-      address: row['address'] as String? ?? '',
-      description: row['description'] as String? ?? '',
-      operatingHours: _operatingHoursFromRow(row['operating_hours']),
-      contact: row['phone_number'] as String?,
+          DateTime.tryParse(row['created_at']?.toString() ?? '') ??
+          DateTime.now(),
+      address: row['address']?.toString() ?? '',
+      description: row['description']?.toString() ?? '',
+      operatingHours: _operatingHours(row['business_hours']),
+      contact: row['phone']?.toString(),
       latitude: (row['latitude'] as num?)?.toDouble(),
       longitude: (row['longitude'] as num?)?.toDouble(),
     );
   }
 
-  String _primaryImageFromRow(Map<String, dynamic> row) {
-    final images = row['restaurant_images'] as List<dynamic>? ?? const [];
-    Map<String, dynamic>? image;
-    for (final value in images) {
-      if (value is Map<String, dynamic> && value['is_primary'] == true) {
-        image = value;
-        break;
-      }
-      image ??= value is Map<String, dynamic> ? value : null;
-    }
-    return image?['image_url'] as String? ?? '';
+  RestaurantReview _reviewFromRow(Map<String, dynamic> row) {
+    final user = row['users'] as Map? ?? const {};
+    final mediaUrls = row['media_urls'] as List? ?? const [];
+    return RestaurantReview(
+      id: row['id'].toString(),
+      username: user['username']?.toString() ?? 'Food explorer',
+      profileTitle: 'Food explorer',
+      reviewText: row['content']?.toString() ?? '',
+      avatarUrl: user['avatar_url']?.toString() ?? '',
+      imageUrl: mediaUrls.isEmpty ? '' : mediaUrls.first.toString(),
+      likes: 0,
+      isLiked: false,
+    );
   }
 
-  String _cuisineFromRow(Map<String, dynamic> row) {
-    final links = row['restaurant_categories'] as List<dynamic>? ?? const [];
-    final names = links
-        .map((link) => link is Map ? link['categories'] : null)
-        .whereType<Map>()
-        .map((category) => category['name']?.toString() ?? '')
-        .where((name) => name.isNotEmpty);
-    return names.isEmpty ? 'Cuisine not provided' : names.join(', ');
+  String _budget(Object? value) {
+    return switch (value?.toString()) {
+      r'$' => 'Low',
+      r'$$' => 'Medium',
+      r'$$$' || r'$$$$' => 'High',
+      _ => 'Medium',
+    };
   }
 
-  String _budgetFromPriceRange(String? value) => switch (value) {
-    r'$' => 'Low',
-    r'$$' => 'Medium',
-    r'$$$' || r'$$$$' => 'High',
-    _ => 'Not specified',
-  };
-
-  String _operatingHoursFromRow(dynamic value) {
-    if (value is Map) {
-      final hours = value.values
-          .map((hour) => hour?.toString() ?? '')
-          .where((hour) => hour.isNotEmpty)
-          .join(', ');
-      return hours.isEmpty ? 'Operating hours unavailable' : hours;
-    }
-    final hours = value?.toString() ?? '';
-    return hours.isEmpty ? 'Operating hours unavailable' : hours;
+  String _operatingHours(Object? value) {
+    if (value is String) return value;
+    if (value is Map || value is List) return jsonEncode(value);
+    return '';
   }
 }
