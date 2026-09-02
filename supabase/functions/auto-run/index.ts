@@ -59,6 +59,7 @@ interface DiscoverySource {
   source_value: string;
   priority_score: number | null;
   next_scrape_at: string | null;
+  last_scraped_at?: string | null;
   status: string;
 }
 
@@ -497,7 +498,7 @@ async function handleContinue(
 
   // Update queries_completed (use fresh values to avoid overwriting concurrent writes)
   await supabase.from("auto_runs").update({
-    queries_completed,
+    queries_completed: queriesCompleted,
     current_query_source_id: result.sourceId,
     new_restaurants: freshRun?.new_restaurants ?? run.new_restaurants,
     existing_matched: freshRun?.existing_matched ?? run.existing_matched,
@@ -527,15 +528,20 @@ async function triggerNextQuery(
   autoRunId: string,
   config: AutoRunConfig,
 ): Promise<{ sourceId?: number; error?: string }> {
-  // Pick the highest-priority active source that is due
+  // Pick the highest-priority active source that is due. priority_score is
+  // now recomputed after every run from real yield/cost data (see
+  // _shared/discovery-priority.ts), so this actually reflects performance
+  // instead of the static 0.5 default every source used to carry forever.
+  // Break ties by staleness so equally-ranked sources still rotate.
   const { data: source, error: sourceErr } = await supabase
     .from("discovery_sources")
     .select(
-      "id, source_type, source_value, priority_score, next_scrape_at, status",
+      "id, source_type, source_value, priority_score, next_scrape_at, last_scraped_at, status",
     )
     .eq("status", "active")
     .lte("next_scrape_at", new Date().toISOString())
     .order("priority_score", { ascending: false, nullsFirst: false })
+    .order("last_scraped_at", { ascending: true, nullsFirst: true })
     .limit(1)
     .maybeSingle();
 

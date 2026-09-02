@@ -26,6 +26,7 @@ interface DiscoverySource {
   source_value: string;
   priority_score: number | null;
   next_scrape_at: string | null;
+  last_scraped_at?: string | null;
   status: string;
 }
 
@@ -112,14 +113,18 @@ Deno.serve(async (req: Request) => {
     }
     sources = (data ?? []) as DiscoverySource[];
   } else {
+    // priority_score is now recomputed after every run from real
+    // yield/cost data (see _shared/discovery-priority.ts). Break ties by
+    // staleness so equally-ranked sources still rotate.
     const { data, error } = await supabase
       .from("discovery_sources")
       .select(
-        "id, source_type, source_value, priority_score, next_scrape_at, status",
+        "id, source_type, source_value, priority_score, next_scrape_at, last_scraped_at, status",
       )
       .eq("status", "active")
       .lte("next_scrape_at", new Date().toISOString())
       .order("priority_score", { ascending: false, nullsFirst: false })
+      .order("last_scraped_at", { ascending: true, nullsFirst: true })
       .limit(1);
 
     if (error) {

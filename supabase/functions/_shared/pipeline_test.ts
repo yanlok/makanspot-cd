@@ -13,7 +13,6 @@ import {
   isLikelyNotRestaurant,
   normalizeName,
   popularityScore,
-  reverseGeocode,
   selectBestImageCandidate,
   sumComponentCosts,
   trendScore,
@@ -248,39 +247,6 @@ Deno.test("best image ranking is deterministic and penalizes promotions", () => 
     best?.cover_url === "https://img.test/food.jpg",
     "food image should outrank ad",
   );
-});
-
-Deno.test("reverse geocode uses v6 request and parses context", async () => {
-  const previous = Deno.env.get("MAPBOX_TOKEN");
-  Deno.env.set("MAPBOX_TOKEN", "test-token");
-  let requested = "";
-  const result = await reverseGeocode(3.1, 101.6, (input) => {
-    requested = String(input);
-    return Promise.resolve(
-      new Response(
-        JSON.stringify({
-          features: [{
-            properties: {
-              full_address: "1 Jalan Test, Petaling Jaya, Malaysia",
-              context: { place: { name: "Petaling Jaya" } },
-            },
-          }],
-        }),
-        { status: 200 },
-      ),
-    );
-  });
-  if (previous == null) Deno.env.delete("MAPBOX_TOKEN");
-  else Deno.env.set("MAPBOX_TOKEN", previous);
-  assert(
-    requested.includes("/search/geocode/v6/reverse"),
-    "v6 endpoint required",
-  );
-  assert(
-    requested.includes("country=my"),
-    "country=my flag required",
-  );
-  assert(result?.city === "Petaling Jaya", "city context should parse");
 });
 
 Deno.test("component costs aggregate safely", () => {

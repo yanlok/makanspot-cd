@@ -80,6 +80,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
         // Keep this query independent of optional category/image relationships.
         // A restaurant should still be reviewable before enrichment is complete.
         .select('id,name')
+        .isFilter('deleted_at', null)
         .order('name');
     return rows
         .map<CommunityRestaurant>(

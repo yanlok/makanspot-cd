@@ -303,6 +303,7 @@ Deno.serve(async (req: Request) => {
         .from("restaurants")
         .select("id, name, website, categories")
         .eq("id", restaurantId)
+        .is("deleted_at", null)
         .maybeSingle();
       if (restErr) throw new Error(`Restaurant load failed: ${restErr.message}`);
       if (!restaurant) {

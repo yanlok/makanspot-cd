@@ -48,7 +48,13 @@ abstract interface class AdminRepository {
   /// Returns administrative actions in reverse chronological order.
   Future<List<AdminAuditLog>> loadAdminActionLogs();
 
-  Future<List<AdminRestaurant>> loadRestaurants();
+  Future<AdminRestaurantPage> loadRestaurants({
+    required RestaurantStatusFilter statusFilter,
+    required RestaurantSort sort,
+    String? search,
+    required int limit,
+    required int offset,
+  });
 
   Future<AdminRestaurant?> loadRestaurant(String id);
 

@@ -22,6 +22,7 @@ class SupabaseDiscoverRepository implements DiscoverRepository {
     final rows = await _client
         .from('restaurants')
         .select(_restaurantSelect)
+        .isFilter('deleted_at', null)
         .order('created_at', ascending: false);
 
     return rows
@@ -34,6 +35,7 @@ class SupabaseDiscoverRepository implements DiscoverRepository {
     final row = await _client
         .from('restaurants')
         .select(_restaurantSelect)
+        .isFilter('deleted_at', null)
         .eq('id', id)
         .maybeSingle();
     if (row == null) return null;

@@ -129,7 +129,8 @@ Deno.serve(async (req: Request) => {
   // Total restaurants
   const { count: totalRestaurants } = await supabase
     .from("restaurants")
-    .select("id", { count: "exact", head: true });
+    .select("id", { count: "exact", head: true })
+    .is("deleted_at", null);
 
   // Total cost from recent runs
   const totalCost = (recentRunsResult.data ?? []).reduce(

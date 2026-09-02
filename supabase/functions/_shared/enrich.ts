@@ -10,6 +10,8 @@ export interface VenueExtraction {
   name: string | null;
   address: string | null;
   city: string | null;
+  latitude: number | null;
+  longitude: number | null;
   cuisine: string | null;
   price_range: "$" | "$$" | "$$$" | "$$$$" | null;
   description: string | null;
@@ -18,17 +20,6 @@ export interface VenueExtraction {
   phone: string | null;
   website: string | null;
   operating_hours: string | null;
-}
-
-export interface GeoResult {
-  latitude: number;
-  longitude: number;
-  formatted_address: string;
-}
-
-export interface ReverseGeoResult {
-  address: string | null;
-  city: string | null;
 }
 
 export const CATEGORY_TAXONOMY = [
@@ -57,6 +48,8 @@ Return STRICT JSON only, matching this TypeScript type:
   "name": string | null,      // the venue name only, no emojis/hashtags
   "address": string | null,   // full street address if present in the caption
   "city": string | null,      // e.g. "Kuala Lumpur", "Petaling Jaya"
+  "latitude": number | null,  // REQUIRED: always try to provide coordinates. Infer from: (1) map links in caption, (2) known location of the restaurant name + city, (3) area/district mentioned. Only null if you truly cannot determine any reasonable estimate.
+  "longitude": number | null, // REQUIRED: always try to provide coordinates. Infer from: (1) map links in caption, (2) known location of the restaurant name + city, (3) area/district mentioned. Only null if you truly cannot determine any reasonable estimate.
   "cuisine": string | null,   // e.g. "Middle Eastern", "Chinese", "Cafe"
   "price_range": "$" | "$$" | "$$$" | "$$$$" | null,
   "description": string | null, // one clean sentence describing the food/spot
@@ -66,7 +59,7 @@ Return STRICT JSON only, matching this TypeScript type:
   "website": string | null,   // website URL if mentioned
   "operating_hours": string | null // hours if mentioned
 }
-Rules: never invent facts. Only use categories from the list; if none fit, return []. Output JSON with no markdown fences.`;
+Rules: never invent facts. Only use categories from the list; if none fit, return []. For latitude/longitude: if the caption has no coordinates, use your knowledge of Malaysian geography to provide the best approximate coordinates based on the restaurant name, city, and any area/district hints (e.g. "Aman Suri" in "Petaling Jaya" → approximately 3.11, 101.64). Output JSON with no markdown fences.`;
 
 /** Ask the LLM to extract a structured venue from a caption. */
 export async function extractVenue(
@@ -88,6 +81,8 @@ export async function extractVenue(
     name: null,
     address: null,
     city: null,
+    latitude: null,
+    longitude: null,
     cuisine: null,
     price_range: null,
     description: null,
@@ -133,6 +128,8 @@ export async function extractVenue(
       name: parsed.name ?? null,
       address: parsed.address ?? null,
       city: parsed.city ?? null,
+      latitude: typeof parsed.latitude === "number" ? parsed.latitude : null,
+      longitude: typeof parsed.longitude === "number" ? parsed.longitude : null,
       cuisine: parsed.cuisine ?? null,
       price_range: parsed.price_range ?? null,
       description: parsed.description ?? null,
@@ -146,100 +143,6 @@ export async function extractVenue(
     };
   } catch (_e) {
     return fallback;
-  }
-}
-
-/** Resolve a venue name/address into coordinates via Mapbox Geocoding. */
-export async function geocode(
-  name: string | null,
-  address: string | null,
-  city: string | null,
-): Promise<GeoResult | null> {
-  const token = Deno.env.get("MAPBOX_TOKEN");
-  if (!token) return null;
-
-  const query = [name, address, city, "Malaysia"]
-    .filter((p) => p && p.trim().length > 0)
-    .join(", ");
-  if (!query) return null;
-
-  try {
-    const url = new URL(
-      `https://api.mapbox.com/geocoding/v5/mapbox.places/${
-        encodeURIComponent(query)
-      }.json`,
-    );
-    url.searchParams.set("access_token", token);
-    url.searchParams.set("country", "my");
-    url.searchParams.set("limit", "1");
-    url.searchParams.set("permanent", "true");
-
-    const resp = await fetchWithTimeout(url.toString(), {}, 10_000);
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    const feature = data?.features?.[0];
-    if (!feature) return null;
-
-    const coords = feature?.geometry?.coordinates;
-    if (!Array.isArray(coords) || coords.length < 2) return null;
-
-    return {
-      latitude: coords[1],
-      longitude: coords[0],
-      formatted_address: feature.place_name ?? address ?? query,
-    };
-  } catch {
-    return null;
-  }
-}
-
-export function parseReverseGeocode(
-  payload: unknown,
-): ReverseGeoResult | null {
-  const data = payload as Record<string, any>;
-  const feature = data?.features?.[0];
-  if (!feature) return null;
-  const properties = feature.properties ?? {};
-  const context = properties.context ?? feature.context ?? {};
-  const contextItems = Array.isArray(context)
-    ? context
-    : Object.values(context);
-  const cityItem = context?.place ?? context?.locality ??
-    contextItems.find((item: any) =>
-      item?.id?.startsWith?.("place.") || item?.id?.startsWith?.("locality.") ||
-      item?.mapbox_id?.includes?.("place") ||
-      item?.mapbox_id?.includes?.("locality")
-    );
-  const address = properties.full_address ?? properties.place_formatted ??
-    feature.place_name ?? properties.name ?? null;
-  const city = cityItem?.name ?? cityItem?.text ??
-    properties.context?.place?.name ??
-    properties.context?.locality?.name ?? null;
-  return { address, city };
-}
-
-/** Reverse geocode a lat/lng into address + city (free-tier safe). */
-export async function reverseGeocode(
-  latitude: number,
-  longitude: number,
-  fetcher: typeof fetch = fetch,
-): Promise<ReverseGeoResult | null> {
-  const token = Deno.env.get("MAPBOX_TOKEN");
-  if (!token) return null;
-  const url = new URL("https://api.mapbox.com/search/geocode/v6/reverse");
-  url.searchParams.set("latitude", String(latitude));
-  url.searchParams.set("longitude", String(longitude));
-  url.searchParams.set("country", "my");
-  url.searchParams.set("permanent", "true");
-  url.searchParams.set("access_token", token);
-  try {
-    const response = fetcher === fetch
-      ? await fetchWithTimeout(url.toString(), {}, 10_000)
-      : await fetcher(url.toString());
-    if (!response.ok) return null;
-    return parseReverseGeocode(await response.json());
-  } catch {
-    return null;
   }
 }
 

@@ -108,6 +108,7 @@ async function enrichBatch(
       "id, name, city, address, phone, business_hours, latitude, longitude, instagram_location_id, categories",
     )
     .not("name", "is", null)
+    .is("deleted_at", null)
     .order("created_at", { ascending: false });
 
   if (specificIds && specificIds.length > 0) {

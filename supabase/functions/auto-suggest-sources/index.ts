@@ -13,6 +13,7 @@ import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { fetchWithTimeout } from "../_shared/http.ts";
 import { isServiceRoleRequest } from "../_shared/auth.ts";
+import { DEFAULT_NEW_SOURCE_PRIORITY } from "../_shared/discovery-priority.ts";
 type DbClient = SupabaseClient<any, any, any, any, any>;
 
 // ---------------------------------------------------------------------------
@@ -34,6 +35,8 @@ interface Suggestion {
   query: string;
   area: string;
   reason: string;
+  /** Defaults to "hashtag" when omitted or unrecognized; see prompt below. */
+  source_type?: "hashtag" | "search_query";
 }
 
 const MAX_SUGGESTIONS = 5;
@@ -51,28 +54,44 @@ export function normalizeSearchQuery(value: string): string {
 
 const SUGGESTION_SYSTEM_PROMPT =
   `You are a data analyst for a Malaysian restaurant discovery app called MakanSpot.
-Your job is to suggest new Instagram search queries to find restaurants.
+Your job is to suggest new Instagram discovery sources to find restaurants.
 
-You will receive a table of existing discovery sources and their performance metrics.
-Based on these results, suggest ${MAX_SUGGESTIONS} NEW search queries that could find
-similar restaurants.
+You will receive a table of existing discovery sources and their performance metrics,
+including a "source_type" column. Two source types exist:
+
+- "hashtag": searched via Instagram's hashtag feed (e.g. #bangsarcafe). This pulls posts
+  from everyone using that tag, so it consistently returns many results per run.
+- "search_query": searched via Instagram's literal Place-name index. This only returns a
+  result when a real Instagram Place is named almost exactly that, so generic phrases like
+  "cafe TTDI" or "mamak Damansara" usually return 0-1 results no matter how the words are
+  chosen. Only use this for an actual named landmark, mall, or street (e.g. "Sunway Pyramid",
+  "Jalan Alor", "SS15 Courtyard").
+
+Look at the yield/posts_scraped numbers per source_type in the table: hashtag sources should
+visibly outperform search_query sources in posts scraped per run. Use that evidence, not
+intuition, when deciding which type to suggest.
+
+Based on the existing results, suggest ${MAX_SUGGESTIONS} NEW discovery sources that could
+find similar restaurants.
 
 Rules:
+- Default to "source_type": "hashtag" for at least 4 out of 5 suggestions.
+- Only suggest "source_type": "search_query" for a specific, real, named place (not a generic
+  cuisine+area phrase).
 - Focus on Malaysian food areas (KL, PJ, Subang, Bangsar, TTDI, Kepong, Damansara, Cheras, Ampang, etc.)
-- Use search_query type (Instagram place searches work best)
 - Mix cuisines: Malay, Chinese, Indian, Mamak, Western, Japanese, Korean, Thai
-- Include area-specific queries (e.g., "nasi lemak Bangsar", "cafe TTDI")
+- For hashtags, follow the existing naming pattern: area/cuisine concatenated with no spaces,
+  no leading "#" needed in your answer (e.g. "bangsarcafe", "cherasfood", "ttdibrunch")
 - Do NOT repeat existing queries listed in the input
-- Each query should be a realistic Instagram search term
-- Keep queries short and natural (1-4 words)
 - Prioritize areas and cuisines that have shown good yield rates
 
 Return strict JSON:
 {
   "suggestions": [
     {
-      "query": "search term",
+      "query": "hashtag or place name",
       "area": "location name",
+      "source_type": "hashtag",
       "reason": "brief explanation"
     }
   ]
@@ -151,12 +170,12 @@ export async function suggestNewSources(
     return { suggestions_added: 0, suggestions: [] };
   }
 
-  // Duplicate protection must cover every manual and AI-generated search,
-  // not only the top-performing rows included in the LLM prompt.
+  // Duplicate protection must cover every manual and AI-generated search or
+  // hashtag, not only the top-performing rows included in the LLM prompt.
   const { data: querySources, error: querySourcesError } = await supabase
     .from("discovery_sources")
     .select("source_value")
-    .in("source_type", ["search_query", "automation"]);
+    .in("source_type", ["search_query", "automation", "hashtag"]);
   if (querySourcesError) {
     throw new Error(
       `Existing query lookup failed: ${querySourcesError.message}`,
@@ -183,7 +202,7 @@ ${sourceTable}
 
 Existing queries to avoid: ${existingQueries.join(", ")}
 
-Suggest ${MAX_SUGGESTIONS} new search queries.`;
+Suggest ${MAX_SUGGESTIONS} new discovery sources (mostly hashtags).`;
 
   // Call LLM
   const suggestions = await callLLM(userContent);
@@ -214,14 +233,25 @@ Suggest ${MAX_SUGGESTIONS} new search queries.`;
       continue;
     }
 
+    // Default to hashtag: it is the structurally productive discovery mode
+    // (searches Instagram's tag feed) vs. "search_query", which only matches
+    // a literal Instagram Place name and returns ~1 result/run for generic
+    // cuisine+area phrases. Keep search_query suggestions tagged as
+    // "automation" so they stay distinguishable from manually-curated ones.
+    const isHashtag = suggestion.source_type !== "search_query";
+    const sourceType = isHashtag ? "hashtag" : "automation";
+    const sourceValue = isHashtag
+      ? `#${queryKey.replace(/\s+/g, "")}`
+      : query;
+
     const { error: insertError } = await supabase
       .from("discovery_sources")
       .insert({
-        source_type: "automation",
-        source_value: query,
+        source_type: sourceType,
+        source_value: sourceValue,
         area: suggestion.area || null,
         status: "active",
-        priority_score: 0.5,
+        priority_score: DEFAULT_NEW_SOURCE_PRIORITY,
         next_scrape_at: new Date().toISOString(),
       });
 

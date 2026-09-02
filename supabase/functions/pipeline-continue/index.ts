@@ -40,14 +40,12 @@ import {
   deriveCategories,
   ensurePlaceholder,
   extractVenue,
-  geocode,
   isLikelyNotRestaurant,
   nameRelation,
   normalizeName,
   persistPrimaryImage,
   persistRestaurantImageChain,
   popularityScore,
-  reverseGeocode,
   selectBestImageCandidate,
   sumComponentCosts,
   trendScore,
@@ -56,13 +54,17 @@ import {
 import { suggestNewSources } from "../auto-suggest-sources/index.ts";
 import { fetchWithTimeout } from "../_shared/http.ts";
 import {
-  canUseMapbox,
   deadlineExceeded,
   FOLLOWUP_DEADLINE_MS,
   hasProcessingBudget,
   MAX_POLL_FAILURES,
   SCRAPE_DEADLINE_MS,
 } from "../_shared/pipeline-limits.ts";
+import {
+  computeCooldownMs,
+  computePriorityScore,
+  shouldPauseSource,
+} from "../_shared/discovery-priority.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -141,7 +143,6 @@ interface PipelineState {
   location_posts_dataset_id?: string;
   location_posts_actor_completed?: boolean;
   component_item_count?: number;
-  mapbox_requests_used?: number;
   metrics_index?: number;
   current_step?:
     | "scrape"
@@ -1011,6 +1012,7 @@ async function findPlaceRestaurant(
     .from("restaurants")
     .select("id")
     .eq("normalized_name", normalized)
+    .is("deleted_at", null)
     .gte("latitude", place.latitude - tolerance)
     .lte("latitude", place.latitude + tolerance)
     .gte("longitude", place.longitude - tolerance)
@@ -1038,17 +1040,6 @@ async function upsertPlaceRestaurant(
     address ??= data.address;
     city ??= data.city;
   }
-  if (
-    !restaurantId && (!address || !city) && place.latitude !== null &&
-    place.longitude !== null
-  ) {
-    if (canUseMapbox(state.mapbox_requests_used)) {
-      state.mapbox_requests_used = (state.mapbox_requests_used ?? 0) + 1;
-      const reverse = await reverseGeocode(place.latitude, place.longitude);
-      address ??= reverse?.address ?? null;
-      city ??= reverse?.city ?? null;
-    }
-  }
 
   if (restaurantId) {
     // Existing canonical content may have been curated by an admin. Refresh
@@ -1057,10 +1048,9 @@ async function upsertPlaceRestaurant(
       updated_at: new Date().toISOString(),
       last_scraped_at: new Date().toISOString(),
     };
-    const { error } = await supabase.from("restaurants").update(patch).eq(
-      "id",
-      restaurantId,
-    );
+    const { error } = await supabase.from("restaurants").update(patch)
+      .eq("id", restaurantId)
+      .is("deleted_at", null);
     if (error) {
       throw new Error(`Place restaurant update failed: ${error.message}`);
     }
@@ -1119,6 +1109,7 @@ async function findRestaurantForPostCandidate(
 
   let query = supabase.from("restaurants")
     .select("id, normalized_name, address, city")
+    .is("deleted_at", null)
     .limit(10);
   if (latitude !== null && longitude !== null) {
     const tolerance = 0.002;
@@ -1441,7 +1432,7 @@ async function linkPostAndRefreshRestaurant(
       supabase.from("restaurants").select("popularity_score").eq(
         "id",
         restaurantId,
-      ).single(),
+      ).is("deleted_at", null).single(),
     ]);
   if (countError || readError) {
     throw new Error(
@@ -1460,7 +1451,7 @@ async function linkPostAndRefreshRestaurant(
     popularity_score: Math.max(restaurant?.popularity_score ?? 0, popularity),
     last_scraped_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-  }).eq("id", restaurantId);
+  }).eq("id", restaurantId).is("deleted_at", null);
   if (updateError) {
     throw new Error(
       `Restaurant aggregate update failed: ${updateError.message}`,
@@ -1551,8 +1542,8 @@ async function handleEnrich(
       }
 
       // Geocode if no location_id already available
-      let latitude: number | null = null;
-      let longitude: number | null = null;
+      let latitude: number | null = extraction.latitude;
+      let longitude: number | null = extraction.longitude;
 
       if (post.location_id) {
         // We have an IG location — check if we can get coords from the source
@@ -1575,24 +1566,6 @@ async function handleEnrich(
           enriched++;
           continue;
         }
-      }
-
-      // Geocode the venue
-      let geo = null;
-      if (canUseMapbox(state.mapbox_requests_used)) {
-        state.mapbox_requests_used = (state.mapbox_requests_used ?? 0) + 1;
-        // Record quota consumption before the request so retries remain
-        // conservative even if the invocation is interrupted.
-        await updateState(supabase, jobId, state);
-        geo = await geocode(
-          extraction.name,
-          extraction.address,
-          extraction.city,
-        );
-      }
-      if (geo) {
-        latitude = geo.latitude;
-        longitude = geo.longitude;
       }
 
       const normalizedName = normalizeName(extraction.name);
@@ -1850,7 +1823,7 @@ async function handleMetrics(
         source_post_count: posts.length,
         popularity_score: maxPopularity,
         updated_at: new Date().toISOString(),
-      }).eq("id", restaurantId);
+      }).eq("id", restaurantId).is("deleted_at", null);
     if (restaurantError) {
       throw new Error(
         `Metrics restaurant update failed: ${restaurantError.message}`,
@@ -1893,6 +1866,7 @@ async function handleMetrics(
         .from("restaurants")
         .select("website, categories")
         .eq("id", restaurantId)
+        .is("deleted_at", null)
         .maybeSingle();
 
       // Try to recover the IG owner profile_pic_url from the Apify dataset.
@@ -2024,7 +1998,6 @@ async function handleComplete(
           restaurants_no_image: state.stats.restaurants_no_image ?? 0,
           candidates_detected: state.stats.candidates_detected,
           candidates_enriched: state.stats.candidates_enriched,
-          mapbox_requests_used: state.mapbox_requests_used ?? 0,
           skipped: state.stats.posts_skipped,
           failed: state.stats.posts_failed,
           posts_failed: state.stats.posts_failed,
@@ -2047,7 +2020,6 @@ async function handleComplete(
   // to avoid overcounting per-source metrics.
   if (state.source_ids && state.source_ids.length > 0) {
     const now = Date.now();
-    const DAY_MS = 24 * 60 * 60 * 1000;
     const sourceCount = state.source_ids.length;
     const resultsPerSource = Math.floor(
       state.stats.posts_received / sourceCount,
@@ -2065,7 +2037,7 @@ async function handleComplete(
       const { data: source, error: sourceReadError } = await supabase
         .from("discovery_sources")
         .select(
-          "scrape_count, posts_scraped, new_posts, restaurant_candidates, new_restaurants, verified_restaurants, total_cost_usd",
+          "source_type, scrape_count, posts_scraped, new_posts, restaurant_candidates, new_restaurants, verified_restaurants, total_cost_usd, consecutive_zero_yield_runs",
         )
         .eq("id", sourceId)
         .maybeSingle();
@@ -2099,10 +2071,26 @@ async function handleComplete(
         ? newCost / newRestaurants
         : 0;
 
-      // Cooldown: 4 hours if productive, 24 hours if not
-      const cooldownMs = state.stats.restaurants_created > 0
-        ? 4 * 60 * 60 * 1000  // 4 hours
-        : DAY_MS;  // 24 hours
+      // Track consecutive unproductive runs for this specific source so it
+      // gets deprioritized/paused quickly once it goes cold, rather than
+      // waiting on a slow-moving lifetime average to catch up.
+      const thisRunProductive = restaurantsPerSource > 0;
+      const newConsecutiveZero = thisRunProductive
+        ? 0
+        : (source.consecutive_zero_yield_runs ?? 0) + 1;
+
+      // Real, continuously-updated priority score (see _shared/discovery-priority.ts).
+      // Previously this column was written once at insert time and never
+      // recomputed, so every source sat at the same 0.5 default forever and
+      // "ORDER BY priority_score DESC" was effectively a no-op.
+      const priorityScore = computePriorityScore({
+        scrapeCount: newScrapeCount,
+        yieldRate,
+        newRestaurants,
+        costPerNewRestaurant: costPerRestaurant,
+      });
+
+      const cooldownMs = computeCooldownMs(yieldRate, thisRunProductive);
       const nextScrapeAt = nextBusinessHour(now + cooldownMs);
 
       const sourceUpdate: Record<string, unknown> = {
@@ -2114,10 +2102,19 @@ async function handleComplete(
         total_cost_usd: newCost,
         yield_rate: yieldRate,
         cost_per_new_restaurant: costPerRestaurant,
+        consecutive_zero_yield_runs: newConsecutiveZero,
+        priority_score: priorityScore,
         last_scraped_at: new Date().toISOString(),
         next_scrape_at: nextScrapeAt,
       };
-      if (newScrapeCount >= 5 && yieldRate < 0.005) {
+      if (
+        shouldPauseSource({
+          sourceType: source.source_type,
+          scrapeCount: newScrapeCount,
+          lifetimeYieldRate: yieldRate,
+          consecutiveZeroYieldRuns: newConsecutiveZero,
+        })
+      ) {
         sourceUpdate.status = "paused";
       }
       const { error: sourceUpdateError } = await supabase

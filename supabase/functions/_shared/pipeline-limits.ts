@@ -1,20 +1,12 @@
 export const SCRAPE_DEADLINE_MS = 7 * 60_000;
 export const FOLLOWUP_DEADLINE_MS = 5 * 60_000;
 export const MAX_POLL_FAILURES = 6;
-export const MAX_MAPBOX_REQUESTS_PER_RUN = 10;
 
 export function hasProcessingBudget(
   deadlineMs: number,
   nowMs = Date.now(),
 ): boolean {
   return nowMs < deadlineMs;
-}
-
-export function canUseMapbox(
-  used: number | null | undefined,
-  cap = MAX_MAPBOX_REQUESTS_PER_RUN,
-): boolean {
-  return Math.max(0, used ?? 0) < cap;
 }
 
 export function needsActorAbort(component: {
