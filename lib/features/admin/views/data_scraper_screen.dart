@@ -268,7 +268,8 @@ class _AutoRunControls extends StatefulWidget {
     int resultsPerQuery,
     int maxQueries,
     double costLimitUsd,
-  }) onStartAutoRun;
+  })
+  onStartAutoRun;
   final VoidCallback onStartScan;
 
   @override
@@ -309,10 +310,7 @@ class _AutoRunControlsState extends State<_AutoRunControls> {
           const SizedBox(height: 4),
           Text(
             'Process multiple queries automatically',
-            style: TextStyle(
-              fontSize: 12,
-              color: AppColors.mutedForeground,
-            ),
+            style: TextStyle(fontSize: 12, color: AppColors.mutedForeground),
           ),
           const SizedBox(height: 16),
 
@@ -452,10 +450,7 @@ class _AutoRunControlsState extends State<_AutoRunControls> {
           Text(
             '~\$${estimatedCostPerQuery.toStringAsFixed(3)} × $_maxQueries queries ≈ '
             '\$${estimatedTotalCost.toStringAsFixed(2)}',
-            style: TextStyle(
-              fontSize: 12,
-              color: AppColors.mutedForeground,
-            ),
+            style: TextStyle(fontSize: 12, color: AppColors.mutedForeground),
           ),
           const SizedBox(height: 16),
 
@@ -742,10 +737,7 @@ class _AutoRunStatRow extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: TextStyle(
-                fontSize: 12,
-                color: AppColors.mutedForeground,
-              ),
+              style: TextStyle(fontSize: 12, color: AppColors.mutedForeground),
             ),
           ),
           Container(
@@ -1257,9 +1249,7 @@ class _ErrorCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.destructive.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(AppRadii.card),
-        border: Border.all(
-          color: AppColors.destructive.withValues(alpha: 0.3),
-        ),
+        border: Border.all(color: AppColors.destructive.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
