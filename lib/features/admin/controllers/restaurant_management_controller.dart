@@ -98,33 +98,16 @@ class RestaurantManagementController
 
   void _applyFilter() {
     final query = state.searchQuery.trim().toLowerCase();
-    final restaurants =
-        _allRestaurants.where((restaurant) {
+    final restaurants = _allRestaurants
+        .where((restaurant) {
           final matchesSearch =
               query.isEmpty ||
               restaurant.name.toLowerCase().contains(query) ||
-              restaurant.cuisine.toLowerCase().contains(query) ||
-              restaurant.address.toLowerCase().contains(query) ||
-              restaurant.ownerName.toLowerCase().contains(query);
-          final matchesVerification =
-              state.verificationFilter == RestaurantVerificationFilter.all ||
-              (state.verificationFilter ==
-                      RestaurantVerificationFilter.verified &&
-                  restaurant.isVerified) ||
-              (state.verificationFilter ==
-                  RestaurantVerificationFilter.pending &&
-                !restaurant.isVerified);
-          return matchesSearch && matchesVerification;
-        }).toList()..sort(
-          (left, right) => switch (state.sort) {
-            RestaurantSort.nameAscending => left.name.toLowerCase().compareTo(
-              right.name.toLowerCase(),
-            ),
-            RestaurantSort.nameDescending => right.name.toLowerCase().compareTo(
-              left.name.toLowerCase(),
-            ),
-          },
-        );
+              restaurant.categoriesDisplay.toLowerCase().contains(query) ||
+              (restaurant.address ?? '').toLowerCase().contains(query);
+          return matchesSearch;
+        })
+        .toList(growable: false);
     state = state.copyWith(
       status: restaurants.isEmpty
           ? RestaurantManagementStatus.empty
