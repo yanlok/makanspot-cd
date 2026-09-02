@@ -32,7 +32,7 @@ class JourneyScreen extends ConsumerWidget {
       child: ListView(
         key: const Key('journey-scroll'),
         children: [
-          _JourneyHero(data: state.data!, onBack: context.pop),
+          _JourneyHero(data: state.data!),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
             child: _JourneyContent(data: state.data!),
@@ -44,68 +44,27 @@ class JourneyScreen extends ConsumerWidget {
 }
 
 class _JourneyHero extends StatelessWidget {
-  const _JourneyHero({required this.data, required this.onBack});
+  const _JourneyHero({required this.data});
 
   final JourneyData data;
-  final VoidCallback onBack;
 
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
       color: AppColors.primary,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 8, 16, 20),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            IconButton(
-              tooltip: 'Back',
-              onPressed: onBack,
-              color: AppColors.surface,
-              icon: const Icon(LucideIcons.chevronLeft),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Row(
-                children: [
-                  ClipOval(
-                    child: Image.asset(
-                      data.user.profileAsset,
-                      width: 56,
-                      height: 56,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          data.user.username,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(color: AppColors.surface),
-                        ),
-                        Text(
-                          data.user.profileTitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: AppColors.surface.withValues(alpha: 0.8),
-                              ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+            Text(
+              'Journey',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(color: AppColors.surface),
             ),
             const SizedBox(height: 16),
             Container(
-              margin: const EdgeInsets.symmetric(horizontal: 8),
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: AppColors.surface.withValues(alpha: 0.15),

@@ -52,7 +52,7 @@ class ProfileScreen extends ConsumerWidget {
       child: ListView(
         key: const Key('profile-scroll'),
         children: [
-          _ProfileHero(data: data, onBack: context.pop),
+          _ProfileHero(data: data),
           const SizedBox(height: 16),
           _ProgressCard(score: data.profile.communityScore),
           if (data.earnedBadges.isNotEmpty) _BadgeSection(data: data),
@@ -134,10 +134,9 @@ class ProfileScreen extends ConsumerWidget {
 }
 
 class _ProfileHero extends StatelessWidget {
-  const _ProfileHero({required this.data, required this.onBack});
+  const _ProfileHero({required this.data});
 
   final ProfileData data;
-  final VoidCallback onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -145,77 +144,58 @@ class _ProfileHero extends StatelessWidget {
     return ColoredBox(
       color: AppColors.primary,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 8, 16, 20),
-        child: Stack(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+        child: Column(
           children: [
-            Positioned(
-              left: 0,
-              top: 0,
-              child: IconButton(
-                tooltip: 'Back',
-                onPressed: onBack,
-                color: AppColors.surface,
-                icon: const Icon(LucideIcons.chevronLeft),
+            const SizedBox(height: 16),
+            ProfileAvatar(profileAsset: profile.profileAsset),
+            const SizedBox(height: 10),
+            Text(
+              profile.username,
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(color: AppColors.surface),
+            ),
+            Text(
+              profile.email,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: AppColors.surface.withValues(alpha: 0.75),
               ),
             ),
-            Column(
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.surface.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                profile.profileTitle,
+                style: Theme.of(
+                  context,
+                ).textTheme.labelMedium?.copyWith(color: AppColors.surface),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const SizedBox(height: 16),
-                ProfileAvatar(profileAsset: profile.profileAsset),
-                const SizedBox(height: 10),
-                Text(
-                  profile.username,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(color: AppColors.surface),
+                _ProfileLabelChip(label: 'Role: ${_labelize(profile.role)}'),
+                const SizedBox(width: 8),
+                _ProfileLabelChip(
+                  label: 'Status: ${_labelize(profile.accountStatus)}',
                 ),
-                Text(
-                  profile.email,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AppColors.surface.withValues(alpha: 0.75),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    profile.profileTitle,
-                    style: Theme.of(
-                      context,
-                    ).textTheme.labelMedium?.copyWith(color: AppColors.surface),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _ProfileLabelChip(
-                      label: 'Role: ${_labelize(profile.role)}',
-                    ),
-                    const SizedBox(width: 8),
-                    _ProfileLabelChip(
-                      label: 'Status: ${_labelize(profile.accountStatus)}',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _Stat(value: profile.communityScore, label: 'Score'),
-                    const SizedBox(width: 24),
-                    _Stat(value: data.visits, label: 'Visits'),
-                    const SizedBox(width: 24),
-                    _Stat(value: data.reviews, label: 'Reviews'),
-                  ],
-                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _Stat(value: profile.communityScore, label: 'Score'),
+                const SizedBox(width: 24),
+                _Stat(value: data.visits, label: 'Visits'),
+                const SizedBox(width: 24),
+                _Stat(value: data.reviews, label: 'Reviews'),
               ],
             ),
           ],

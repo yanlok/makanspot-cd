@@ -449,21 +449,6 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
             ),
           Positioned(
             top: 48,
-            left: 16,
-            child: _MapActionButton(
-              icon: LucideIcons.chevronLeft,
-              tooltip: 'Back',
-              onPressed: () {
-                if (context.canPop()) {
-                  context.pop();
-                } else {
-                  context.go('/');
-                }
-              },
-            ),
-          ),
-          Positioned(
-            top: 48,
             right: 16,
             child: _MapActionButton(
               icon: LucideIcons.bookmark,

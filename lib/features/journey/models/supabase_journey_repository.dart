@@ -12,9 +12,8 @@ class SupabaseJourneyRepository implements JourneyRepository {
   static const _visitedSelect = '''
     id, content, rating, created_at,
     restaurants!posts_restaurant_id_fkey(
-      id, name, address, latitude, longitude, price_range, rating,
-      restaurant_images(image_url, is_primary),
-      restaurant_categories(categories(name))
+      id, name, address, latitude, longitude, price_range,
+      categories, restaurant_images(image_url, is_primary)
     )
   ''';
 
@@ -106,10 +105,9 @@ class SupabaseJourneyRepository implements JourneyRepository {
   }
 
   String _cuisine(Map<String, dynamic> restaurant) {
-    final categories = restaurant['restaurant_categories'] as List? ?? const [];
+    final categories = restaurant['categories'] as List? ?? const [];
     for (final item in categories) {
-      final category = (item as Map?)?['categories'] as Map?;
-      final name = category?['name']?.toString();
+      final name = item?.toString();
       if (name != null && name.isNotEmpty) return name;
     }
     return '';

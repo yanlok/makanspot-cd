@@ -146,17 +146,16 @@ class SupabaseProfileRepository implements ProfileRepository {
         .from('posts')
         .select('''
           id,
-          restaurants!inner(restaurant_categories(categories(name)))
+          restaurants!inner(id, categories)
         ''')
         .eq('user_id', userId);
 
     final cuisineNames = <String>{};
     for (final row in postRows) {
       final restaurant = row['restaurants'] as Map<String, dynamic>?;
-      final categories = restaurant?['restaurant_categories'] as List? ?? const [];
+      final categories = restaurant?['categories'] as List? ?? const [];
       for (final item in categories) {
-        final category = (item as Map?)?['categories'] as Map?;
-        final name = category?['name']?.toString();
+        final name = item?.toString();
         if (name != null && name.isNotEmpty) cuisineNames.add(name);
       }
     }
