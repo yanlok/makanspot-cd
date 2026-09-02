@@ -11,8 +11,6 @@ import '../controllers/discover_controller.dart';
 import '../controllers/discover_state.dart';
 import '../models/discover_restaurant.dart';
 import 'widgets/discover_filter_strip.dart';
-import 'widgets/discover_restaurant_card.dart';
-
 import 'package:geolocator/geolocator.dart' as gl;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
 
@@ -548,7 +546,8 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
           if (!mounted) {
             return;
           }
-          final restaurantId = annotation.customData?['restaurantId']?.toString();
+          final restaurantId = annotation.customData?['restaurantId']
+              ?.toString();
           if (restaurantId == null || restaurantId.isEmpty) {
             return;
           }
@@ -1033,174 +1032,6 @@ class _SortControl extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _DiscoverResults extends StatelessWidget {
-  const _DiscoverResults({
-    required this.state,
-    required this.onRetry,
-    required this.onClear,
-    required this.onBookmark,
-    required this.onOpen,
-  });
-
-  final DiscoverState state;
-  final VoidCallback onRetry;
-  final VoidCallback onClear;
-  final ValueChanged<String> onBookmark;
-  final ValueChanged<String> onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    return switch (state.status) {
-      DiscoverStatus.loading => const _DiscoverLoading(),
-      DiscoverStatus.error => _DiscoverMessage(
-        icon: LucideIcons.wifiOff,
-        title: 'Could not load Discover',
-        message: state.errorMessage ?? 'Please try again.',
-        actionLabel: 'Try Again',
-        onAction: onRetry,
-      ),
-      DiscoverStatus.empty => _DiscoverMessage(
-        icon: LucideIcons.slidersHorizontal,
-        title: 'No Restaurants Found',
-        message:
-            'Try adjusting your search or filters to discover more places.',
-        actionLabel: 'Clear Filters',
-        onAction: onClear,
-      ),
-      DiscoverStatus.content => _RestaurantGrid(
-        state: state,
-        onBookmark: onBookmark,
-        onOpen: onOpen,
-      ),
-    };
-  }
-}
-
-class _RestaurantGrid extends StatelessWidget {
-  const _RestaurantGrid({
-    required this.state,
-    required this.onBookmark,
-    required this.onOpen,
-  });
-
-  final DiscoverState state;
-  final ValueChanged<String> onBookmark;
-  final ValueChanged<String> onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    final count = state.restaurants.length;
-    final filterCount = state.activeFilterCount;
-    return CustomScrollView(
-      key: const Key('discover-results-scroll'),
-      slivers: [
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
-            child: Text(
-              '$count restaurant${count == 1 ? '' : 's'} found'
-              '${filterCount == 0 ? '' : ' · $filterCount '
-                        'filter${filterCount == 1 ? '' : 's'} active'}',
-              style: const TextStyle(
-                color: AppColors.mutedForeground,
-                fontSize: 14,
-              ),
-            ),
-          ),
-        ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          sliver: SliverGrid(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio: 0.62,
-            ),
-            delegate: SliverChildBuilderDelegate((context, index) {
-              final restaurant = state.restaurants[index];
-              return DiscoverRestaurantCard(
-                restaurant: restaurant,
-                isBookmarked: state.bookmarkedIds.contains(restaurant.id),
-                onBookmark: () => onBookmark(restaurant.id),
-                onOpen: () => onOpen(restaurant.id),
-              );
-            }, childCount: state.restaurants.length),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _DiscoverLoading extends StatelessWidget {
-  const _DiscoverLoading();
-
-  @override
-  Widget build(BuildContext context) {
-    return GridView.builder(
-      padding: const EdgeInsets.all(16),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        childAspectRatio: 0.62,
-      ),
-      itemCount: 6,
-      itemBuilder: (context, index) {
-        return DecoratedBox(
-          key: const Key('discover-loading-card'),
-          decoration: BoxDecoration(
-            color: AppColors.secondary,
-            borderRadius: BorderRadius.circular(AppRadii.card),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _DiscoverMessage extends StatelessWidget {
-  const _DiscoverMessage({
-    required this.icon,
-    required this.title,
-    required this.message,
-    required this.actionLabel,
-    required this.onAction,
-  });
-
-  final IconData icon;
-  final String title;
-  final String message;
-  final String actionLabel;
-  final VoidCallback onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xLarge),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 42, color: AppColors.primary),
-            const SizedBox(height: 14),
-            Text(title, style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: AppColors.mutedForeground),
-            ),
-            const SizedBox(height: 16),
-            FilledButton(onPressed: onAction, child: Text(actionLabel)),
-          ],
-        ),
       ),
     );
   }

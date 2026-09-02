@@ -134,6 +134,23 @@ class AuthController extends StateNotifier<AuthState> {
     state = const AuthState(status: AuthStatus.unauthenticated);
   }
 
+  /// Permanently deletes the signed-in user's account and signs out.
+  /// Returns null on success, or a user-facing error message on failure.
+  Future<String?> deleteAccount() async {
+    state = state.copyWith(isSubmitting: true, errorMessage: null);
+    try {
+      await _repository.deleteAccount();
+      state = const AuthState(status: AuthStatus.unauthenticated);
+      return null;
+    } on AuthFailure catch (failure) {
+      _showError(failure.message);
+      return failure.message;
+    } on Object {
+      _showError('Something went wrong. Please try again.');
+      return 'Something went wrong. Please try again.';
+    }
+  }
+
   Future<void> requestPasswordReset(String rawEmail) async {
     final email = rawEmail.trim();
     final emailError = validateEmail(email);
@@ -179,10 +196,9 @@ class AuthController extends StateNotifier<AuthState> {
     state = state.copyWith(isSubmitting: true, errorMessage: null);
     try {
       await _repository.resetPassword(token: token, newPassword: password);
-      state = state.copyWith(
-        isSubmitting: false,
-        passwordError: null,
-        confirmPasswordError: null,
+      state = const AuthState(
+        status: AuthStatus.unauthenticated,
+        passwordResetSucceeded: true,
       );
       return true;
     } on AuthFailure catch (failure) {

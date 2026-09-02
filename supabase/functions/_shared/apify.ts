@@ -1,4 +1,4 @@
-// V2 Instagram-native field mapping.
+// Instagram-native field mapping.
 // No TikTok fields — this module handles only Instagram scraper records.
 
 export interface IgRecord {
@@ -44,7 +44,7 @@ export interface IgRecord {
   [key: string]: unknown;
 }
 
-export interface V2StagingRow {
+export interface StagingRow {
   platform: string;
   external_post_id: string;
   post_url: string | null;
@@ -63,7 +63,7 @@ export interface V2StagingRow {
   status: "pending";
 }
 
-export interface V2PlaceCandidate {
+export interface PlaceCandidate {
   platform: string;
   external_id: string | null;
   name: string | null;
@@ -121,13 +121,13 @@ function normalizeHashtags(raw: unknown): string[] {
 }
 
 /**
- * Map a single raw Instagram Apify record into a v2 staging row.
+ * Map a single raw Instagram Apify record into a staging row.
  * Returns null if the record has no usable dedup key.
  */
-export function toV2StagingRow(
+export function toStagingRow(
   rec: IgRecord,
   sourceQuery: string | null = null,
-): V2StagingRow | null {
+): StagingRow | null {
   const parent = object(rec.parentData);
   const code = stringValue(rec.code);
   const rawUrl = stringValue(rec.url);
@@ -217,7 +217,7 @@ export function toV2StagingRow(
  * Map a single place-search item into a structured candidate.
  * Returns null unless the record carries a location identity or name+coords.
  */
-export function toV2PlaceCandidate(rec: IgRecord): V2PlaceCandidate | null {
+export function toPlaceCandidate(rec: IgRecord): PlaceCandidate | null {
   const externalId = rec.location_id != null ? String(rec.location_id) : null;
   const name = rec.name != null ? String(rec.name) : null;
   const lat = typeof rec.lat === "number" && Number.isFinite(rec.lat)
@@ -262,11 +262,11 @@ export function toV2PlaceCandidate(rec: IgRecord): V2PlaceCandidate | null {
 }
 
 /**
- * Map a place candidate's posts into v2 staging rows, injecting the place's
+ * Map a place candidate's posts into staging rows, injecting the place's
  * location identity into posts that don't carry their own.
  */
-export function v2PlacePostsToRows(place: V2PlaceCandidate): V2StagingRow[] {
-  const rows: V2StagingRow[] = [];
+export function placePostsToRows(place: PlaceCandidate): StagingRow[] {
+  const rows: StagingRow[] = [];
   for (const post of place.posts) {
     const inheritedPost: IgRecord = {
       ...post,
@@ -277,7 +277,7 @@ export function v2PlacePostsToRows(place: V2PlaceCandidate): V2StagingRow[] {
         ...(post.parentData ?? {}),
       },
     };
-    const row = toV2StagingRow(inheritedPost, place.search_term);
+    const row = toStagingRow(inheritedPost, place.search_term);
     if (!row) continue;
     // The discovery result is the canonical parent. Nested post/parentData
     // metadata can be stale or refer to a different location and must not win.
@@ -350,8 +350,8 @@ const NON_FOOD_PLACE_SIGNALS = [
  * Require positive food evidence in the place metadata or embedded posts.
  * Unknown/empty categories alone are not enough to create canonical data.
  */
-export function v2IsLikelyFoodPlace(
-  place: Pick<V2PlaceCandidate, "name" | "category" | "posts">,
+export function isLikelyFoodPlace(
+  place: Pick<PlaceCandidate, "name" | "category" | "posts">,
 ): boolean {
   const text = `${place.name ?? ""} ${place.category ?? ""}`.toLowerCase();
   const positiveMetadata = FOOD_PLACE_SIGNALS.some((signal) =>
@@ -377,7 +377,7 @@ export function v2IsLikelyFoodPlace(
   return true;
 }
 
-export function v2ShouldQueueLocationPosts(opts: {
+export function shouldQueueLocationPosts(opts: {
   hasPrimary: boolean;
   hasEmbeddedCover: boolean;
   exactLocationUrl: string | null;
@@ -387,21 +387,21 @@ export function v2ShouldQueueLocationPosts(opts: {
     /\/explore\/locations\/\d+\//.test(opts.exactLocationUrl);
 }
 
-export function v2BoundLocationPostTargets<T>(targets: T[]): T[] {
+export function boundLocationPostTargets<T>(targets: T[]): T[] {
   return targets.slice(0, 1);
 }
 
-export function v2BoundLocationPostItems<T>(
+export function boundLocationPostItems<T>(
   items: T[],
   alreadyProcessed: number,
 ): T[] {
   return items.slice(0, Math.max(0, 3 - alreadyProcessed));
 }
 
-export function v2ApplyAuthoritativeLocation(
-  row: V2StagingRow,
+export function applyAuthoritativeLocation(
+  row: StagingRow,
   locationId: string,
-): V2StagingRow {
+): StagingRow {
   row.location_id = locationId;
   return row;
 }

@@ -15,45 +15,6 @@ class FixtureProfileRepository implements ProfileRepository {
     communityScore: 185,
   );
 
-  static const List<DemoRegisteredAccount> _demoAccounts = [
-    DemoRegisteredAccount(
-      id: 'u-001',
-      name: 'Yih Loong',
-      email: 'yl@makanspot.my',
-      bio: 'Sedap hunter exploring hidden gems around Klang Valley.',
-      photoUrl: 'assets/images/default_icon.jpg',
-      role: 'admin',
-      status: 'active',
-    ),
-    DemoRegisteredAccount(
-      id: 'u-002',
-      name: 'Aina Rahman',
-      email: 'aina.r@makanspot.my',
-      bio: 'Weekend cafe hopper and kopi enthusiast.',
-      photoUrl: 'assets/images/default_icon.jpg',
-      role: 'user',
-      status: 'active',
-    ),
-    DemoRegisteredAccount(
-      id: 'u-003',
-      name: 'Kelvin Ong',
-      email: 'kelvin.o@makanspot.my',
-      bio: 'Shares hidden hawker stalls and supper spots.',
-      photoUrl: 'assets/images/default_icon.jpg',
-      role: 'user',
-      status: 'pending',
-    ),
-    DemoRegisteredAccount(
-      id: 'u-004',
-      name: 'Nadia Suraya',
-      email: 'nadia.s@makanspot.my',
-      bio: 'Food storyteller focused on local kuih and family recipes.',
-      photoUrl: 'assets/images/default_icon.jpg',
-      role: 'admin',
-      status: 'deactivated',
-    ),
-  ];
-
   @override
   Future<ProfileData> loadProfile() async {
     return ProfileData(
@@ -63,11 +24,6 @@ class FixtureProfileRepository implements ProfileRepository {
       cuisines: 2,
       earnedBadges: const ['First Bite', 'Review Rookie'],
     );
-  }
-
-  @override
-  Future<List<DemoRegisteredAccount>> loadDemoRegisteredAccounts() async {
-    return List.unmodifiable(_demoAccounts);
   }
 
   @override
@@ -82,5 +38,12 @@ class FixtureProfileRepository implements ProfileRepository {
       profileAsset: profileAsset,
     );
     return _profile;
+  }
+
+  @override
+  Future<String> uploadProfilePicture(ProfilePictureUpload upload) async {
+    // Returns a stable fake URL so the upload flow is exercised without a
+    // storage backend.
+    return 'https://fixture.makanspot.local/avatars/${upload.fileName ?? 'avatar.jpg'}';
   }
 }

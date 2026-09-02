@@ -17,6 +17,7 @@ class SupabaseHomeRepository implements HomeRepository {
       id, name, categories, price_range, popularity_score, created_at,
       restaurant_images(image_url, is_primary)
     ''')
+        .isFilter('deleted_at', null)
         .order('created_at', ascending: false)
         .limit(50);
 

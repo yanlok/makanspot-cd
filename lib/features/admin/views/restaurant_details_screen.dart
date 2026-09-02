@@ -151,6 +151,9 @@ class _RestaurantDetailsScreenState
         content: Text('Changes Saved — Restaurant information updated.'),
       ),
     );
+    if (widget.restaurantId != 'new') {
+      context.go('/admin/restaurants/${widget.restaurantId}');
+    }
   }
 
   Future<void> _remove() async {
@@ -158,8 +161,8 @@ class _RestaurantDetailsScreenState
       context,
       title: 'Remove Restaurant?',
       message:
-          'This will permanently remove "${_nameController.text.trim()}" '
-          'from MakanSpot. This action cannot be undone.',
+          'This will hide "${_nameController.text.trim()}" from the public '
+          'app and move it to Deleted. An administrator can restore it later.',
       confirmLabel: 'Remove',
       destructive: true,
     );
@@ -180,7 +183,7 @@ class _RestaurantDetailsScreenState
       messenger.showSnackBar(
         SnackBar(
           content: Text(
-            'Restaurant Removed — ${_nameController.text.trim()} has been removed.',
+            'Restaurant Removed — ${_nameController.text.trim()} is now hidden from the public app.',
           ),
         ),
       );

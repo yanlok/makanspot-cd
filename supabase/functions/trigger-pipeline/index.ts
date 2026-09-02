@@ -1,10 +1,10 @@
 /// <reference path="../_shared/deno.d.ts" />
 // ============================================================================
-// v2-trigger-pipeline
+// trigger-pipeline
 // ----------------------------------------------------------------------------
-// Entry point for the v2 scraping pipeline. Selects discovery sources,
+// Entry point for the scraping pipeline. Selects discovery sources,
 // starts an Apify run, creates tracking rows, and hands off to
-// v2-pipeline-continue for batched processing.
+// pipeline-continue for batched processing.
 //
 // POST body: { source_ids?: number[], result_limit?: number }
 // Response:  { job_id, run_id, status: "pending" }
@@ -14,6 +14,7 @@ import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 type DbClient = SupabaseClient<any, any, any, any, any>;
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { isAdminRequest } from "../_shared/auth.ts";
+import { fetchWithTimeout } from "../_shared/http.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,6 +26,7 @@ interface DiscoverySource {
   source_value: string;
   priority_score: number | null;
   next_scrape_at: string | null;
+  last_scraped_at?: string | null;
   status: string;
 }
 
@@ -67,7 +69,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "admin_required" }, 403);
   }
 
-  // --- Guard: no active v2_scrape_runs ---
+  // --- Guard: no active scrape_runs ---
   const { data: activeRun, error: activeRunError } = await supabase
     .from("scrape_runs")
     .select("id")
@@ -83,7 +85,7 @@ Deno.serve(async (req: Request) => {
   if (activeRun) {
     return jsonResponse({
       error: "run_already_active",
-      message: "A v2 scrape run is already in progress. Wait for it to finish.",
+      message: "A scrape run is already in progress. Wait for it to finish.",
     }, 409);
   }
 
@@ -101,7 +103,7 @@ Deno.serve(async (req: Request) => {
 
     if (error) {
       console.error(
-        "[v2-trigger] Failed to load specified sources:",
+        "[trigger] Failed to load specified sources:",
         error.message,
       );
       return jsonResponse(
@@ -111,18 +113,22 @@ Deno.serve(async (req: Request) => {
     }
     sources = (data ?? []) as DiscoverySource[];
   } else {
+    // priority_score is now recomputed after every run from real
+    // yield/cost data (see _shared/discovery-priority.ts). Break ties by
+    // staleness so equally-ranked sources still rotate.
     const { data, error } = await supabase
       .from("discovery_sources")
       .select(
-        "id, source_type, source_value, priority_score, next_scrape_at, status",
+        "id, source_type, source_value, priority_score, next_scrape_at, last_scraped_at, status",
       )
       .eq("status", "active")
       .lte("next_scrape_at", new Date().toISOString())
       .order("priority_score", { ascending: false, nullsFirst: false })
+      .order("last_scraped_at", { ascending: true, nullsFirst: true })
       .limit(1);
 
     if (error) {
-      console.error("[v2-trigger] Failed to load due sources:", error.message);
+      console.error("[trigger] Failed to load due sources:", error.message);
       return jsonResponse(
         { error: `Failed to load sources: ${error.message}` },
         500,
@@ -139,20 +145,22 @@ Deno.serve(async (req: Request) => {
   }
 
   console.log(
-    `[v2-trigger] Selected ${sources.length} sources:`,
+    `[trigger] Selected ${sources.length} sources:`,
     sources.map((s) => `${s.source_type}:${s.source_value}`),
   );
 
   // --- Classify sources by Apify actor ---
   const hashtagSources = sources.filter((s) => s.source_type === "hashtag");
-  const searchSources = sources.filter((s) => s.source_type === "search_query");
+  const searchSources = sources.filter((s) =>
+    s.source_type === "search_query" || s.source_type === "automation"
+  );
   const skippedSources = sources.filter(
     (s) => s.source_type === "account" || s.source_type === "location",
   );
 
   if (skippedSources.length > 0) {
     console.log(
-      `[v2-trigger] Skipping ${skippedSources.length} account/location sources (not yet supported)`,
+      `[trigger] Skipping ${skippedSources.length} account/location sources (not yet supported)`,
       skippedSources.map((s) => `${s.source_type}:${s.source_value}`),
     );
   }
@@ -180,7 +188,7 @@ Deno.serve(async (req: Request) => {
 
     if (searchSources.length > 0) {
       console.log(
-        `[v2-trigger] ${searchSources.length} search_query sources deferred to next run`,
+        `[trigger] ${searchSources.length} search sources deferred to next run`,
       );
     }
   } else if (searchSources.length > 0) {
@@ -195,11 +203,11 @@ Deno.serve(async (req: Request) => {
     runSourceIds = searchSources.map((s) => s.id);
     datasetKind = "place";
   } else {
-    // Only account/location sources selected — nothing to run
+    // Only unsupported source types selected — nothing to run
     return jsonResponse({
       error: "no_runnable_sources",
       message:
-        "Selected sources are account/location type, which are not yet supported.",
+        "Selected sources are not supported by the current scraper actors.",
     }, 409);
   }
 
@@ -215,6 +223,12 @@ Deno.serve(async (req: Request) => {
     .single();
 
   if (runInsertErr || !scrapeRun) {
+    if (runInsertErr?.code === "23505") {
+      return jsonResponse({
+        error: "run_already_active",
+        message: "A scrape run is already in progress. Wait for it to finish.",
+      }, 409);
+    }
     const message = `Failed to create pending scrape run: ${
       runInsertErr?.message ?? "unknown error"
     }`;
@@ -250,7 +264,7 @@ Deno.serve(async (req: Request) => {
 
   let apifyRunId: string | null = null;
   try {
-    const startResp = await fetch(
+    const startResp = await fetchWithTimeout(
       `https://api.apify.com/v2/acts/${actorId}/runs`,
       {
         method: "POST",
@@ -260,6 +274,7 @@ Deno.serve(async (req: Request) => {
         },
         body: JSON.stringify(actorRunInput),
       },
+      20_000,
     );
     if (!startResp.ok) {
       throw new Error(
@@ -277,7 +292,7 @@ Deno.serve(async (req: Request) => {
 
   const startedAt = new Date().toISOString();
   const result = {
-    v2_scrape_run_id: scrapeRun.id,
+    scrape_run_id: scrapeRun.id,
     apify_run_id: apifyRunId,
     active_component_id: component.id,
     source_ids: runSourceIds,
@@ -324,7 +339,7 @@ Deno.serve(async (req: Request) => {
 
   // Chain to pipeline-continue
   EdgeRuntime.waitUntil(
-    fetch(
+    fetchWithTimeout(
       `${Deno.env.get("SUPABASE_URL")}/functions/v1/pipeline-continue`,
       {
         method: "POST",
@@ -336,6 +351,10 @@ Deno.serve(async (req: Request) => {
         },
         body: JSON.stringify({ job_id: scrapeRun.id }),
       },
+      // Cold starts plus the worker's first bounded Apify poll can exceed the
+      // ordinary external-request timeout. Give this internal handoff one
+      // processing-budget window before treating it as interrupted.
+      45_000,
     ).then(async (resp) => {
       if (!resp.ok) {
         const text = await resp.text();
@@ -368,18 +387,19 @@ Deno.serve(async (req: Request) => {
 async function abortApifyRun(token: string, runId: string | null) {
   if (!runId) return;
   try {
-    const response = await fetch(
+    const response = await fetchWithTimeout(
       `https://api.apify.com/v2/actor-runs/${runId}/abort?gracefully=true`,
       { method: "POST", headers: { "Authorization": `Bearer ${token}` } },
+      10_000,
     );
     if (!response.ok) {
       console.error(
-        `[v2-trigger] Apify abort failed (${response.status}): ${await response
+        `[trigger] Apify abort failed (${response.status}): ${await response
           .text()}`,
       );
     }
   } catch (error) {
-    console.error(`[v2-trigger] Apify abort error:`, error);
+    console.error(`[trigger] Apify abort error:`, error);
   }
 }
 

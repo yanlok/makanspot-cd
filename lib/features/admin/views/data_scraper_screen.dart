@@ -8,24 +8,24 @@ import '../controllers/data_scraper_controller.dart';
 import '../models/data_scraper_models.dart';
 import 'widgets/admin_page_header.dart';
 
-/// V2 Data Scraper screen — trigger and monitor the v2 Instagram pipeline.
-class V2DataScraperScreen extends ConsumerWidget {
-  const V2DataScraperScreen({super.key});
+/// Data Scraper screen — trigger and monitor the Instagram pipeline.
+class DataScraperScreen extends ConsumerWidget {
+  const DataScraperScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(v2DataScraperControllerProvider);
-    final controller = ref.read(v2DataScraperControllerProvider.notifier);
+    final state = ref.watch(dataScraperControllerProvider);
+    final controller = ref.read(dataScraperControllerProvider.notifier);
 
     return SafeArea(
       bottom: false,
       child: ListView(
-        key: const Key('v2-data-scraper-scroll'),
+        key: const Key('data-scraper-scroll'),
         padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
         children: [
           const AdminPageHeader(
-            title: 'V2 Data Scraper',
-            subtitle: 'Clean pipeline — Instagram-native restaurant discovery',
+            title: 'Data Scraper',
+            subtitle: 'Instagram-native restaurant discovery pipeline',
           ),
           const SizedBox(height: 24),
 
@@ -37,31 +37,44 @@ class V2DataScraperScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 16),
 
-          // Scan controls or progress
+          // Auto Run controls or progress or manual scan
           if (state.initMessage.isNotEmpty &&
-              state.status == V2PipelineStatus.idle)
+              state.status == PipelineStatus.idle)
             _LoadingBar(message: state.initMessage)
-          else if (state.status == V2PipelineStatus.scanning ||
-              state.status == V2PipelineStatus.processing)
-            _ScanProgress(state: state)
+          else if (state.autoRun != null && state.autoRun!.isActive)
+            _AutoRunProgress(
+              autoRun: state.autoRun!,
+              onPause: controller.pauseAutoRun,
+              onResume: controller.resumeAutoRun,
+              onStop: controller.stopAutoRun,
+            )
+          else if (state.status == PipelineStatus.scanning ||
+              state.status == PipelineStatus.processing)
+            _ScanProgress(state: state, onCancel: controller.cancelScan)
           else
-            _ScanControls(
-              resultLimit: state.resultLimit,
-              onLimitChanged: controller.setResultLimit,
-              onPressed: controller.startScan,
+            _AutoRunControls(
+              onStartAutoRun: controller.startAutoRun,
+              onStartScan: controller.startScan,
             ),
 
           // Error state
-          if (state.status == V2PipelineStatus.error) ...[
+          if (state.status == PipelineStatus.error) ...[
             const SizedBox(height: 16),
             _ErrorCard(message: state.error ?? 'Unknown error'),
           ],
 
-          // Results
-          if (state.status == V2PipelineStatus.complete &&
-              state.result != null) ...[
+          // Results (single scan only)
+          if (state.status == PipelineStatus.complete &&
+              state.result != null &&
+              (state.autoRun == null || !state.autoRun!.isActive)) ...[
             const SizedBox(height: 16),
             _ResultsCard(result: state.result!),
+          ],
+
+          // Auto Run summary (when finished)
+          if (state.autoRun != null && !state.autoRun!.isActive) ...[
+            const SizedBox(height: 16),
+            _AutoRunSummaryCard(autoRun: state.autoRun!),
           ],
 
           // Cost KPI
@@ -118,7 +131,7 @@ class _StatsOverview extends StatelessWidget {
         children: [
           _StatItem(
             icon: LucideIcons.store,
-            label: 'V2 Restaurants',
+            label: 'Restaurants',
             value: '$totalRestaurants',
             color: AppColors.success,
           ),
@@ -172,7 +185,7 @@ class _StatItem extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             value,
-            style: TextStyle(
+            style: const TextStyle(
               fontFamily: 'Poppins',
               fontSize: 15,
               fontWeight: FontWeight.w700,
@@ -242,25 +255,38 @@ class _LoadingBar extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Scan Controls (quantity slider + cost estimate + button)
+// Auto Run Controls — configuration before starting
 // ---------------------------------------------------------------------------
 
-class _ScanControls extends StatelessWidget {
-  const _ScanControls({
-    required this.resultLimit,
-    required this.onLimitChanged,
-    required this.onPressed,
+class _AutoRunControls extends StatefulWidget {
+  const _AutoRunControls({
+    required this.onStartAutoRun,
+    required this.onStartScan,
   });
 
-  final int resultLimit;
-  final ValueChanged<int> onLimitChanged;
-  final VoidCallback onPressed;
+  final void Function({
+    int resultsPerQuery,
+    int maxQueries,
+    double costLimitUsd,
+  })
+  onStartAutoRun;
+  final VoidCallback onStartScan;
+
+  @override
+  State<_AutoRunControls> createState() => _AutoRunControlsState();
+}
+
+class _AutoRunControlsState extends State<_AutoRunControls> {
+  int _resultsPerQuery = 30;
+  int _maxQueries = 10;
+  double _costLimitUsd = 5.0;
 
   static const _costPerResult = 0.003;
 
   @override
   Widget build(BuildContext context) {
-    final estimatedCost = resultLimit * _costPerResult;
+    final estimatedCostPerQuery = _resultsPerQuery * _costPerResult;
+    final estimatedTotalCost = estimatedCostPerQuery * _maxQueries;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -272,11 +298,28 @@ class _ScanControls extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const Text(
+            'Auto Run',
+            style: TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: AppColors.foreground,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Process multiple queries automatically',
+            style: TextStyle(fontSize: 12, color: AppColors.mutedForeground),
+          ),
+          const SizedBox(height: 16),
+
+          // Results per query
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                'Results to fetch',
+                'Results per query',
                 style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 13,
@@ -284,80 +327,146 @@ class _ScanControls extends StatelessWidget {
                   color: AppColors.foreground,
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '$resultLimit',
-                  style: const TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.primary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          SliderTheme(
-            data: SliderThemeData(
-              activeTrackColor: AppColors.primary,
-              inactiveTrackColor: AppColors.secondary,
-              thumbColor: AppColors.primary,
-              overlayColor: AppColors.primary.withValues(alpha: 0.1),
-            ),
-            child: Slider(
-              value: resultLimit.toDouble(),
-              min: 1,
-              max: 20,
-              divisions: 19,
-              onChanged: (v) => onLimitChanged(v.round()),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '1',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: AppColors.mutedForeground,
-                ),
-              ),
-              Text(
-                '~\$${_costPerResult.toStringAsFixed(3)} × $resultLimit = \$${estimatedCost.toStringAsFixed(3)}',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.mutedForeground,
-                ),
-              ),
-              Text(
-                '20',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: AppColors.mutedForeground,
+              SegmentedButton<int>(
+                segments: const [
+                  ButtonSegment(value: 20, label: Text('20')),
+                  ButtonSegment(value: 30, label: Text('30')),
+                  ButtonSegment(value: 40, label: Text('40')),
+                ],
+                selected: {_resultsPerQuery},
+                onSelectionChanged: (values) {
+                  setState(() => _resultsPerQuery = values.first);
+                },
+                style: SegmentedButton.styleFrom(
+                  textStyle: const TextStyle(fontSize: 12),
+                  visualDensity: VisualDensity.compact,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
+
+          // Max queries
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Max queries',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.foreground,
+                ),
+              ),
+              SizedBox(
+                width: 80,
+                height: 36,
+                child: TextFormField(
+                  initialValue: '$_maxQueries',
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  decoration: InputDecoration(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 8,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(color: AppColors.secondary),
+                    ),
+                  ),
+                  onChanged: (v) {
+                    final n = int.tryParse(v);
+                    if (n != null && n >= 1 && n <= 100) {
+                      setState(() => _maxQueries = n);
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Cost limit
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Cost limit (USD)',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.foreground,
+                ),
+              ),
+              SizedBox(
+                width: 80,
+                height: 36,
+                child: TextFormField(
+                  initialValue: _costLimitUsd.toStringAsFixed(1),
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  decoration: InputDecoration(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 8,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: BorderSide(color: AppColors.secondary),
+                    ),
+                  ),
+                  onChanged: (v) {
+                    final n = double.tryParse(v);
+                    if (n != null && n >= 0.1 && n <= 100) {
+                      setState(() => _costLimitUsd = n);
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          // Cost estimate
+          Text(
+            '~\$${estimatedCostPerQuery.toStringAsFixed(3)} × $_maxQueries queries ≈ '
+            '\$${estimatedTotalCost.toStringAsFixed(2)}',
+            style: TextStyle(fontSize: 12, color: AppColors.mutedForeground),
+          ),
+          const SizedBox(height: 16),
+
+          // Start Auto Run button
           SizedBox(
             width: double.infinity,
             height: 48,
             child: FilledButton.icon(
-              onPressed: onPressed,
-              icon: const Icon(LucideIcons.scan, size: 18),
+              onPressed: () => widget.onStartAutoRun(
+                resultsPerQuery: _resultsPerQuery,
+                maxQueries: _maxQueries,
+                costLimitUsd: _costLimitUsd,
+              ),
+              icon: const Icon(LucideIcons.play, size: 18),
               label: const Text(
-                'Start V2 Scan',
+                'Start Auto Run',
                 style: TextStyle(
                   fontFamily: 'Poppins',
                   fontSize: 15,
@@ -373,6 +482,388 @@ class _ScanControls extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(height: 8),
+
+          // Single scan fallback
+          SizedBox(
+            width: double.infinity,
+            height: 40,
+            child: OutlinedButton.icon(
+              onPressed: widget.onStartScan,
+              icon: const Icon(LucideIcons.scan, size: 16),
+              label: const Text(
+                'Single Scan',
+                style: TextStyle(
+                  fontFamily: 'Poppins',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.mutedForeground,
+                side: BorderSide(color: AppColors.secondary),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadii.control),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Auto Run Progress — shown while an auto-run is active
+// ---------------------------------------------------------------------------
+
+class _AutoRunProgress extends StatelessWidget {
+  const _AutoRunProgress({
+    required this.autoRun,
+    required this.onPause,
+    required this.onResume,
+    required this.onStop,
+  });
+
+  final AutoRunState autoRun;
+  final VoidCallback onPause;
+  final VoidCallback onResume;
+  final VoidCallback onStop;
+
+  @override
+  Widget build(BuildContext context) {
+    final isPaused = autoRun.status == AutoRunStatus.paused;
+    final config = autoRun.config;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.secondary),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: isPaused ? AppColors.accent : AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  isPaused ? 'Auto Run Paused' : 'Auto Run In Progress',
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.foreground,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: (isPaused ? AppColors.accent : AppColors.primary)
+                      .withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  '${autoRun.queriesCompleted}/${config.maxQueries}',
+                  style: TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: isPaused ? AppColors.accent : AppColors.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Progress bar
+          LinearProgressIndicator(
+            value: config.maxQueries > 0
+                ? autoRun.queriesCompleted / config.maxQueries
+                : 0,
+            backgroundColor: AppColors.secondary,
+            color: AppColors.primary,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          const SizedBox(height: 16),
+
+          // Stats grid
+          _AutoRunStatRow(
+            icon: LucideIcons.utensilsCrossed,
+            label: 'New restaurants',
+            value: '${autoRun.newRestaurants}',
+            color: AppColors.success,
+          ),
+          _AutoRunStatRow(
+            icon: LucideIcons.repeat,
+            label: 'Existing matched',
+            value: '${autoRun.existingMatched}',
+            color: AppColors.primary,
+          ),
+          _AutoRunStatRow(
+            icon: LucideIcons.imageOff,
+            label: 'Skipped (no image)',
+            value: '${autoRun.skippedNoImage}',
+            color: AppColors.accent,
+          ),
+          _AutoRunStatRow(
+            icon: LucideIcons.triangleAlert,
+            label: 'Failed candidates',
+            value: '${autoRun.failedCandidates}',
+            color: AppColors.destructive,
+          ),
+          _AutoRunStatRow(
+            icon: LucideIcons.dollarSign,
+            label: 'Total cost',
+            value: '\$${autoRun.totalCostUsd.toStringAsFixed(3)}',
+            color: AppColors.foreground,
+          ),
+
+          const SizedBox(height: 16),
+
+          // Controls
+          Row(
+            children: [
+              Expanded(
+                child: isPaused
+                    ? FilledButton.icon(
+                        onPressed: onResume,
+                        icon: const Icon(LucideIcons.play, size: 16),
+                        label: const Text(
+                          'Resume',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: AppColors.surface,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              AppRadii.control,
+                            ),
+                          ),
+                        ),
+                      )
+                    : OutlinedButton.icon(
+                        onPressed: onPause,
+                        icon: const Icon(LucideIcons.pause, size: 16),
+                        label: const Text(
+                          'Pause',
+                          style: TextStyle(
+                            fontFamily: 'Poppins',
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppColors.foreground,
+                          side: BorderSide(color: AppColors.secondary),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              AppRadii.control,
+                            ),
+                          ),
+                        ),
+                      ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton.icon(
+                  key: const Key('stop-auto-run-button'),
+                  onPressed: onStop,
+                  icon: const Icon(LucideIcons.circleStop, size: 16),
+                  label: const Text(
+                    'Stop',
+                    style: TextStyle(
+                      fontFamily: 'Poppins',
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.destructive,
+                    side: BorderSide(
+                      color: AppColors.destructive.withValues(alpha: 0.5),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(AppRadii.control),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AutoRunStatRow extends StatelessWidget {
+  const _AutoRunStatRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: AppColors.mutedForeground),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 12, color: AppColors.mutedForeground),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              value,
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Auto Run Summary Card — shown after auto-run finishes
+// ---------------------------------------------------------------------------
+
+class _AutoRunSummaryCard extends StatelessWidget {
+  const _AutoRunSummaryCard({required this.autoRun});
+
+  final AutoRunState autoRun;
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = autoRun.status == AutoRunStatus.completed
+        ? AppColors.success
+        : autoRun.status == AutoRunStatus.failed
+        ? AppColors.destructive
+        : AppColors.accent;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: AppColors.secondary),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  autoRun.status == AutoRunStatus.completed
+                      ? LucideIcons.checkCircle
+                      : LucideIcons.circleStop,
+                  size: 18,
+                  color: statusColor,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Auto Run ${autoRun.status.name}',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    if (autoRun.stopReason != null)
+                      Text(
+                        autoRun.stopReason!,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.mutedForeground,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _ResultRow(
+            label: 'Queries completed',
+            value: '${autoRun.queriesCompleted}',
+            color: AppColors.primary,
+          ),
+          const SizedBox(height: 8),
+          _ResultRow(
+            label: 'New restaurants',
+            value: '${autoRun.newRestaurants}',
+            color: AppColors.success,
+          ),
+          const SizedBox(height: 8),
+          _ResultRow(
+            label: 'Existing matched',
+            value: '${autoRun.existingMatched}',
+            color: AppColors.primary,
+          ),
+          const SizedBox(height: 8),
+          _ResultRow(
+            label: 'Skipped (no image)',
+            value: '${autoRun.skippedNoImage}',
+            color: AppColors.accent,
+          ),
+          const SizedBox(height: 8),
+          _ResultRow(
+            label: 'Failed candidates',
+            value: '${autoRun.failedCandidates}',
+            color: AppColors.destructive,
+          ),
+          const SizedBox(height: 8),
+          _ResultRow(
+            label: 'Total cost',
+            value: '\$${autoRun.totalCostUsd.toStringAsFixed(3)}',
+            color: AppColors.foreground,
+          ),
         ],
       ),
     );
@@ -384,9 +875,10 @@ class _ScanControls extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _ScanProgress extends StatelessWidget {
-  const _ScanProgress({required this.state});
+  const _ScanProgress({required this.state, required this.onCancel});
 
-  final V2PipelineState state;
+  final PipelineState state;
+  final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -426,6 +918,16 @@ class _ScanProgress extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _ProgressSteps(currentStep: state.currentStep),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              key: const Key('cancel-pipeline-button'),
+              onPressed: onCancel,
+              icon: const Icon(LucideIcons.circleStop, size: 16),
+              label: const Text('Stop scan'),
+            ),
+          ),
         ],
       ),
     );
@@ -435,17 +937,17 @@ class _ScanProgress extends StatelessWidget {
 class _ProgressSteps extends StatelessWidget {
   const _ProgressSteps({required this.currentStep});
 
-  final V2PipelineStep? currentStep;
+  final PipelineStep? currentStep;
 
   @override
   Widget build(BuildContext context) {
     const steps = [
-      (V2PipelineStep.scrape, 'Scraping', LucideIcons.download),
-      (V2PipelineStep.ingest, 'Ingesting', LucideIcons.database),
-      (V2PipelineStep.detect, 'Detecting', LucideIcons.brain),
-      (V2PipelineStep.resolve, 'Resolving', LucideIcons.gitMerge),
-      (V2PipelineStep.enrich, 'Enriching', LucideIcons.utensilsCrossed),
-      (V2PipelineStep.metrics, 'Metrics', LucideIcons.barChart3),
+      (PipelineStep.scrape, 'Scraping', LucideIcons.download),
+      (PipelineStep.ingest, 'Ingesting', LucideIcons.database),
+      (PipelineStep.detect, 'Detecting', LucideIcons.brain),
+      (PipelineStep.resolve, 'Resolving', LucideIcons.gitMerge),
+      (PipelineStep.enrich, 'Enriching', LucideIcons.utensilsCrossed),
+      (PipelineStep.metrics, 'Metrics', LucideIcons.barChart3),
     ];
 
     final currentIndex = currentStep != null
@@ -549,7 +1051,7 @@ class _StepIcon extends StatelessWidget {
 class _ResultsCard extends StatelessWidget {
   const _ResultsCard({required this.result});
 
-  final V2ScanResult result;
+  final ScanResult result;
 
   @override
   Widget build(BuildContext context) {
@@ -580,7 +1082,7 @@ class _ResultsCard extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               Text(
-                'V2 Scan Complete',
+                'Scan Complete',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
             ],
@@ -776,13 +1278,34 @@ class _ErrorCard extends StatelessWidget {
 // Discovery Sources Section
 // ---------------------------------------------------------------------------
 
-class _DiscoverySourcesSection extends StatelessWidget {
+class _DiscoverySourcesSection extends StatefulWidget {
   const _DiscoverySourcesSection({required this.sources});
 
-  final List<V2DiscoverySourceSummary> sources;
+  final List<DiscoverySourceSummary> sources;
+
+  @override
+  State<_DiscoverySourcesSection> createState() =>
+      _DiscoverySourcesSectionState();
+}
+
+class _DiscoverySourcesSectionState extends State<_DiscoverySourcesSection> {
+  static const _pageSize = 5;
+  int _visibleCount = _pageSize;
+
+  @override
+  void didUpdateWidget(covariant _DiscoverySourcesSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.sources != widget.sources) {
+      _visibleCount = _pageSize;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final sources = widget.sources;
+    final visibleCount = _visibleCount.clamp(0, sources.length);
+    final visibleSources = sources.take(visibleCount).toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -797,13 +1320,45 @@ class _DiscoverySourcesSection extends StatelessWidget {
             borderRadius: BorderRadius.circular(AppRadii.card),
             border: Border.all(color: AppColors.secondary),
           ),
-          child: Column(
-            children: sources.take(10).map((source) {
-              final isLast = source == sources.take(10).last;
-              return _SourceRow(source: source, showDivider: !isLast);
-            }).toList(),
-          ),
+          child: sources.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('No discovery sources yet.'),
+                )
+              : Column(
+                  children: visibleSources.asMap().entries.map((entry) {
+                    return _SourceRow(
+                      source: entry.value,
+                      showDivider: entry.key < visibleSources.length - 1,
+                    );
+                  }).toList(),
+                ),
         ),
+        if (sources.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Text(
+                'Showing $visibleCount of ${sources.length} sources',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: AppColors.mutedForeground,
+                ),
+              ),
+              const Spacer(),
+              if (visibleCount < sources.length)
+                TextButton(
+                  onPressed: () => setState(() {
+                    _visibleCount = (_visibleCount + _pageSize).clamp(
+                      0,
+                      sources.length,
+                    );
+                  }),
+                  child: const Text('Show 5 more'),
+                ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -812,8 +1367,27 @@ class _DiscoverySourcesSection extends StatelessWidget {
 class _SourceRow extends StatelessWidget {
   const _SourceRow({required this.source, required this.showDivider});
 
-  final V2DiscoverySourceSummary source;
+  final DiscoverySourceSummary source;
   final bool showDivider;
+
+  String _formatDate(DateTime? dt) {
+    if (dt == null) return '';
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -822,6 +1396,8 @@ class _SourceRow extends StatelessWidget {
         : source.status == 'cooldown'
         ? AppColors.accent
         : AppColors.mutedForeground;
+
+    final isAutomation = source.sourceType == 'automation';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -849,22 +1425,83 @@ class _SourceRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  source.sourceValue,
-                  style: const TextStyle(
-                    fontFamily: 'Poppins',
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.foreground,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        source.sourceValue,
+                        style: const TextStyle(
+                          fontFamily: 'Poppins',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.foreground,
+                        ),
+                      ),
+                    ),
+                    if (isAutomation)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.accent.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'AI',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.accent,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
                 Text(
-                  '${source.sourceType} · ${source.area ?? "—"}',
+                  '${source.sourceType} · ${source.area ?? "No area"}',
                   style: TextStyle(
                     fontSize: 11,
                     color: AppColors.mutedForeground,
                   ),
                 ),
+                const SizedBox(height: 3),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 2,
+                  children: [
+                    Text(
+                      '${source.postsScraped} posts',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppColors.mutedForeground,
+                      ),
+                    ),
+                    Text(
+                      '${source.restaurantCandidates} candidates',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppColors.mutedForeground,
+                      ),
+                    ),
+                    Text(
+                      '${source.scrapeCount} scrapes',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppColors.mutedForeground,
+                      ),
+                    ),
+                  ],
+                ),
+                if (source.createdAt != null)
+                  Text(
+                    'added ${_formatDate(source.createdAt)}',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: AppColors.mutedForeground,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -880,6 +1517,13 @@ class _SourceRow extends StatelessWidget {
                   color: source.newRestaurants > 0
                       ? AppColors.success
                       : AppColors.mutedForeground,
+                ),
+              ),
+              Text(
+                '${(source.yieldRate * 100).toStringAsFixed(1)}% yield',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: AppColors.mutedForeground,
                 ),
               ),
               Text(
@@ -901,7 +1545,7 @@ class _SourceRow extends StatelessWidget {
 class _RecentRunsSection extends StatelessWidget {
   const _RecentRunsSection({required this.runs});
 
-  final List<V2ScrapeRunSummary> runs;
+  final List<ScrapeRunSummary> runs;
 
   @override
   Widget build(BuildContext context) {
@@ -926,7 +1570,32 @@ class _RecentRunsSection extends StatelessWidget {
 class _RunCard extends StatelessWidget {
   const _RunCard({required this.run});
 
-  final V2ScrapeRunSummary run;
+  final ScrapeRunSummary run;
+
+  String _formatRunDate(DateTime? dt) {
+    if (dt == null) return '—';
+    final malaysiaTime = dt.toUtc().add(const Duration(hours: 8));
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final day = malaysiaTime.day;
+    final month = months[malaysiaTime.month - 1];
+    final hour = malaysiaTime.hour % 12 == 0 ? 12 : malaysiaTime.hour % 12;
+    final minute = malaysiaTime.minute.toString().padLeft(2, '0');
+    final period = malaysiaTime.hour < 12 ? 'AM' : 'PM';
+    return '$day $month ${malaysiaTime.year}, $hour:$minute $period';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -935,6 +1604,15 @@ class _RunCard extends StatelessWidget {
         : run.status == 'failed'
         ? AppColors.destructive
         : AppColors.accent;
+    final sourceLabel = run.sourceValue?.trim().isNotEmpty == true
+        ? run.sourceValue!
+        : run.sourceId != null
+        ? 'Legacy source #${run.sourceId}'
+        : 'Legacy run (source unavailable)';
+    final sourceContext = [
+      if (run.sourceType?.isNotEmpty == true) run.sourceType!,
+      if (run.sourceArea?.isNotEmpty == true) run.sourceArea!,
+    ].join(' · ');
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -959,7 +1637,27 @@ class _RunCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${run.newPosts} posts · ${run.newRestaurants} restaurants',
+                  sourceLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: 'Poppins',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.foreground,
+                  ),
+                ),
+                if (sourceContext.isNotEmpty)
+                  Text(
+                    sourceContext,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: AppColors.mutedForeground,
+                    ),
+                  ),
+                Text(
+                  '${run.postsReceived} received · ${run.newPosts} new · '
+                  '${run.newRestaurants} restaurants',
                   style: const TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 13,
@@ -971,6 +1669,13 @@ class _RunCard extends StatelessWidget {
                   '\$${run.costUsd.toStringAsFixed(3)} · ${run.status}',
                   style: TextStyle(
                     fontSize: 11,
+                    color: AppColors.mutedForeground,
+                  ),
+                ),
+                Text(
+                  _formatRunDate(run.startedAt ?? run.completedAt),
+                  style: TextStyle(
+                    fontSize: 10,
                     color: AppColors.mutedForeground,
                   ),
                 ),

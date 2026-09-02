@@ -1,3 +1,8 @@
+import 'dart:typed_data';
+
+/// Fallback avatar used when a profile has not uploaded a picture yet.
+const defaultProfileAsset = 'assets/images/default_icon.jpg';
+
 class CustomerProfile {
   const CustomerProfile({
     required this.username,
@@ -13,11 +18,18 @@ class CustomerProfile {
   final String username;
   final String email;
   final String bio;
+
+  /// The avatar to display: either a network URL (uploaded avatar) or a
+  /// bundled asset path (fallback picture).
   final String profileAsset;
   final String profileTitle;
   final String role;
   final String accountStatus;
   final int communityScore;
+
+  /// True when [profileAsset] points at a hosted (network) image rather than
+  /// a bundled asset, so screens can pick `Image.network` over `Image.asset`.
+  bool get usesNetworkImage => profileAsset.startsWith('http');
 
   CustomerProfile copyWith({
     String? username,
@@ -37,35 +49,21 @@ class CustomerProfile {
   }
 }
 
-enum AccountRoleFilter { all, user, admin }
-
-enum AccountStatusFilter { all, active, pending, deactivated }
-
-class DemoRegisteredAccount {
-  const DemoRegisteredAccount({
-    required this.id,
-    required this.name,
-    required this.email,
-    required this.bio,
-    required this.photoUrl,
-    required this.role,
-    required this.status,
+/// A profile picture the user picked for upload, decoded outside the
+/// repository so UI and repository stay free of direct `dart:io` access.
+class ProfilePictureUpload {
+  const ProfilePictureUpload({
+    required this.bytes,
+    required this.mimeType,
+    this.fileName,
   });
 
-  final String id;
-  final String name;
-  final String email;
-  final String bio;
-  final String photoUrl;
-  final String role;
-  final String status;
+  final Uint8List bytes;
+  final String mimeType;
 
-  String get initial {
-    if (name.isEmpty) {
-      return 'U';
-    }
-    return name.substring(0, 1).toUpperCase();
-  }
+  /// Original file name, used to keep a readable extension on the object.
+  /// Null-safe by falling back to a generic name when uploading.
+  final String? fileName;
 }
 
 class ProfileData {
