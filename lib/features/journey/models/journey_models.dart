@@ -12,6 +12,16 @@ class JourneyUser {
   final String profileTitle;
   final int communityScore;
   final String profileAsset;
+
+  JourneyUser copyWith({int? communityScore}) {
+    return JourneyUser(
+      username: username,
+      email: email,
+      profileTitle: profileTitle,
+      communityScore: communityScore ?? this.communityScore,
+      profileAsset: profileAsset,
+    );
+  }
 }
 
 class JourneyVisit {
@@ -115,6 +125,23 @@ class JourneyData {
   final int totalLikes;
   final List<JourneyAchievement> achievements;
   final List<JourneyScoreActivity> scoreHistory;
+
+  JourneyData copyWith({
+    JourneyUser? user,
+    List<JourneyVisit>? visits,
+    int? reviewCount,
+    List<JourneyScoreActivity>? scoreHistory,
+  }) {
+    return JourneyData(
+      user: user ?? this.user,
+      visits: visits ?? this.visits,
+      locations: locations,
+      reviewCount: reviewCount ?? this.reviewCount,
+      totalLikes: totalLikes,
+      achievements: achievements,
+      scoreHistory: scoreHistory ?? this.scoreHistory,
+    );
+  }
 
   int get cuisineCount => visits.map((visit) => visit.cuisine).toSet().length;
 
