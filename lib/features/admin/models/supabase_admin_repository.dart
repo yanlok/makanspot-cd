@@ -115,6 +115,57 @@ class SupabaseAdminRepository implements AdminRepository {
   }
 
   @override
+  Future<AdminUserPage> loadUsersPage({
+    required UserStatusFilter statusFilter,
+    required UserRoleFilter roleFilter,
+    String? search,
+    required int limit,
+    required int offset,
+  }) async {
+    // NOTE: postgrest 2.8.0 builders are immutable — every filter/transform
+    // returns a NEW builder, so the result must be reassigned. Calling
+    // `query.ilike(...)` as a statement silently discards the filter and the
+    // request goes out as a bare select (no search, filter, or paging).
+    var query = _client.from('users').select();
+
+    final text = search?.trim() ?? '';
+    if (text.isNotEmpty) {
+      // Escape LIKE wildcards so user input is matched literally, and strip
+      // characters that would break the or() filter syntax.
+      final term = text
+          .replaceAll(RegExp(r'[,()]'), ' ')
+          .replaceAll('\\', '\\\\')
+          .replaceAll('%', r'\%')
+          .replaceAll('_', r'\_');
+      query = query.or('username.ilike.%$term%,email.ilike.%$term%');
+    }
+
+    if (statusFilter == UserStatusFilter.active) {
+      query = query.eq('is_active', true);
+    } else if (statusFilter == UserStatusFilter.deactivated) {
+      query = query.eq('is_active', false);
+    }
+
+    if (roleFilter != UserRoleFilter.all) {
+      query = query.eq('role', roleFilter.name);
+    }
+
+    // Request one extra row so hasMore is exact: no false "more" when
+    // the last page happens to be exactly full, and no extra request
+    // for an empty page after the final one.
+    final rows = await query
+        .order('username', ascending: true)
+        .order('id', ascending: true)
+        .range(offset, offset + limit);
+
+    final pageRows = rows.length > limit ? rows.sublist(0, limit) : rows;
+    return AdminUserPage(
+      items: pageRows.map(_userFromRow).toList(growable: false),
+      hasMore: rows.length > limit,
+    );
+  }
+
+  @override
   Future<AdminUser?> loadUser(String id) async {
     final row = await _client.from('users').select().eq('id', id).maybeSingle();
     if (row == null) return null;
@@ -245,9 +296,7 @@ class SupabaseAdminRepository implements AdminRepository {
     // returns a NEW builder, so the result must be reassigned. Calling
     // `query.ilike(...)` as a statement silently discards the filter and the
     // request goes out as a bare select (no search, filter, sort, or paging).
-    var query = _client
-        .from('restaurants')
-        .select('''
+    var query = _client.from('restaurants').select('''
               id,
               name,
               description,

@@ -5,17 +5,25 @@ enum AdminAccountStatus { active, deactivated }
 
 enum AdminUserRole { user, admin, manager }
 
+enum UserStatusFilter { all, active, deactivated }
+
+enum UserRoleFilter { all, user, admin, manager }
+
 enum RestaurantStatusFilter { all, active, deleted }
 
 enum RestaurantSort { nameAscending, nameDescending }
 
 class AdminRestaurantPage {
-  const AdminRestaurantPage({
-    required this.items,
-    required this.hasMore,
-  });
+  const AdminRestaurantPage({required this.items, required this.hasMore});
 
   final List<AdminRestaurant> items;
+  final bool hasMore;
+}
+
+class AdminUserPage {
+  const AdminUserPage({required this.items, required this.hasMore});
+
+  final List<AdminUser> items;
   final bool hasMore;
 }
 
