@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
+import 'package:makanspot/features/journey/controllers/journey_controller.dart';
+
 import '../models/community_models.dart';
 import '../models/community_repository.dart';
 import 'community_controller.dart';
@@ -85,17 +87,26 @@ final reviewEditorControllerProvider = StateNotifierProvider.autoDispose
       final controller = ReviewEditorController(
         ref.watch(communityRepositoryProvider),
         arguments,
+        onReviewSubmitted: (post, cuisine) => ref
+            .read(journeyControllerProvider.notifier)
+            .recordReview(post, cuisine: cuisine),
       );
       controller.load();
       return controller;
     });
 
 class ReviewEditorController extends StateNotifier<ReviewEditorState> {
-  ReviewEditorController(this._repository, this.arguments)
-    : super(const ReviewEditorState.loading());
+  ReviewEditorController(
+    this._repository,
+    this.arguments, {
+    this.onReviewSubmitted,
+  }) : super(const ReviewEditorState.loading());
 
   final CommunityRepository _repository;
   final ReviewEditorArguments arguments;
+  final void Function(CommunityPost post, String cuisine)? onReviewSubmitted;
+
+  String get _selectedCuisine => state.selectedRestaurant?.cuisine ?? 'Other';
 
   Future<void> load() async {
     try {
@@ -231,6 +242,9 @@ class ReviewEditorController extends StateNotifier<ReviewEditorState> {
           rating: state.rating,
           media: state.media,
         );
+      }
+      if (id == null && saved != null) {
+        onReviewSubmitted?.call(saved, _selectedCuisine);
       }
       state = state.copyWith(
         status: ReviewEditorStatus.success,

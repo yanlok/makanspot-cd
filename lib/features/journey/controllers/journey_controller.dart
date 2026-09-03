@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:makanspot/core/config/supabase_config.dart';
 
+import 'package:makanspot/features/community/models/community_models.dart';
+
 import '../models/fixture_journey_repository.dart';
 import '../models/journey_models.dart';
 import '../models/journey_repository.dart';
@@ -129,7 +131,7 @@ final journeyRepositoryProvider = Provider<JourneyRepository>((ref) {
 });
 
 final journeyControllerProvider =
-    StateNotifierProvider.autoDispose<JourneyController, JourneyState>((ref) {
+    StateNotifierProvider<JourneyController, JourneyState>((ref) {
       final controller = JourneyController(
         ref.watch(journeyRepositoryProvider),
       );
@@ -221,6 +223,47 @@ class JourneyController extends StateNotifier<JourneyState> {
 
   void selectAchievementTab(AchievementTab tab) {
     state = state.copyWith(achievementTab: tab);
+  }
+
+  /// Adds the journey activity created by publishing a new review.
+  void recordReview(CommunityPost post, {required String cuisine}) {
+    final data = state.data;
+    if (state.status != JourneyStatus.content || data == null) {
+      return;
+    }
+    final isNewVisit = !data.visits.any(
+      (visit) => visit.restaurantId == post.restaurantId,
+    );
+    final visits = isNewVisit
+        ? [
+            ...data.visits,
+            JourneyVisit(
+              id: 'visit-${post.id}',
+              restaurantId: post.restaurantId,
+              restaurantName: post.restaurantName,
+              restaurantImage: post.restaurantImage,
+              cuisine: cuisine,
+              visitDate: post.createdAt,
+              postId: post.id,
+            ),
+          ]
+        : data.visits;
+    final activity = JourneyScoreActivity(
+      description: 'Posted review for ${post.restaurantName}',
+      points: isNewVisit ? 15 : 10,
+      date: post.createdAt,
+      isReview: true,
+    );
+    state = state.copyWith(
+      data: data.copyWith(
+        user: data.user.copyWith(
+          communityScore: data.user.communityScore + activity.points,
+        ),
+        visits: visits,
+        reviewCount: data.reviewCount + 1,
+        scoreHistory: [activity, ...data.scoreHistory],
+      ),
+    );
   }
 
   Uri mapsDestination(JourneyLocation location) {
