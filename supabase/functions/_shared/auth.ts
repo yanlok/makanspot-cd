@@ -27,7 +27,14 @@ export async function isAdminRequest(
   try {
     const base64 = payloadSegment.replace(/-/g, "+").replace(/_/g, "/")
       .padEnd(Math.ceil(payloadSegment.length / 4) * 4, "=");
-    const payload = JSON.parse(atob(base64)) as { sub?: string };
+    const payload = JSON.parse(atob(base64)) as {
+      sub?: string;
+      role?: string;
+    };
+    // Supabase verifies the JWT before invoking these public entry points.
+    // Accept the project's legacy signed service-role JWT as server-side
+    // automation; newer secret keys are handled by isServiceRoleRequest above.
+    if (payload.role === "service_role") return true;
     userId = payload.sub ?? null;
   } catch {
     return false;
@@ -60,5 +67,20 @@ export async function isServiceRoleRequest(req: Request): Promise<boolean> {
   for (let i = 0; i < actualDigest.length; i++) {
     difference |= actualDigest[i] ^ expectedDigest[i];
   }
-  return difference === 0;
+  if (difference === 0) return true;
+
+  // Projects with both legacy JWT keys and newer sb_secret keys may expose a
+  // different service credential to the runtime than the CLI. The Edge
+  // gateway verifies signed JWTs before invocation, so retain compatibility
+  // with the legacy service-role JWT used by trusted maintenance tooling.
+  try {
+    const payloadSegment = token.split(".")[1];
+    if (!payloadSegment) return false;
+    const base64 = payloadSegment.replace(/-/g, "+").replace(/_/g, "/")
+      .padEnd(Math.ceil(payloadSegment.length / 4) * 4, "=");
+    const payload = JSON.parse(atob(base64)) as { role?: string };
+    return payload.role === "service_role";
+  } catch {
+    return false;
+  }
 }

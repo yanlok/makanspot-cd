@@ -5,6 +5,28 @@ enum AdminAccountStatus { active, deactivated }
 
 enum AdminUserRole { user, admin, manager }
 
+enum UserStatusFilter { all, active, deactivated }
+
+enum UserRoleFilter { all, user, admin, manager }
+
+enum RestaurantStatusFilter { all, active, deleted }
+
+enum RestaurantSort { nameAscending, nameDescending }
+
+class AdminRestaurantPage {
+  const AdminRestaurantPage({required this.items, required this.hasMore});
+
+  final List<AdminRestaurant> items;
+  final bool hasMore;
+}
+
+class AdminUserPage {
+  const AdminUserPage({required this.items, required this.hasMore});
+
+  final List<AdminUser> items;
+  final bool hasMore;
+}
+
 extension AdminUserRoleX on AdminUserRole {
   String get label => switch (this) {
     AdminUserRole.user => 'User',
@@ -150,6 +172,7 @@ class AdminRestaurant {
     this.verificationConfidence,
     this.sourcePostCount,
     this.popularityScore,
+    this.deletedAt,
   });
 
   final String id;
@@ -171,9 +194,12 @@ class AdminRestaurant {
   final double? verificationConfidence;
   final int? sourcePostCount;
   final int? popularityScore;
+  final DateTime? deletedAt;
 
   String get categoriesDisplay =>
       categories.isEmpty ? 'Uncategorized' : categories.join(', ');
+
+  bool get isDeleted => deletedAt != null;
 }
 
 class AdminRestaurantDraft {

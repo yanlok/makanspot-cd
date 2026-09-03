@@ -32,7 +32,7 @@ class JourneyScreen extends ConsumerWidget {
       child: ListView(
         key: const Key('journey-scroll'),
         children: [
-          _JourneyHero(data: state.data!, onBack: context.pop),
+          _JourneyHero(data: state.data!),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
             child: _JourneyContent(data: state.data!),
@@ -44,68 +44,27 @@ class JourneyScreen extends ConsumerWidget {
 }
 
 class _JourneyHero extends StatelessWidget {
-  const _JourneyHero({required this.data, required this.onBack});
+  const _JourneyHero({required this.data});
 
   final JourneyData data;
-  final VoidCallback onBack;
 
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
       color: AppColors.primary,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 8, 16, 20),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            IconButton(
-              tooltip: 'Back',
-              onPressed: onBack,
-              color: AppColors.surface,
-              icon: const Icon(LucideIcons.chevronLeft),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Row(
-                children: [
-                  ClipOval(
-                    child: Image.asset(
-                      data.user.profileAsset,
-                      width: 56,
-                      height: 56,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          data.user.username,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(color: AppColors.surface),
-                        ),
-                        Text(
-                          data.user.profileTitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: AppColors.surface.withValues(alpha: 0.8),
-                              ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+            Text(
+              'Journey',
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(color: AppColors.surface),
             ),
             const SizedBox(height: 16),
             Container(
-              margin: const EdgeInsets.symmetric(horizontal: 8),
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: AppColors.surface.withValues(alpha: 0.15),
@@ -156,23 +115,108 @@ class _JourneyHero extends StatelessWidget {
   }
 }
 
-class _JourneyContent extends StatelessWidget {
+class _JourneyContent extends StatefulWidget {
   const _JourneyContent({required this.data});
 
   final JourneyData data;
 
   @override
+  State<_JourneyContent> createState() => _JourneyContentState();
+}
+
+class _JourneyContentState extends State<_JourneyContent> {
+  JourneyVisitPeriod _period = JourneyVisitPeriod.allTime;
+
+  List<JourneyVisit> _filteredVisits(JourneyData data) {
+    final now = DateTime.now();
+    DateTime? from;
+    switch (_period) {
+      case JourneyVisitPeriod.allTime:
+        from = null;
+        break;
+      case JourneyVisitPeriod.last30Days:
+        from = now.subtract(const Duration(days: 30));
+        break;
+      case JourneyVisitPeriod.last12Months:
+        from = DateTime(now.year - 1, now.month, now.day);
+        break;
+      case JourneyVisitPeriod.yearToDate:
+        from = DateTime(now.year, 1, 1);
+        break;
+    }
+    if (from == null) return data.visits;
+    return data.visits
+        .where((v) => v.visitDate.isAfter(from!))
+        .toList(growable: false);
+  }
+
+  String _formatDate(DateTime d) => '${d.day}/${d.month}/${d.year}';
+
+  @override
   Widget build(BuildContext context) {
+    final data = widget.data;
     final earned = data.achievementProgress
         .where((item) => item.earned)
         .take(3)
         .toList(growable: false);
+    final visits = _filteredVisits(data);
+    final uniqueRestaurants = visits.map((v) => v.restaurantId).toSet().length;
+    final reviews = visits.where((v) => v.postId != null).length;
+    final cuisines = visits
+        .map((v) => v.cuisine)
+        .where((s) => s.isNotEmpty)
+        .toSet()
+        .length;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Exploration Overview',
-          style: Theme.of(context).textTheme.titleLarge,
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Exploration Overview',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            PopupMenuButton<JourneyVisitPeriod>(
+              initialValue: _period,
+              onSelected: (p) => setState(() => _period = p),
+              itemBuilder: (ctx) => [
+                const PopupMenuItem(
+                  value: JourneyVisitPeriod.allTime,
+                  child: Text('All time'),
+                ),
+                const PopupMenuItem(
+                  value: JourneyVisitPeriod.last30Days,
+                  child: Text('Last 30 days'),
+                ),
+                const PopupMenuItem(
+                  value: JourneyVisitPeriod.last12Months,
+                  child: Text('Last 12 months'),
+                ),
+                const PopupMenuItem(
+                  value: JourneyVisitPeriod.yearToDate,
+                  child: Text('Year to date'),
+                ),
+              ],
+              child: Row(
+                children: [
+                  Text(
+                    _period == JourneyVisitPeriod.allTime
+                        ? 'All time'
+                        : _period == JourneyVisitPeriod.last30Days
+                        ? '30 days'
+                        : _period == JourneyVisitPeriod.last12Months
+                        ? '12 months'
+                        : 'YTD',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(width: 6),
+                  const Icon(LucideIcons.chevronDown, size: 16),
+                ],
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 12),
         GridView.count(
@@ -185,17 +229,17 @@ class _JourneyContent extends StatelessWidget {
           children: [
             JourneyStatCard(
               icon: LucideIcons.utensils,
-              value: data.visits.length,
+              value: uniqueRestaurants,
               label: 'Restaurants Visited',
             ),
             JourneyStatCard(
               icon: LucideIcons.penLine,
-              value: data.reviewCount,
+              value: reviews,
               label: 'Reviews Submitted',
             ),
             JourneyStatCard(
               icon: LucideIcons.compass,
-              value: data.cuisineCount,
+              value: cuisines,
               label: 'Cuisines Explored',
             ),
             JourneyStatCard(
@@ -226,6 +270,61 @@ class _JourneyContent extends StatelessWidget {
         for (final item in earned) ...[
           AchievementProgressCard(progress: item),
           const SizedBox(height: 10),
+        ],
+        const SizedBox(height: 14),
+        Text(
+          'Recent Activities',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        for (final visit in visits.take(6)) ...[
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(AppRadii.card),
+              border: Border.all(color: AppColors.secondary),
+            ),
+            child: Row(
+              children: [
+                if (visit.restaurantImage.isNotEmpty)
+                  Image.network(
+                    visit.restaurantImage,
+                    width: 56,
+                    height: 56,
+                    fit: BoxFit.cover,
+                  )
+                else
+                  Container(width: 56, height: 56, color: AppColors.secondary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        visit.restaurantName,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${visit.cuisine} • ${_formatDate(visit.visitDate)}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.mutedForeground,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: visit.postId != null
+                      ? () => context.push('/post/${visit.postId}')
+                      : null,
+                  icon: const Icon(LucideIcons.chevronRight),
+                ),
+              ],
+            ),
+          ),
         ],
         const SizedBox(height: 14),
         JourneyMenuTile(

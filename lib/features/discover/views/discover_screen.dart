@@ -11,9 +11,10 @@ import '../controllers/discover_controller.dart';
 import '../controllers/discover_state.dart';
 import '../models/discover_restaurant.dart';
 import 'widgets/discover_filter_strip.dart';
-
 import 'package:geolocator/geolocator.dart' as gl;
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mp;
+
+import 'package:makanspot/shared/services/location_service.dart';
 
 class _MapActionButton extends StatelessWidget {
   const _MapActionButton({
@@ -320,11 +321,9 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
   );
   static const double _malaysiaZoom = 6;
   static const double _userLocationZoom = 13.5;
-  static const Duration _freshLocationTimeout = Duration(seconds: 6);
-  static const Duration _maximumCachedLocationAge = Duration(minutes: 10);
 
   mp.MapboxMap? _mapboxMap;
-  mp.CircleAnnotationManager? _markerManager;
+  mp.PointAnnotationManager? _markerManager;
   Future<void> _markerRenderQueue = Future<void>.value();
   int _markerRenderGeneration = 0;
   Future<void>? _locationRequest;
@@ -335,6 +334,8 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
   bool _mapInitializationCompleting = false;
   bool _isMapReady = false;
   bool _mapLoadFailed = false;
+  bool _initialLocationAttempted = false;
+  final LocationService _locationService = LocationService();
 
   late final TextEditingController _searchController = TextEditingController(
     text: widget.arguments.query,
@@ -448,26 +449,11 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
             ),
           Positioned(
             top: 48,
-            left: 16,
-            child: _MapActionButton(
-              icon: LucideIcons.chevronLeft,
-              tooltip: 'Back',
-              onPressed: () {
-                if (context.canPop()) {
-                  context.pop();
-                } else {
-                  context.go('/');
-                }
-              },
-            ),
-          ),
-          Positioned(
-            top: 48,
             right: 16,
             child: _MapActionButton(
               icon: LucideIcons.bookmark,
               tooltip: 'Saved restaurants',
-              onPressed: () => controller.toggleFilter('Saved'),
+              onPressed: () => context.push('/saved-restaurants'),
             ),
           ),
           Positioned(
@@ -536,10 +522,23 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
         return;
       }
       final markerManager = await controller.annotations
-          .createCircleAnnotationManager();
+          .createPointAnnotationManager();
       if (!mounted || !identical(_mapboxMap, controller)) {
         return;
       }
+      markerManager.tapEvents(
+        onTap: (annotation) {
+          if (!mounted) {
+            return;
+          }
+          final restaurantId = annotation.customData?['restaurantId']
+              ?.toString();
+          if (restaurantId == null || restaurantId.isEmpty) {
+            return;
+          }
+          context.push('/restaurant/$restaurantId');
+        },
+      );
       _markerManager = markerManager;
       _mapSetupComplete = true;
       await _completeMapInitialization(controller);
@@ -593,6 +592,10 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
         _isMapReady = true;
         _mapLoadFailed = false;
       });
+      if (!_initialLocationAttempted) {
+        _initialLocationAttempted = true;
+        unawaited(_centerOnCurrentLocation());
+      }
     } catch (error, stackTrace) {
       debugPrint('Unable to finish map initialization: $error');
       debugPrintStack(stackTrace: stackTrace);
@@ -631,67 +634,20 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
       return;
     }
 
-    try {
-      final serviceEnabled = await gl.Geolocator.isLocationServiceEnabled();
-      if (!mounted || !identical(_mapboxMap, map)) {
-        return;
-      }
-      if (!serviceEnabled) {
-        await _useMalaysiaCamera(map);
-        return;
-      }
-
-      var permission = await gl.Geolocator.checkPermission();
-      if (!mounted || !identical(_mapboxMap, map)) {
-        return;
-      }
-      if (permission == gl.LocationPermission.denied) {
-        permission = await gl.Geolocator.requestPermission();
-        if (!mounted || !identical(_mapboxMap, map)) {
-          return;
-        }
-      }
-      if (permission == gl.LocationPermission.denied ||
-          permission == gl.LocationPermission.deniedForever) {
-        await _useMalaysiaCamera(map);
-        return;
-      }
-
-      final lastKnownPosition = await gl.Geolocator.getLastKnownPosition();
-      if (!mounted || !identical(_mapboxMap, map)) {
-        return;
-      }
-      final cachedPosition =
-          lastKnownPosition != null &&
-              DateTime.now().difference(lastKnownPosition.timestamp) <=
-                  _maximumCachedLocationAge
-          ? lastKnownPosition
-          : null;
-      if (cachedPosition != null) {
-        await _useUserLocation(map, cachedPosition);
-      }
-
-      try {
-        final freshPosition = await gl.Geolocator.getCurrentPosition(
-          locationSettings: const gl.LocationSettings(
-            accuracy: gl.LocationAccuracy.medium,
-            timeLimit: _freshLocationTimeout,
-          ),
-        );
-        if (!mounted || !identical(_mapboxMap, map)) {
-          return;
-        }
-        await _useUserLocation(map, freshPosition);
-      } catch (error) {
-        debugPrint('Unable to refresh current location: $error');
-        if (cachedPosition == null) {
-          await _useMalaysiaCamera(map);
-        }
-      }
-    } catch (error) {
-      debugPrint('Unable to use current location: $error');
-      await _useMalaysiaCamera(map);
+    final result = await _locationService.requestCurrentLocation();
+    if (!mounted || !identical(_mapboxMap, map)) {
+      return;
     }
+    if (!result.hasFix) {
+      // No fix this round (service off, permission denied, or timed out with
+      // no cached fallback). Keep the current camera unless we had previously
+      // locked on to the user, in which case drop back to the default view.
+      if (_keepUserLocationCamera) {
+        await _useMalaysiaCamera(map);
+      }
+      return;
+    }
+    await _useUserLocation(map, result.fix!.position);
   }
 
   Future<void> _useUserLocation(mp.MapboxMap map, gl.Position position) async {
@@ -759,17 +715,24 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
     }
     await manager.createMulti(
       located.map((restaurant) {
-        return mp.CircleAnnotationOptions(
+        return mp.PointAnnotationOptions(
           geometry: mp.Point(
             coordinates: mp.Position(
               restaurant.longitude!,
               restaurant.latitude!,
             ),
           ),
-          circleColor: AppColors.primary.toARGB32(),
-          circleRadius: 8,
-          circleStrokeColor: AppColors.surface.toARGB32(),
-          circleStrokeWidth: 3,
+          iconImage: 'marker-15',
+          iconSize: 1.2,
+          iconColor: AppColors.primary.toARGB32(),
+          textField: restaurant.name,
+          textAnchor: mp.TextAnchor.TOP,
+          textOffset: [0.0, -1.5],
+          textSize: 12,
+          textColor: AppColors.foreground.toARGB32(),
+          textHaloColor: AppColors.surface.toARGB32(),
+          textHaloWidth: 1.5,
+          customData: {'restaurantId': restaurant.id},
         );
       }).toList(),
     );
@@ -821,7 +784,7 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
 
   bool _isActiveMarkerRender(
     mp.MapboxMap map,
-    mp.CircleAnnotationManager manager,
+    mp.PointAnnotationManager manager,
     int generation,
   ) {
     return mounted &&

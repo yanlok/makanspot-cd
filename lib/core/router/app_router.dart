@@ -30,8 +30,9 @@ import 'package:makanspot/features/community/views/saved_posts_screen.dart';
 import 'package:makanspot/features/discover/controllers/discover_state.dart';
 import 'package:makanspot/features/discover/views/discover_screen.dart';
 import 'package:makanspot/features/discover/views/restaurant_details_screen.dart';
+import 'package:makanspot/features/discover/views/saved_restaurant_screen.dart';
 import 'package:makanspot/features/home/views/home_screen.dart';
-import 'package:makanspot/features/journey/views/achievements_screen.dart';
+import 'package:makanspot/features/journey/views/achievements_progress_screen.dart';
 import 'package:makanspot/features/journey/views/exploration_map_screen.dart';
 import 'package:makanspot/features/journey/views/journey_screen.dart';
 import 'package:makanspot/features/journey/views/visit_history_screen.dart';
@@ -91,6 +92,8 @@ GoRouter createAppRouter({
         return AppRoutes.login;
       }
       if (_publicRoutes.contains(location)) {
+        // Allow /reset-password during password recovery (session is temporary).
+        if (location == AppRoutes.resetPassword) return null;
         return session.isAdmin ? AppRoutes.adminScraper : AppRoutes.home;
       }
       if (location.startsWith('/admin') && !session.isAdmin) {
@@ -119,6 +122,10 @@ GoRouter createAppRouter({
                 ),
               );
             },
+          ),
+          GoRoute(
+            path: '/saved-restaurants',
+            builder: (context, state) => const SavedRestaurantScreen(),
           ),
           GoRoute(
             path: '/restaurant/:id',
@@ -170,7 +177,7 @@ GoRouter createAppRouter({
           ),
           GoRoute(
             path: '/achievements',
-            builder: (context, state) => const AchievementsScreen(),
+            builder: (context, state) => const AchievementsProgressScreen(),
           ),
           GoRoute(
             path: AppRoutes.profile,
@@ -201,7 +208,7 @@ GoRouter createAppRouter({
       GoRoute(
         path: AppRoutes.resetPassword,
         builder: (context, state) {
-          return ResetPasswordScreen(token: state.uri.queryParameters['token']);
+          return const ResetPasswordScreen();
         },
       ),
       ShellRoute(
@@ -211,7 +218,7 @@ GoRouter createAppRouter({
         routes: [
           GoRoute(
             path: AppRoutes.adminScraper,
-            builder: (context, state) => const V2DataScraperScreen(),
+            builder: (context, state) => const DataScraperScreen(),
           ),
           GoRoute(
             path: AppRoutes.adminUsers,

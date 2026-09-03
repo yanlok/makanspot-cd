@@ -25,7 +25,7 @@ class AdminActionLogScreen extends ConsumerWidget {
         children: [
           const AdminPageHeader(
             title: 'Admin Action Log',
-            subtitle: 'Review changes made to user accounts',
+            subtitle: 'Review changes made to users and restaurants',
           ),
           const SizedBox(height: 20),
           if (state.status == AdminActionLogStatus.loading)
@@ -116,7 +116,7 @@ class _ActionLogCard extends StatelessWidget {
             style: valueStyle,
           ),
           _LogRow(
-            label: 'User',
+            label: entry.action == 'update_restaurant' ? 'Restaurant' : 'User',
             value: entry.targetUsername,
             style: valueStyle,
           ),
@@ -153,6 +153,7 @@ class _ActionLogCard extends StatelessWidget {
   static String _actionLabel(String action) => switch (action) {
     'update_user' => 'Update User Account',
     'toggle_account_status' => 'Update Account Status',
+    'update_restaurant' => 'Update Restaurant Information',
     _ =>
       action
           .split('_')
@@ -171,6 +172,19 @@ class _ActionLogCard extends StatelessWidget {
     'role' => 'Role',
     'community_score' => 'Community Score',
     'is_active' => 'Account Status',
+    'cuisine' => 'Cuisine',
+    'address' => 'Address',
+    'operating_hours' => 'Operating Hours',
+    'contact' => 'Contact Number',
+    'owner_name' => 'Owner Name',
+    'rating' => 'Rating',
+    'budget' => 'Budget',
+    'description' => 'Description',
+    'image_url' => 'Cover Image',
+    'source_platform' => 'Source Platform',
+    'verification_status' => 'Verification Status',
+    'latitude' => 'Latitude',
+    'longitude' => 'Longitude',
     _ => field,
   };
 

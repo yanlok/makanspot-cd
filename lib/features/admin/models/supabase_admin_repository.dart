@@ -115,6 +115,57 @@ class SupabaseAdminRepository implements AdminRepository {
   }
 
   @override
+  Future<AdminUserPage> loadUsersPage({
+    required UserStatusFilter statusFilter,
+    required UserRoleFilter roleFilter,
+    String? search,
+    required int limit,
+    required int offset,
+  }) async {
+    // NOTE: postgrest 2.8.0 builders are immutable — every filter/transform
+    // returns a NEW builder, so the result must be reassigned. Calling
+    // `query.ilike(...)` as a statement silently discards the filter and the
+    // request goes out as a bare select (no search, filter, or paging).
+    var query = _client.from('users').select();
+
+    final text = search?.trim() ?? '';
+    if (text.isNotEmpty) {
+      // Escape LIKE wildcards so user input is matched literally, and strip
+      // characters that would break the or() filter syntax.
+      final term = text
+          .replaceAll(RegExp(r'[,()]'), ' ')
+          .replaceAll('\\', '\\\\')
+          .replaceAll('%', r'\%')
+          .replaceAll('_', r'\_');
+      query = query.or('username.ilike.%$term%,email.ilike.%$term%');
+    }
+
+    if (statusFilter == UserStatusFilter.active) {
+      query = query.eq('is_active', true);
+    } else if (statusFilter == UserStatusFilter.deactivated) {
+      query = query.eq('is_active', false);
+    }
+
+    if (roleFilter != UserRoleFilter.all) {
+      query = query.eq('role', roleFilter.name);
+    }
+
+    // Request one extra row so hasMore is exact: no false "more" when
+    // the last page happens to be exactly full, and no extra request
+    // for an empty page after the final one.
+    final rows = await query
+        .order('username', ascending: true)
+        .order('id', ascending: true)
+        .range(offset, offset + limit);
+
+    final pageRows = rows.length > limit ? rows.sublist(0, limit) : rows;
+    return AdminUserPage(
+      items: pageRows.map(_userFromRow).toList(growable: false),
+      hasMore: rows.length > limit,
+    );
+  }
+
+  @override
   Future<AdminUser?> loadUser(String id) async {
     final row = await _client.from('users').select().eq('id', id).maybeSingle();
     if (row == null) return null;
@@ -234,10 +285,18 @@ class SupabaseAdminRepository implements AdminRepository {
   // ── Restaurants ──────────────────────────────────────────────────
 
   @override
-  Future<List<AdminRestaurant>> loadRestaurants() async {
-    final rows = await _client
-        .from('restaurants')
-        .select('''
+  Future<AdminRestaurantPage> loadRestaurants({
+    required RestaurantStatusFilter statusFilter,
+    required RestaurantSort sort,
+    String? search,
+    required int limit,
+    required int offset,
+  }) async {
+    // NOTE: postgrest 2.8.0 builders are immutable — every filter/transform
+    // returns a NEW builder, so the result must be reassigned. Calling
+    // `query.ilike(...)` as a statement silently discards the filter and the
+    // request goes out as a bare select (no search, filter, sort, or paging).
+    var query = _client.from('restaurants').select('''
               id,
               name,
               description,
@@ -258,10 +317,46 @@ class SupabaseAdminRepository implements AdminRepository {
               popularity_score,
               created_at,
               updated_at,
-              restaurant_images!inner(image_url, is_primary)
-            ''')
-        .order('name');
-    return rows.map(_restaurantFromRow).toList(growable: false);
+              deleted_at,
+              restaurant_images(image_url, is_primary)
+            ''');
+
+    final text = search?.trim() ?? '';
+    if (text.isNotEmpty) {
+      // Escape LIKE wildcards so user input is matched literally, and strip
+      // characters that would break the or() filter syntax.
+      final term = text
+          .replaceAll(RegExp(r'[,()]'), ' ')
+          .replaceAll('\\', '\\\\')
+          .replaceAll('%', r'\%')
+          .replaceAll('_', r'\_');
+      query = query.or(
+        'name.ilike.%$term%,'
+        'address.ilike.%$term%,'
+        'categories::text.ilike.%$term%',
+      );
+    }
+
+    if (statusFilter == RestaurantStatusFilter.active) {
+      query = query.isFilter('deleted_at', null);
+    } else if (statusFilter == RestaurantStatusFilter.deleted) {
+      query = query.not('deleted_at', 'is', null);
+    }
+
+    final ascending = sort == RestaurantSort.nameAscending;
+    // Request one extra row so hasMore is exact: no false "more" when
+    // the last page happens to be exactly full, and no extra request
+    // for an empty page after the final one.
+    final rows = await query
+        .order('name', ascending: ascending)
+        .order('id', ascending: true)
+        .range(offset, offset + limit);
+
+    final pageRows = rows.length > limit ? rows.sublist(0, limit) : rows;
+    return AdminRestaurantPage(
+      items: pageRows.map(_restaurantFromRow).toList(growable: false),
+      hasMore: rows.length > limit,
+    );
   }
 
   @override
@@ -289,7 +384,8 @@ class SupabaseAdminRepository implements AdminRepository {
               popularity_score,
               created_at,
               updated_at,
-              restaurant_images!inner(image_url, is_primary)
+              deleted_at,
+              restaurant_images(image_url, is_primary)
             ''')
         .eq('id', id)
         .maybeSingle();
@@ -308,17 +404,48 @@ class SupabaseAdminRepository implements AdminRepository {
   Future<AdminRestaurant?> updateRestaurant(
     String id,
     AdminRestaurantDraft draft,
-  ) {
-    throw UnimplementedError(
-      'Restaurant update is not yet supported via Supabase.',
+  ) async {
+    final didUpdate = await _client.rpc(
+      'admin_update_restaurant',
+      params: {
+        'p_restaurant_id': int.parse(id),
+        'p_name': draft.name,
+        'p_normalized_name': _normalizeRestaurantName(draft.name),
+        'p_description': _nullIfBlank(draft.description),
+        'p_address': _nullIfBlank(draft.address),
+        'p_city': _nullIfBlank(draft.city),
+        'p_state': _nullIfBlank(draft.state),
+        'p_latitude': draft.latitude,
+        'p_longitude': draft.longitude,
+        'p_phone': _nullIfBlank(draft.phone),
+        'p_website': _nullIfBlank(draft.website),
+        'p_price_range': _nullIfBlank(draft.priceRange),
+        'p_instagram_username': _nullIfBlank(draft.instagramUsername),
+        'p_categories': draft.categories,
+        'p_business_hours': draft.businessHours,
+        'p_image_url': _nullIfBlank(draft.imageUrl),
+      },
     );
+
+    if (didUpdate != true) {
+      return null;
+    }
+    return loadRestaurant(id);
   }
 
   @override
-  Future<void> deleteRestaurant(String id) {
-    throw UnimplementedError(
-      'Restaurant deletion is not yet supported via Supabase.',
-    );
+  Future<void> deleteRestaurant(String id) async {
+    final updated = await _client
+        .from('restaurants')
+        .update({'deleted_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('id', int.parse(id))
+        .select('id');
+    if (updated.isEmpty) {
+      throw StateError(
+        'Restaurant deletion affected no rows. The restaurant may already be '
+        'deleted or the signed-in account may lack admin permissions.',
+      );
+    }
   }
 
   // ── Private helpers ──────────────────────────────────────────────
@@ -466,6 +593,19 @@ class SupabaseAdminRepository implements AdminRepository {
     );
   }
 
+  String? _nullIfBlank(String? value) {
+    final trimmed = value?.trim();
+    return trimmed == null || trimmed.isEmpty ? null : trimmed;
+  }
+
+  String _normalizeRestaurantName(String name) {
+    return name
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ');
+  }
+
   AdminRestaurant _restaurantFromRow(Map<String, dynamic> row) {
     final images = row['restaurant_images'] as List<dynamic>?;
     final primaryImage = images?.cast<Map<String, dynamic>>().firstWhere(
@@ -505,6 +645,9 @@ class SupabaseAdminRepository implements AdminRepository {
           ?.toDouble(),
       sourcePostCount: row['source_post_count'] as int?,
       popularityScore: row['popularity_score'] as int?,
+      deletedAt: row['deleted_at'] == null
+          ? null
+          : DateTime.tryParse(row['deleted_at'].toString()),
     );
   }
 

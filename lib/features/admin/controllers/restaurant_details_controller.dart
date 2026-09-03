@@ -77,17 +77,13 @@ class RestaurantDetailsController
     }
     state = const RestaurantDetailsState.loading();
     try {
-      final restaurants = await _repository.loadRestaurants();
-      final matches = restaurants.where(
-        (restaurant) => restaurant.id == _restaurantId,
-      );
-      if (matches.isEmpty) {
+      final restaurant = await _repository.loadRestaurant(_restaurantId);
+      if (restaurant == null) {
         state = const RestaurantDetailsState(
           status: RestaurantDetailsStatus.notFound,
         );
         return;
       }
-      final restaurant = matches.single;
       state = RestaurantDetailsState(
         status: RestaurantDetailsStatus.content,
         restaurant: restaurant,
@@ -122,6 +118,9 @@ class RestaurantDetailsController
         _restaurantId,
         _draftWithName(draft, name),
       );
+      if (updated == null) {
+        throw StateError('Restaurant update affected no rows.');
+      }
       state = state.copyWith(isSaving: false, restaurant: updated);
       return const AdminSaveResult();
     } on Object {

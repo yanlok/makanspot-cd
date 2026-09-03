@@ -31,6 +31,10 @@ abstract interface class AuthRepository {
     required String currentPassword,
     required String newPassword,
   });
+
+  /// Permanently deletes the currently signed-in user's account and all
+  /// associated data. After this call the session is invalid.
+  Future<void> deleteAccount();
 }
 
 class AuthFailure implements Exception {

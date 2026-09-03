@@ -13,6 +13,15 @@ final adminRepositoryProvider = Provider<AdminRepository>((ref) {
 abstract interface class AdminRepository {
   Future<List<AdminUser>> loadUsers();
 
+  /// Returns one page of user accounts matching the given filters.
+  Future<AdminUserPage> loadUsersPage({
+    required UserStatusFilter statusFilter,
+    required UserRoleFilter roleFilter,
+    String? search,
+    required int limit,
+    required int offset,
+  });
+
   Future<AdminUser?> loadUser(String id);
 
   Future<AdminUser?> updateUser({
@@ -48,7 +57,13 @@ abstract interface class AdminRepository {
   /// Returns administrative actions in reverse chronological order.
   Future<List<AdminAuditLog>> loadAdminActionLogs();
 
-  Future<List<AdminRestaurant>> loadRestaurants();
+  Future<AdminRestaurantPage> loadRestaurants({
+    required RestaurantStatusFilter statusFilter,
+    required RestaurantSort sort,
+    String? search,
+    required int limit,
+    required int offset,
+  });
 
   Future<AdminRestaurant?> loadRestaurant(String id);
 

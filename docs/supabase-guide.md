@@ -14,7 +14,7 @@
 - [Troubleshooting](#troubleshooting)
 
 ---
-
+###
 ## Prerequisites
 
 - **Supabase CLI** — [Install guide](https://supabase.com/docs/guides/cli/getting-started#installing-the-supabase-cli)
@@ -167,6 +167,33 @@ The pipeline merges posts about the same venue into one restaurant row:
 | Run pipeline | `node scripts/run_pipeline.mjs` |
 | Reprocess everything | `node scripts/run_pipeline.mjs --reprocess --enrich-only` |
 | Check enrichment status | `node -e "fetch('https://npmdrgpypkozdjtiplmf.functions.supabase.co/enrich-scraped-posts',{method:'POST',headers:{'Authorization':'Bearer sb_publishable_9qvkHzyVPR6SCHtRk9zjVQ_vMODyBCH','apikey':'sb_publishable_9qvkHzyVPR6SCHtRk9zjVQ_vMODyBCH','Content-Type':'application/json'},body:JSON.stringify({action:'status'})}).then(r=>r.json()).then(console.log)"` |
+
+---
+
+## Connecting the Flutter app
+
+The app talks to Supabase through `supabase_flutter`. Credentials are **not**
+committed — provide them at build/run time with `--dart-define`, or edit the
+constants in `lib/core/config/supabase_config.dart`:
+
+```bash
+flutter run \
+  --dart-define=SUPABASE_URL=https://npmdrgpypkozdjtiplmf.supabase.co \
+  --dart-define=SUPABASE_ANON_KEY=<anon-key>
+```
+
+The anon key lives in the Supabase Dashboard under **Project Settings → API**.
+
+Notes:
+
+- Without the defines the app falls back to the in-memory fixture repository,
+  so it still runs before the backend is configured.
+- Registration uses Supabase Auth with email confirmation (default). The OTP
+  screen verifies the emailed code; the signup trigger in migration
+  `20260804000012_user_profile_on_signup.sql` creates the matching
+  `public.users` profile automatically.
+- Enable email confirmation: **Authentication → Providers → Email → Confirm
+  email**.
 
 ---
 

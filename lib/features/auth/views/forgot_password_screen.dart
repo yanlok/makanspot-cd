@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import 'package:makanspot/core/theme/app_theme.dart';
+
 import '../controllers/auth_controller.dart';
 import 'widgets/auth_controls.dart';
 import 'widgets/auth_layout.dart';
@@ -17,6 +19,7 @@ class ForgotPasswordScreen extends ConsumerStatefulWidget {
 
 class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
   final _emailController = TextEditingController();
+  bool _resendRequested = false;
 
   @override
   void dispose() {
@@ -38,10 +41,33 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
         onPressed: () => context.go('/login'),
       ),
       child: state.passwordResetSent
-          ? const Text(
-              "If an account exists with that email, you'll receive a "
-              'password reset link shortly.',
-              textAlign: TextAlign.center,
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'If an account exists with that email, you\'ll receive a '
+                  'password reset link shortly.',
+                  textAlign: TextAlign.center,
+                ),
+                if (_resendRequested) ...[
+                  const SizedBox(height: AppSpacing.medium),
+                  Text(
+                    'Check your email for the new link.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: AppColors.primary),
+                  ),
+                ],
+                const SizedBox(height: AppSpacing.large),
+                AuthLinkButton(
+                  label: 'Resend email',
+                  icon: LucideIcons.refreshCw,
+                  buttonKey: const Key('resend-reset-link'),
+                  onPressed: () {
+                    setState(() => _resendRequested = true);
+                    _submit();
+                  },
+                ),
+              ],
             )
           : Column(
               mainAxisSize: MainAxisSize.min,
@@ -57,6 +83,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                   textInputAction: TextInputAction.done,
                   autofocus: true,
                   onSubmitted: (_) => _submit(),
+                  errorText: state.emailError,
                 ),
                 const SizedBox(height: 16),
                 AuthSubmitButton(

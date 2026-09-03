@@ -1,9 +1,9 @@
 /// <reference path="../_shared/deno.d.ts" />
 // ============================================================================
-// v2-pipeline-status
+// pipeline-status
 // ----------------------------------------------------------------------------
-// Read-only status endpoint for the v2 pipeline. Returns aggregate stats from
-// v2_scraped_posts, active/recent v2_scrape_runs, and discovery source health.
+// Read-only status endpoint for the pipeline. Returns aggregate stats from
+// scraped_posts, active/recent scrape_runs, and discovery source health.
 //
 // POST body: { run_id?: string, job_id?: string }
 //
@@ -47,6 +47,7 @@ Deno.serve(async (req: Request) => {
   // After the pipeline_jobs removal, job_id is the scrape_run_id.
   const runId = (body.run_id as string | undefined) ??
     (body.job_id as string | undefined);
+  const autoRunId = body.auto_run_id as string | undefined;
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -59,15 +60,17 @@ Deno.serve(async (req: Request) => {
   // --- Parallel queries ---
 
   // Active/recent scrape runs (or specific run if run_id provided)
-  const [activeRunResult, recentRunsResult, specificRunResult] = await Promise
-    .all([
+  const [activeRunResult, recentRunsResult, specificRunResult, autoRunResult] =
+    await Promise.all([
       runId
-        ? supabase.from("scrape_runs").select("*").eq("id", runId)
+        ? supabase.from("scrape_runs").select(
+          "*, discovery_sources(source_type, source_value, area, created_at)",
+        ).eq("id", runId)
           .maybeSingle()
         : supabase
           .from("scrape_runs")
           .select(
-            "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, verified_restaurants, cost_usd, error, created_at",
+            "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, verified_restaurants, cost_usd, error, created_at, discovery_sources(source_type, source_value, area, created_at)",
           )
           .in("status", ["running", "pending"])
           .order("created_at", { ascending: false })
@@ -76,7 +79,7 @@ Deno.serve(async (req: Request) => {
       supabase
         .from("scrape_runs")
         .select(
-          "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, cost_usd, error, created_at",
+          "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, cost_usd, error, created_at, discovery_sources(source_type, source_value, area, created_at)",
         )
         .in("status", ["completed", "failed"])
         .order("created_at", { ascending: false })
@@ -86,14 +89,22 @@ Deno.serve(async (req: Request) => {
         ? supabase
           .from("scrape_runs")
           .select(
-            "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, cost_usd, error, created_at",
+            "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, cost_usd, error, created_at, discovery_sources(source_type, source_value, area, created_at)",
           )
           .eq("id", runId)
           .maybeSingle()
         : Promise.resolve({ data: null }),
+      // Auto-run state (optional)
+      autoRunId
+        ? supabase
+          .from("auto_runs")
+          .select("*")
+          .eq("id", autoRunId)
+          .maybeSingle()
+        : Promise.resolve({ data: null }),
     ]);
 
-  // Aggregate stats from v2_scraped_posts
+  // Aggregate stats from scraped_posts
   const statusCounts = await Promise.all(
     [
       "pending",
@@ -118,7 +129,8 @@ Deno.serve(async (req: Request) => {
   // Total restaurants
   const { count: totalRestaurants } = await supabase
     .from("restaurants")
-    .select("id", { count: "exact", head: true });
+    .select("id", { count: "exact", head: true })
+    .is("deleted_at", null);
 
   // Total cost from recent runs
   const totalCost = (recentRunsResult.data ?? []).reduce(
@@ -130,7 +142,7 @@ Deno.serve(async (req: Request) => {
   const { data: sources } = await supabase
     .from("discovery_sources")
     .select(
-      "id, source_type, source_value, status, scrape_count, posts_scraped, new_posts, restaurant_candidates, new_restaurants, verified_restaurants, total_cost_usd, yield_rate, cost_per_new_restaurant, priority_score, last_scraped_at, next_scrape_at",
+      "id, source_type, source_value, area, status, scrape_count, posts_scraped, new_posts, restaurant_candidates, new_restaurants, verified_restaurants, total_cost_usd, yield_rate, cost_per_new_restaurant, priority_score, last_scraped_at, next_scrape_at, created_at",
     )
     .order("priority_score", { ascending: false, nullsFirst: false });
 
@@ -154,9 +166,7 @@ Deno.serve(async (req: Request) => {
     (counts.resolved ?? 0);
 
   console.log(
-    `[v2-pipeline-status] runId=${
-      runId ?? "(none)"
-    } → status=${status}, ` +
+    `[pipeline-status] runId=${runId ?? "(none)"} → status=${status}, ` +
       `posts=${totalPosts}, restaurants=${totalRestaurants ?? 0}`,
   );
 
@@ -164,6 +174,7 @@ Deno.serve(async (req: Request) => {
     status,
     active_run: activeRun ?? null,
     specific_run: specificRun ?? null,
+    auto_run: autoRunResult.data ?? null,
     stats: {
       total_posts: totalPosts,
       pending: counts.pending ?? 0,
@@ -188,6 +199,7 @@ Deno.serve(async (req: Request) => {
       new_restaurants: run.new_restaurants,
       cost_usd: run.cost_usd,
       error: run.error,
+      discovery_sources: run.discovery_sources,
     })),
   });
 });

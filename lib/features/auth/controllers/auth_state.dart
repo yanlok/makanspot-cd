@@ -15,6 +15,7 @@ class AuthState {
     this.passwordError,
     this.confirmPasswordError,
     this.passwordResetSent = false,
+    this.passwordResetSucceeded = false,
     this.registrationSucceeded = false,
   });
 
@@ -38,6 +39,9 @@ class AuthState {
   /// Set after a successful forgot-password request.
   final bool passwordResetSent;
 
+  /// Set after a successful password reset (user should re-login).
+  final bool passwordResetSucceeded;
+
   /// Set after registration when the account must be signed into manually
   /// (no session was returned by the backend).
   final bool registrationSucceeded;
@@ -52,6 +56,7 @@ class AuthState {
     String? passwordError,
     String? confirmPasswordError,
     bool? passwordResetSent,
+    bool? passwordResetSucceeded,
     bool? registrationSucceeded,
   }) {
     return AuthState(
@@ -63,6 +68,8 @@ class AuthState {
       passwordError: passwordError,
       confirmPasswordError: confirmPasswordError,
       passwordResetSent: passwordResetSent ?? this.passwordResetSent,
+      passwordResetSucceeded:
+          passwordResetSucceeded ?? this.passwordResetSucceeded,
       registrationSucceeded:
           registrationSucceeded ?? this.registrationSucceeded,
     );

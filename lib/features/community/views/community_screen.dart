@@ -32,16 +32,43 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
     final controller = ref.read(communityControllerProvider.notifier);
     return SafeArea(
       bottom: false,
-      child: DecoratedBox(
-        decoration: const BoxDecoration(color: AppColors.background),
-        child: Column(
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        drawer: _CommunityDrawer(
+          onMyPosts: () => context.push('/my-posts'),
+          onSavedPosts: () => context.push('/saved-posts'),
+        ),
+        floatingActionButton: PopupMenuButton<String>(
+          key: const Key('community-write-review'),
+          tooltip: 'Add review',
+          position: PopupMenuPosition.over,
+          offset: const Offset(0, -8),
+          onSelected: (_) => context.push('/review/create'),
+          itemBuilder: (context) => const [
+            PopupMenuItem<String>(
+              value: 'review',
+              child: Text('Write a review'),
+            ),
+          ],
+          child: Container(
+            width: 56,
+            height: 56,
+            decoration: const BoxDecoration(
+              color: AppColors.primary,
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: const Icon(
+              LucideIcons.plus,
+              color: AppColors.surface,
+            ),
+          ),
+        ),
+        body: Column(
           children: [
             _CommunityHeader(
               searchController: _searchController,
               onSearch: controller.updateSearch,
-              onMyPosts: () => context.push('/my-posts'),
-              onSavedPosts: () => context.push('/saved-posts'),
-              onReview: () => context.push('/review/create'),
             ),
             Expanded(child: _buildBody(context, state, controller)),
           ],
@@ -125,16 +152,10 @@ class _CommunityHeader extends StatelessWidget {
   const _CommunityHeader({
     required this.searchController,
     required this.onSearch,
-    required this.onMyPosts,
-    required this.onSavedPosts,
-    required this.onReview,
   });
 
   final TextEditingController searchController;
   final ValueChanged<String> onSearch;
-  final VoidCallback onMyPosts;
-  final VoidCallback onSavedPosts;
-  final VoidCallback onReview;
 
   @override
   Widget build(BuildContext context) {
@@ -148,75 +169,70 @@ class _CommunityHeader extends StatelessWidget {
         border: Border(bottom: BorderSide(color: AppColors.secondary)),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 22, 16, 18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+        child: Row(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Community',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Fresh finds, honest bites, local stories',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppColors.mutedForeground,
-                        ),
-                      ),
-                    ],
+            Expanded(
+              child: SizedBox(
+                height: 52,
+                child: TextField(
+                  key: const Key('community-search'),
+                  controller: searchController,
+                  onChanged: onSearch,
+                  decoration: const InputDecoration(
+                    hintText: 'Find a dish, place, or food story',
+                    prefixIcon: Icon(LucideIcons.search, size: 19),
+                    suffixIcon: Icon(LucideIcons.slidersHorizontal, size: 18),
                   ),
-                ),
-                FilledButton.icon(
-                  key: const Key('community-write-review'),
-                  onPressed: onReview,
-                  icon: const Icon(LucideIcons.plus, size: 19),
-                  label: const Text('Review'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    key: const Key('community-my-posts'),
-                    onPressed: onMyPosts,
-                    icon: const Icon(LucideIcons.userRound, size: 16),
-                    label: const Text('My Posts'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    key: const Key('community-saved-posts'),
-                    onPressed: onSavedPosts,
-                    icon: const Icon(LucideIcons.bookmark, size: 16),
-                    label: const Text('Saved'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 52,
-              child: TextField(
-                key: const Key('community-search'),
-                controller: searchController,
-                onChanged: onSearch,
-                decoration: const InputDecoration(
-                  hintText: 'Find a dish, place, or food story',
-                  prefixIcon: Icon(LucideIcons.search, size: 19),
-                  suffixIcon: Icon(LucideIcons.slidersHorizontal, size: 18),
                 ),
               ),
+            ),
+            Builder(
+              builder: (context) => IconButton(
+                key: const Key('community-menu'),
+                tooltip: 'Community menu',
+                onPressed: () => Scaffold.of(context).openDrawer(),
+                icon: const Icon(LucideIcons.menu, size: 24),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CommunityDrawer extends StatelessWidget {
+  const _CommunityDrawer({
+    required this.onMyPosts,
+    required this.onSavedPosts,
+  });
+
+  final VoidCallback onMyPosts;
+  final VoidCallback onSavedPosts;
+
+  @override
+  Widget build(BuildContext context) {
+    return Drawer(
+      child: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          children: [
+            ListTile(
+              leading: const Icon(LucideIcons.userRound),
+              title: const Text('My Posts'),
+              onTap: () {
+                Navigator.pop(context);
+                onMyPosts();
+              },
+            ),
+            ListTile(
+              leading: const Icon(LucideIcons.bookmark),
+              title: const Text('Saved'),
+              onTap: () {
+                Navigator.pop(context);
+                onSavedPosts();
+              },
             ),
           ],
         ),
