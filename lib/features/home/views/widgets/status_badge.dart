@@ -35,8 +35,11 @@ class StatusBadge extends StatelessWidget {
     if (status == 'Open Now' || status == 'Halal') {
       return const _BadgeColors(AppColors.success, AppColors.surface);
     }
-    if (status == 'Popular') {
+    if (status == 'Popular' || status == 'Recommended') {
       return const _BadgeColors(AppColors.accent, AppColors.foreground);
+    }
+    if (status == 'NEW') {
+      return const _BadgeColors(AppColors.primary, AppColors.surface);
     }
     if (status == 'Late Night') {
       return const _BadgeColors(AppColors.primaryDark, AppColors.surface);

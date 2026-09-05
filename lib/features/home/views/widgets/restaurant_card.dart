@@ -120,8 +120,11 @@ class RestaurantCard extends StatelessWidget {
                         fontSize: 12,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    _RestaurantMetadata(restaurant: restaurant),
+                    if (restaurant.rating != null ||
+                        restaurant.distanceKm != null) ...[
+                      const SizedBox(height: 8),
+                      _RestaurantMetadata(restaurant: restaurant),
+                    ],
                   ],
                 ),
               ),
@@ -169,15 +172,6 @@ class _RestaurantMetadata extends StatelessWidget {
             ),
           ),
         ],
-        const Spacer(),
-        Flexible(
-          child: Text(
-            restaurant.budget,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w500),
-          ),
-        ),
       ],
     );
   }

@@ -137,6 +137,13 @@ class _Metadata extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasRating = restaurant.rating != null;
+    final hasDistance = restaurant.distanceKm != null;
+
+    if (!hasRating && !hasDistance) {
+      return const SizedBox.shrink();
+    }
+
     return FittedBox(
       fit: BoxFit.scaleDown,
       alignment: Alignment.centerLeft,
@@ -146,7 +153,7 @@ class _Metadata extends StatelessWidget {
             const Icon(LucideIcons.star, size: 14, color: AppColors.accent),
             const SizedBox(width: 2),
             Text(rating.toStringAsFixed(1)),
-            const SizedBox(width: 8),
+            if (hasDistance) const SizedBox(width: 8),
           ],
           if (restaurant.distanceKm case final distance?) ...[
             const Icon(
@@ -158,10 +165,6 @@ class _Metadata extends StatelessWidget {
             Text('${distance.toStringAsFixed(distance % 1 == 0 ? 0 : 1)}km'),
             const SizedBox(width: 10),
           ],
-          Text(
-            restaurant.budget,
-            style: const TextStyle(fontWeight: FontWeight.w500),
-          ),
         ],
       ),
     );

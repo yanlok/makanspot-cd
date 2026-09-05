@@ -3,17 +3,12 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:makanspot/core/theme/app_theme.dart';
 
-import 'home_filter_chips.dart';
-import 'makan_search_bar.dart';
-
 class HomeHeader extends StatelessWidget {
   const HomeHeader({
     required this.greeting,
     required this.firstName,
     required this.location,
     required this.profileAsset,
-    required this.onSearch,
-    required this.onFilter,
     required this.onProfile,
     super.key,
   });
@@ -22,8 +17,6 @@ class HomeHeader extends StatelessWidget {
   final String firstName;
   final String location;
   final String profileAsset;
-  final ValueChanged<String> onSearch;
-  final ValueChanged<String> onFilter;
   final VoidCallback onProfile;
 
   @override
@@ -101,19 +94,6 @@ class HomeHeader extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            const Text(
-              'Makan Apa Hari Ini?',
-              style: TextStyle(
-                fontFamily: 'Poppins',
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 12),
-            MakanSearchBar(onSubmitted: onSearch),
-            const SizedBox(height: 12),
-            HomeFilterChips(onSelected: onFilter),
           ],
         ),
       ),

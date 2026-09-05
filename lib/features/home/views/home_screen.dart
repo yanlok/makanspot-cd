@@ -5,11 +5,14 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:makanspot/core/theme/app_theme.dart';
 
+import '../../auth/controllers/auth_controller.dart';
 import '../controllers/home_controller.dart';
 import '../controllers/home_state.dart';
 import '../models/home_feed.dart';
+import 'widgets/home_cuisine_browse.dart';
 import 'widgets/home_header.dart';
 import 'widgets/home_section_skeleton.dart';
+import 'widgets/home_spotlight_carousel.dart';
 import 'widgets/restaurant_section.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -18,7 +21,11 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(homeControllerProvider);
-    final controller = ref.read(homeControllerProvider.notifier);
+    final authState = ref.watch(authControllerProvider);
+    final userName = authState.session?.username ??
+        (state.feed?.firstName.isNotEmpty == true
+            ? state.feed!.firstName
+            : 'User');
 
     return SafeArea(
       bottom: false,
@@ -28,23 +35,14 @@ class HomeScreen extends ConsumerWidget {
           SliverToBoxAdapter(
             child: HomeHeader(
               greeting: state.greeting,
-              firstName: state.feed?.firstName ?? 'Yih',
+              firstName: userName,
               location: state.feed?.location ?? 'Kuala Lumpur',
               profileAsset:
                   state.feed?.profileAsset ?? 'assets/images/default_icon.jpg',
-              onSearch: (query) {
-                final destination = controller.searchDestination(query);
-                if (destination != null) {
-                  context.go(destination.toString());
-                }
-              },
-              onFilter: (filter) {
-                context.go(controller.filterDestination(filter).toString());
-              },
               onProfile: () => context.go('/profile'),
             ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.large)),
+          const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.medium)),
           SliverToBoxAdapter(child: _HomeBody(state: state)),
         ],
       ),
@@ -62,8 +60,6 @@ class _HomeBody extends ConsumerWidget {
     return switch (state.status) {
       HomeStatus.loading => const Column(
         children: [
-          HomeSectionSkeleton(),
-          HomeSectionSkeleton(),
           HomeSectionSkeleton(),
           HomeSectionSkeleton(),
         ],
@@ -111,7 +107,26 @@ class _HomeSections extends ConsumerWidget {
     }
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (feed.recommended.isNotEmpty) ...[
+          HomeSpotlightCarousel(
+            restaurants: feed.recommended,
+            onOpen: openRestaurant,
+          ),
+          const SizedBox(height: AppSpacing.large),
+        ],
+        HomeCuisineBrowse(
+          onSelectCuisine: (cuisine) {
+            context.go(
+              Uri(
+                path: '/discover',
+                queryParameters: {'filter': cuisine},
+              ).toString(),
+            );
+          },
+        ),
+        const SizedBox(height: AppSpacing.large),
         RestaurantSection(
           title: 'Recommended for You',
           restaurants: feed.recommended,
@@ -121,23 +136,7 @@ class _HomeSections extends ConsumerWidget {
           onOpen: openRestaurant,
         ),
         RestaurantSection(
-          title: 'Hidden Gems Sekitar Anda',
-          restaurants: feed.hiddenGems,
-          bookmarkedIds: bookmarkedIds,
-          onViewAll: () => viewSection('hidden_gems'),
-          onBookmark: controller.toggleBookmark,
-          onOpen: openRestaurant,
-        ),
-        RestaurantSection(
-          title: 'Sedap Dekat Sini',
-          restaurants: feed.nearby,
-          bookmarkedIds: bookmarkedIds,
-          onViewAll: () => viewSection('nearby'),
-          onBookmark: controller.toggleBookmark,
-          onOpen: openRestaurant,
-        ),
-        RestaurantSection(
-          title: 'Newest Listings',
+          title: 'New Listings',
           restaurants: feed.newest,
           bookmarkedIds: bookmarkedIds,
           onViewAll: () => viewSection('newest'),

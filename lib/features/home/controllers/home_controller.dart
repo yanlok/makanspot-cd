@@ -78,12 +78,6 @@ class HomeController extends StateNotifier<HomeState> {
   }
 
   static String _greetingFor(DateTime dateTime) {
-    if (dateTime.hour < 12) {
-      return 'Selamat Pagi';
-    }
-    if (dateTime.hour < 18) {
-      return 'Selamat Petang';
-    }
-    return 'Selamat Malam';
+    return 'Welcome';
   }
 }
