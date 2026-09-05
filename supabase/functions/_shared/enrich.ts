@@ -20,6 +20,7 @@ export interface VenueExtraction {
   phone: string | null;
   website: string | null;
   operating_hours: string | null;
+  google_maps_url: string | null;
 }
 
 export const CATEGORY_TAXONOMY = [
@@ -48,8 +49,8 @@ Return STRICT JSON only, matching this TypeScript type:
   "name": string | null,      // the venue name only, no emojis/hashtags
   "address": string | null,   // full street address if present in the caption
   "city": string | null,      // e.g. "Kuala Lumpur", "Petaling Jaya"
-  "latitude": number | null,  // REQUIRED: always try to provide coordinates. Infer from: (1) map links in caption, (2) known location of the restaurant name + city, (3) area/district mentioned. Only null if you truly cannot determine any reasonable estimate.
-  "longitude": number | null, // REQUIRED: always try to provide coordinates. Infer from: (1) map links in caption, (2) known location of the restaurant name + city, (3) area/district mentioned. Only null if you truly cannot determine any reasonable estimate.
+  "latitude": number | null,  // ONLY set when the caption itself contains explicit coordinates (GPS tag, Google Maps link with @lat,lng or !3d..!4d.. pattern). NEVER estimate or infer from geography knowledge — wrong guesses cluster all restaurants at one point. Return null when not explicitly present.
+  "longitude": number | null, // Same rule as latitude: only explicit coordinates from the caption, otherwise null.
   "cuisine": string | null,   // e.g. "Middle Eastern", "Chinese", "Cafe"
   "price_range": "$" | "$$" | "$$$" | "$$$$" | null,
   "description": string | null, // one clean sentence describing the food/spot
@@ -59,7 +60,7 @@ Return STRICT JSON only, matching this TypeScript type:
   "website": string | null,   // website URL if mentioned
   "operating_hours": string | null // hours if mentioned
 }
-Rules: never invent facts. Only use categories from the list; if none fit, return []. For latitude/longitude: if the caption has no coordinates, use your knowledge of Malaysian geography to provide the best approximate coordinates based on the restaurant name, city, and any area/district hints (e.g. "Aman Suri" in "Petaling Jaya" → approximately 3.11, 101.64). Output JSON with no markdown fences.`;
+Rules: never invent facts. Only use categories from the list; if none fit, return []. For latitude/longitude: return null unless the caption text itself contains explicit coordinates (GPS values or a maps URL embedding coordinates). Never guess coordinates from the restaurant name or city — the app geocodes the extracted address deterministically afterwards. Output JSON with no markdown fences.`;
 
 /** Ask the LLM to extract a structured venue from a caption. */
 export async function extractVenue(
@@ -91,6 +92,7 @@ export async function extractVenue(
     phone: null,
     website: null,
     operating_hours: null,
+    google_maps_url: null,
   };
 
   if (!apiKey) return fallback;
@@ -140,6 +142,7 @@ export async function extractVenue(
       phone: parsed.phone ?? null,
       website: parsed.website ?? null,
       operating_hours: parsed.operating_hours ?? null,
+      google_maps_url: parsed.google_maps_url ?? null,
     };
   } catch (_e) {
     return fallback;
@@ -386,6 +389,122 @@ export function trendScore(opts: {
     0.20 * engagementNorm +
     0.20 * recency
   );
+}
+
+// ---------------------------------------------------------------------------
+// Google Maps URL extraction
+// ---------------------------------------------------------------------------
+
+/** Extract a Google Maps URL from an Instagram caption, or null. */
+export function extractGoogleMapsUrl(text: string): string | null {
+  const patterns = [
+    /https?:\/\/maps\.app\.goo\.gl\/\S+/i,
+    /https?:\/\/goo\.gl\/maps\/\S+/i,
+    /https?:\/\/www\.google\.com\/maps\/\S+/i,
+    /https?:\/\/maps\.google\.[a-z]{2,3}(?:\.[a-z]{2})?\/\S+/i,
+  ];
+  for (const re of patterns) {
+    const match = text.match(re);
+    // Strip trailing punctuation the \S+ can swallow from captions
+    if (match) return match[0].trim().replace(/[.,;:)]+$/, "");
+  }
+  return null;
+}
+
+/** Parse explicit coordinates embedded in a (resolved) Google Maps URL. */
+export function parseCoordsFromMapsUrl(
+  url: string,
+): { lat: number; lng: number } | null {
+  const patterns = [
+    /@(-?\d+\.\d+),(-?\d+\.\d+)/, // .../@3.1490,101.7130,17z
+    /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/, // ...!3d3.1490!4d101.7130
+    /[?&]q=(-?\d+\.\d+),\s*(-?\d+\.\d+)/, // ?q=3.1490,101.7130
+    /[?&]query=(-?\d+\.\d+),\s*(-?\d+\.\d+)/, // ?query=3.1490,101.7130
+    /[?&]ll=(-?\d+\.\d+),(-?\d+\.\d+)/, // ?ll=3.1490,101.7130
+  ];
+  for (const re of patterns) {
+    const m = url.match(re);
+    if (m) {
+      const lat = parseFloat(m[1]);
+      const lng = parseFloat(m[2]);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+    }
+  }
+  return null;
+}
+
+/** Resolve a shortened Google Maps URL by following redirects. */
+export async function resolveShortMapsUrl(
+  url: string,
+): Promise<string | null> {
+  if (!/goo\.gl\//i.test(url)) return url;
+  try {
+    const resp = await fetchWithTimeout(
+      url,
+      { method: "GET", redirect: "follow" },
+      10_000,
+    );
+    // fetch follows redirects; the final URL is on resp.url
+    return resp.url || url;
+  } catch {
+    return null;
+  }
+}
+
+const MALAYSIA_BOUNDS = { minLat: 0.5, maxLat: 7.5, minLng: 99.5, maxLng: 119.5 };
+
+/** Validate that coordinates fall inside Malaysia's bounding box. */
+export function isInMalaysia(lat: number, lng: number): boolean {
+  return (
+    lat >= MALAYSIA_BOUNDS.minLat &&
+    lat <= MALAYSIA_BOUNDS.maxLat &&
+    lng >= MALAYSIA_BOUNDS.minLng &&
+    lng <= MALAYSIA_BOUNDS.maxLng
+  );
+}
+
+/**
+ * Deterministic geocoding via Nominatim (OpenStreetMap) — free, no API key.
+ * Replaces the LLM coordinate guessing that clustered restaurants at one
+ * point. Honours the 1 req/sec public-instance policy with internal spacing.
+ */
+let lastNominatimCall = 0;
+
+export async function geocodeWithNominatim(
+  query: string,
+): Promise<{ lat: number; lng: number } | null> {
+  if (!query.trim()) return null;
+  // Nominatim public policy: max 1 req/sec
+  const wait = 1100 - (Date.now() - lastNominatimCall);
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  lastNominatimCall = Date.now();
+
+  try {
+    const url =
+      `https://nominatim.openstreetmap.org/search?${
+        new URLSearchParams({
+          q: query,
+          format: "json",
+          limit: "1",
+          countrycodes: "my",
+        })
+      }`;
+    const resp = await fetchWithTimeout(
+      url,
+      { headers: { "User-Agent": "MakanSpot-Pipeline/1.0" } },
+      12_000,
+    );
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (!Array.isArray(data) || data.length === 0) return null;
+    const lat = parseFloat(data[0].lat);
+    const lng = parseFloat(data[0].lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (!isInMalaysia(lat, lng)) return null;
+    return { lat, lng };
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------

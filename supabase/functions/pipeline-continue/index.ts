@@ -39,13 +39,18 @@ import {
 import {
   deriveCategories,
   ensurePlaceholder,
+  extractGoogleMapsUrl,
   extractVenue,
+  geocodeWithNominatim,
+  isInMalaysia,
   isLikelyNotRestaurant,
   nameRelation,
   normalizeName,
+  parseCoordsFromMapsUrl,
   persistPrimaryImage,
   persistRestaurantImageChain,
   popularityScore,
+  resolveShortMapsUrl,
   selectBestImageCandidate,
   sumComponentCosts,
   trendScore,
@@ -1531,6 +1536,9 @@ async function handleEnrich(
         post.author_username,
       );
 
+      // Extract Google Maps URL from the raw caption
+      const googleMapsUrl = extractGoogleMapsUrl(caption);
+
       if (!extraction.is_restaurant || extraction.confidence < 0.5) {
         await supabase
           .from("scraped_posts")
@@ -1541,9 +1549,34 @@ async function handleEnrich(
         continue;
       }
 
-      // Geocode if no location_id already available
-      let latitude: number | null = extraction.latitude;
-      let longitude: number | null = extraction.longitude;
+      // Coordinate priority chain:
+      //   1. Explicit coords parsed from a Google Maps link in the caption
+      //   2. Explicit coords the LLM found in the caption (rare, per prompt)
+      //   3. Deterministic Nominatim geocoding (done just before insert, only
+      //      for genuinely new restaurants)
+      //   4. null (never LLM geography guesses — those clustered all markers)
+      let latitude: number | null = null;
+      let longitude: number | null = null;
+
+      if (googleMapsUrl) {
+        const resolved = await resolveShortMapsUrl(googleMapsUrl);
+        if (resolved) {
+          const fromUrl = parseCoordsFromMapsUrl(resolved);
+          if (fromUrl && isInMalaysia(fromUrl.lat, fromUrl.lng)) {
+            latitude = fromUrl.lat;
+            longitude = fromUrl.lng;
+          }
+        }
+      }
+
+      if (latitude === null || longitude === null) {
+        const llmLat = extraction.latitude;
+        const llmLng = extraction.longitude;
+        if (llmLat !== null && llmLng !== null && isInMalaysia(llmLat, llmLng)) {
+          latitude = llmLat;
+          longitude = llmLng;
+        }
+      }
 
       if (post.location_id) {
         // We have an IG location — check if we can get coords from the source
@@ -1577,6 +1610,21 @@ async function handleEnrich(
       );
 
       if (existingRestaurantId) {
+        // Backfill google_maps_url if the restaurant lacks one
+        if (googleMapsUrl) {
+          const { data: existingRestaurant } = await supabase
+            .from("restaurants")
+            .select("google_maps_url")
+            .eq("id", existingRestaurantId)
+            .maybeSingle();
+          if (existingRestaurant && !existingRestaurant.google_maps_url) {
+            await supabase
+              .from("restaurants")
+              .update({ google_maps_url: googleMapsUrl })
+              .eq("id", existingRestaurantId);
+          }
+        }
+
         await linkPostAndRefreshRestaurant(
           supabase,
           existingRestaurantId,
@@ -1586,6 +1634,23 @@ async function handleEnrich(
         state.stats.candidates_enriched++;
         enriched++;
         continue;
+      }
+
+      // Deterministic geocoding for genuinely new restaurants only.
+      if (latitude === null || longitude === null) {
+        // Pick the first non-blank venue identifier (address can be "")
+        const venuePart = [extraction.address, extraction.name]
+          .find((part): part is string => !!part && part.trim().length > 0);
+        const geoQuery = [venuePart, extraction.city, "Malaysia"]
+          .filter((part): part is string => !!part && part.trim().length > 0)
+          .join(", ");
+        if (geoQuery.length > 3) {
+          const geo = await geocodeWithNominatim(geoQuery);
+          if (geo) {
+            latitude = geo.lat;
+            longitude = geo.lng;
+          }
+        }
       }
 
       const { data: newRestaurant, error: insertErr } = await supabase
@@ -1601,6 +1666,7 @@ async function handleEnrich(
           phone: extraction.phone,
           website: extraction.website,
           price_range: extraction.price_range,
+          google_maps_url: googleMapsUrl,
           instagram_location_id: post.location_id,
           categories: extraction.categories,
           verification_confidence: extraction.confidence,

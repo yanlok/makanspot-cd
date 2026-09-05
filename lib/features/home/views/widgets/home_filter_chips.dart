@@ -10,11 +10,13 @@ class HomeFilterChips extends StatelessWidget {
   static const filters = <String>[
     'Near Me',
     'Budget',
-    'Open Now',
+    'Saved',
     'Mamak',
+    'Cafe',
     'Street Food',
-    'Desserts',
-    'Hidden Gems',
+    'Dessert & Bakery',
+    'Malay',
+    'Chinese',
   ];
 
   @override

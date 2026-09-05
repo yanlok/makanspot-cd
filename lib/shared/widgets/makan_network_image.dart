@@ -7,18 +7,26 @@ class MakanNetworkImage extends StatelessWidget {
   const MakanNetworkImage({
     required this.url,
     required this.semanticLabel,
-    required this.fallbackKey,
+    this.fallbackKey,
+    this.fallbackIcon = LucideIcons.utensils,
+    this.fallbackIconSize = 24,
     super.key,
   });
 
   final String url;
   final String semanticLabel;
-  final Key fallbackKey;
+  final Key? fallbackKey;
+  final IconData fallbackIcon;
+  final double fallbackIconSize;
 
   @override
   Widget build(BuildContext context) {
     if (url.isEmpty) {
-      return _ImageFallback(key: fallbackKey);
+      return _ImageFallback(
+        key: fallbackKey,
+        icon: fallbackIcon,
+        iconSize: fallbackIconSize,
+      );
     }
     return Image.network(
       url,
@@ -44,23 +52,34 @@ class MakanNetworkImage extends StatelessWidget {
         );
       },
       errorBuilder: (context, error, stackTrace) {
-        return _ImageFallback(key: fallbackKey);
+        return _ImageFallback(
+          key: fallbackKey,
+          icon: fallbackIcon,
+          iconSize: fallbackIconSize,
+        );
       },
     );
   }
 }
 
 class _ImageFallback extends StatelessWidget {
-  const _ImageFallback({super.key});
+  const _ImageFallback({
+    this.icon = LucideIcons.utensils,
+    this.iconSize = 24,
+    super.key,
+  });
+
+  final IconData icon;
+  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
-    return const ColoredBox(
+    return ColoredBox(
       color: AppColors.secondary,
       child: Center(
         child: Icon(
-          LucideIcons.mapPin,
-          size: 32,
+          icon,
+          size: iconSize,
           color: AppColors.mutedForeground,
         ),
       ),

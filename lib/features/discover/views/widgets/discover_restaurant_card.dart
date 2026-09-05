@@ -12,6 +12,7 @@ class DiscoverRestaurantCard extends StatelessWidget {
     required this.isBookmarked,
     required this.onBookmark,
     required this.onOpen,
+    this.isSelected = false,
     super.key,
   });
 
@@ -19,6 +20,7 @@ class DiscoverRestaurantCard extends StatelessWidget {
   final bool isBookmarked;
   final VoidCallback onBookmark;
   final VoidCallback onOpen;
+  final bool isSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +28,10 @@ class DiscoverRestaurantCard extends StatelessWidget {
       color: AppColors.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadii.card),
-        side: const BorderSide(color: AppColors.secondary),
+        side: BorderSide(
+          color: isSelected ? AppColors.primary : AppColors.secondary,
+          width: isSelected ? 2 : 1,
+        ),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(

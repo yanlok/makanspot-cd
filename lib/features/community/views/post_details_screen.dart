@@ -46,7 +46,13 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
           children: [
             CommunityPageHeader(
               title: 'Post',
-              onBack: () => context.go('/community'),
+              onBack: () {
+                if (context.canPop()) {
+                  context.pop();
+                } else {
+                  context.go('/community');
+                }
+              },
             ),
             Expanded(child: _buildBody(context, state, controller)),
           ],

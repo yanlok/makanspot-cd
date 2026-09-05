@@ -112,7 +112,8 @@ class EditProfileController extends StateNotifier<ProfileState> {
     }
     try {
       state = state.copyWith(status: ProfileStatus.saving);
-      var profileAsset = currentProfileAsset ?? state.data!.profile.profileAsset;
+      var profileAsset =
+          currentProfileAsset ?? state.data!.profile.profileAsset;
       if (photoUpload != null) {
         profileAsset = await _repository.uploadProfilePicture(photoUpload);
       }

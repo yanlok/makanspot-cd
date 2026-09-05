@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:makanspot/core/config/supabase_config.dart';
 
 import '../models/auth_repository.dart';
+import '../models/auth_session.dart';
 import '../models/fixture_auth_repository.dart';
 import '../models/supabase_auth_repository.dart';
 import 'auth_state.dart';
@@ -15,19 +16,31 @@ final authRepositoryProvider = Provider<AuthRepository>((ref) {
   return FixtureAuthRepository();
 });
 
+final initialSessionProvider = Provider<AuthSession?>((ref) => null);
+
 /// Kept alive so the session survives route changes and can gate the router.
 final authControllerProvider = StateNotifierProvider<AuthController, AuthState>(
-  (ref) => AuthController(ref.watch(authRepositoryProvider)),
+  (ref) => AuthController(
+    ref.watch(authRepositoryProvider),
+    ref.watch(initialSessionProvider),
+  ),
 );
 
 class AuthController extends StateNotifier<AuthState> {
-  AuthController(this._repository)
-    : super(const AuthState(status: AuthStatus.restoring));
+  AuthController(this._repository, [AuthSession? initialSession])
+    : super(
+        initialSession != null
+            ? AuthState(status: AuthStatus.authenticated, session: initialSession)
+            : const AuthState(status: AuthStatus.restoring),
+      );
 
   final AuthRepository _repository;
 
   /// Restores the saved session on startup; called once from the app root.
   Future<void> restoreSession() async {
+    if (state.session != null && state.status == AuthStatus.authenticated) {
+      return;
+    }
     try {
       final session = await _repository.restoreSession();
       state = session == null

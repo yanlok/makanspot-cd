@@ -77,19 +77,24 @@ class SupabaseCommunityRepository implements CommunityRepository {
   Future<List<CommunityRestaurant>> loadRestaurants() async {
     final rows = await _client
         .from('restaurants')
-        // Keep this query independent of optional category/image relationships.
-        // A restaurant should still be reviewable before enrichment is complete.
-        .select('id,name')
+        .select('id,name,categories,restaurant_images(image_url,is_primary)')
         .isFilter('deleted_at', null)
         .order('name');
     return rows
         .map<CommunityRestaurant>(
-          (row) => CommunityRestaurant(
-            id: row['id'].toString(),
-            name: row['name']?.toString() ?? 'Restaurant',
-            cuisine: 'Restaurant',
-            imageUrl: '',
-          ),
+          (row) {
+            final categories = (row['categories'] as List?)
+                ?.map((category) => category.toString())
+                .where((category) => category.isNotEmpty)
+                .toList(growable: false);
+            final cuisine = categories?.firstOrNull ?? 'Restaurant';
+            return CommunityRestaurant(
+              id: row['id'].toString(),
+              name: row['name']?.toString() ?? 'Restaurant',
+              cuisine: cuisine,
+              imageUrl: _primaryImage(row['restaurant_images']),
+            );
+          },
         )
         .toList(growable: false);
   }

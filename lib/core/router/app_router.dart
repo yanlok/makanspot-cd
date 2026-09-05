@@ -36,6 +36,7 @@ import 'package:makanspot/features/journey/views/achievements_progress_screen.da
 import 'package:makanspot/features/journey/views/exploration_map_screen.dart';
 import 'package:makanspot/features/journey/views/journey_screen.dart';
 import 'package:makanspot/features/journey/views/visit_history_screen.dart';
+import 'package:makanspot/core/theme/app_theme.dart';
 import 'package:makanspot/features/profile/views/edit_profile_screen.dart';
 import 'package:makanspot/features/profile/views/profile_screen.dart';
 import 'package:makanspot/shared/widgets/makan_bottom_navigation.dart';
@@ -43,6 +44,7 @@ import 'package:makanspot/shared/widgets/mobile_app_frame.dart';
 
 abstract final class AppRoutes {
   static const home = '/';
+  static const splash = '/splash';
   static const discover = '/discover';
   static const community = '/community';
   static const journey = '/journey';
@@ -70,10 +72,17 @@ const _publicRoutes = {
 
 GoRouter createAppRouter({
   required WidgetRef ref,
-  String initialLocation = AppRoutes.login,
+  String? initialLocation,
 }) {
+  final authState = ref.read(authControllerProvider);
+  final defaultLocation = authState.session != null
+      ? (authState.session!.isAdmin ? AppRoutes.adminScraper : AppRoutes.home)
+      : (authState.status == AuthStatus.restoring
+          ? AppRoutes.splash
+          : AppRoutes.login);
+
   return GoRouter(
-    initialLocation: initialLocation,
+    initialLocation: initialLocation ?? defaultLocation,
     // Re-evaluated by the app whenever the auth state changes
     // (see MakanSpotApp), so login, logout, and session restore drive the
     // navigation.
@@ -81,8 +90,8 @@ GoRouter createAppRouter({
       final authState = ref.read(authControllerProvider);
       final location = state.matchedLocation;
       if (authState.status == AuthStatus.restoring) {
-        // Hold on the login screen until the saved session is restored.
-        return location == AppRoutes.login ? null : AppRoutes.login;
+        // Hold on the splash screen until the saved session is restored.
+        return location == AppRoutes.splash ? null : AppRoutes.splash;
       }
       final session = authState.session;
       if (session == null) {
@@ -91,7 +100,7 @@ GoRouter createAppRouter({
         }
         return AppRoutes.login;
       }
-      if (_publicRoutes.contains(location)) {
+      if (_publicRoutes.contains(location) || location == AppRoutes.splash) {
         // Allow /reset-password during password recovery (session is temporary).
         if (location == AppRoutes.resetPassword) return null;
         return session.isAdmin ? AppRoutes.adminScraper : AppRoutes.home;
@@ -192,6 +201,10 @@ GoRouter createAppRouter({
             builder: (context, state) => const ChangePasswordScreen(),
           ),
         ],
+      ),
+      GoRoute(
+        path: AppRoutes.splash,
+        builder: (context, state) => const _SplashScreen(),
       ),
       GoRoute(
         path: AppRoutes.login,
@@ -339,5 +352,42 @@ class _StandalonePlaceholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(body: NotMigratedScreen(title: title));
+  }
+}
+
+class _SplashScreen extends StatelessWidget {
+  const _SplashScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: AppColors.background,
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'MakanSpot',
+              style: TextStyle(
+                fontFamily: 'Poppins',
+                fontSize: 34,
+                fontWeight: FontWeight.w700,
+                color: AppColors.primary,
+                letterSpacing: -0.5,
+              ),
+            ),
+            SizedBox(height: 6),
+            Text(
+              'Discover the best makan spots',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                color: AppColors.secondaryForeground,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

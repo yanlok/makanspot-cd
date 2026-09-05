@@ -58,10 +58,7 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
               shape: BoxShape.circle,
             ),
             alignment: Alignment.center,
-            child: const Icon(
-              LucideIcons.plus,
-              color: AppColors.surface,
-            ),
+            child: const Icon(LucideIcons.plus, color: AppColors.surface),
           ),
         ),
         body: Column(
@@ -203,10 +200,7 @@ class _CommunityHeader extends StatelessWidget {
 }
 
 class _CommunityDrawer extends StatelessWidget {
-  const _CommunityDrawer({
-    required this.onMyPosts,
-    required this.onSavedPosts,
-  });
+  const _CommunityDrawer({required this.onMyPosts, required this.onSavedPosts});
 
   final VoidCallback onMyPosts;
   final VoidCallback onSavedPosts;

@@ -78,19 +78,19 @@ class SupabaseProfileRepository implements ProfileRepository {
     final extension = _extensionForMime(upload.mimeType);
     final baseName =
         upload.fileName?.isNotEmpty == true && upload.fileName!.contains('.')
-            ? upload.fileName!
-            : 'avatar$extension';
-    final objectPath = '$userId/${DateTime.now().millisecondsSinceEpoch}-'
+        ? upload.fileName!
+        : 'avatar$extension';
+    final objectPath =
+        '$userId/${DateTime.now().millisecondsSinceEpoch}-'
         '$baseName';
 
-    await _client.storage.from('avatars').uploadBinary(
-      objectPath,
-      upload.bytes,
-      fileOptions: FileOptions(
-        contentType: upload.mimeType,
-        upsert: false,
-      ),
-    );
+    await _client.storage
+        .from('avatars')
+        .uploadBinary(
+          objectPath,
+          upload.bytes,
+          fileOptions: FileOptions(contentType: upload.mimeType, upsert: false),
+        );
     return _client.storage.from('avatars').getPublicUrl(objectPath);
   }
 

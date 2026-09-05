@@ -24,23 +24,38 @@ class RestaurantInfoCard extends StatelessWidget {
           _InfoRow(
             icon: LucideIcons.mapPin,
             label: 'Address',
-            value: restaurant.address,
+            value: _formatAddress(restaurant.address),
           ),
           const SizedBox(height: 8),
           _InfoRow(
             icon: LucideIcons.clock,
             label: 'Operating Hours',
-            value: restaurant.operatingHours,
+            value: _formatOperatingHours(restaurant.operatingHours),
           ),
           const SizedBox(height: 8),
           _InfoRow(
             icon: LucideIcons.phone,
             label: 'Contact',
-            value: restaurant.contact ?? 'Contact information unavailable',
+            value: _formatContact(restaurant.contact),
           ),
         ],
       ),
     );
+  }
+
+  static String _formatAddress(String? address) {
+    if (address == null || address.trim().isEmpty) return '-';
+    return address.trim();
+  }
+
+  static String _formatOperatingHours(String? hours) {
+    final formatted = formatOperatingHours(hours);
+    return formatted.isEmpty ? '-' : formatted;
+  }
+
+  static String _formatContact(String? contact) {
+    if (contact == null || contact.trim().isEmpty) return '-';
+    return contact.trim();
   }
 }
 

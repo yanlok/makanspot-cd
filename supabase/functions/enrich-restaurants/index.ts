@@ -20,6 +20,7 @@ type DbClient = SupabaseClient<any, any, any, any, any>;
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { isAdminRequest } from "../_shared/auth.ts";
 import { fetchWithTimeout } from "../_shared/http.ts";
+import { geocodeWithNominatim } from "../_shared/enrich.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -114,9 +115,9 @@ async function enrichBatch(
   if (specificIds && specificIds.length > 0) {
     query = query.in("id", specificIds);
   } else if (!force) {
-    // Only restaurants missing address, phone, or have empty business_hours
+    // Only restaurants missing address, phone, coords, or have empty business_hours
     query = query.or(
-      "address.is.null,address.eq.,phone.is.null,phone.eq.,business_hours.is.null,business_hours.eq.\"{}\"",
+      "address.is.null,address.eq.,phone.is.null,phone.eq.,business_hours.is.null,business_hours.eq.\"{}\",latitude.is.null",
     );
   }
 
@@ -195,8 +196,9 @@ async function enrichSingleRestaurant(
     !restaurant.business_hours ||
     JSON.stringify(restaurant.business_hours) === "{}" ||
     JSON.stringify(restaurant.business_hours) === '""';
+  const needsCoords = restaurant.latitude == null || restaurant.longitude == null;
 
-  if (!force && !needsAddress && !needsPhone && !needsHours) {
+  if (!force && !needsAddress && !needsPhone && !needsHours && !needsCoords) {
     return null; // Already has all fields
   }
 
@@ -208,7 +210,8 @@ async function enrichSingleRestaurant(
   }
   const searchQuery = searchParts.join(" ");
 
-  // Ask the LLM to find restaurant details
+  // Ask the LLM to find restaurant details. May fail (missing key, outage,
+  // parse error) — the coordinate safety net below must still run.
   const enrichment = await callLLMForEnrichment(
     searchQuery,
     restaurant.name,
@@ -217,27 +220,38 @@ async function enrichSingleRestaurant(
     restaurant.longitude,
   );
 
-  if (!enrichment) return null;
-
   // Apply updates
   const updates: Record<string, unknown> = {};
   const changes: string[] = [];
 
-  if (needsAddress && enrichment.address) {
+  if (needsAddress && enrichment?.address) {
     updates.address = enrichment.address;
     changes.push(`address: ${enrichment.address}`);
   }
-  if (needsPhone && enrichment.phone) {
+  if (needsPhone && enrichment?.phone) {
     updates.phone = enrichment.phone;
     changes.push(`phone: ${enrichment.phone}`);
   }
-  if (needsHours && enrichment.business_hours) {
+  if (needsHours && enrichment?.business_hours) {
     updates.business_hours = { status: enrichment.business_hours };
     changes.push(`hours: ${enrichment.business_hours}`);
   }
-  if (enrichment.website && !restaurant.instagram_location_id) {
-    // Only set website if we don't already have an IG location
-    // (website is less important than IG data)
+
+  // Geocode restaurants that still have no coordinates (free Nominatim pass).
+  // Runs even when the LLM produced no updates, so coord-less restaurants are
+  // always covered by the safety net.
+  if (needsCoords) {
+    const effectiveAddress = updates.address as string | undefined ??
+      restaurant.address;
+    const geoQuery = [effectiveAddress ?? restaurant.name, restaurant.city, "Malaysia"]
+      .filter((part): part is string => !!part && part.trim().length > 0)
+      .join(", ");
+    const geo = await geocodeWithNominatim(geoQuery);
+    if (geo) {
+      updates.latitude = geo.lat;
+      updates.longitude = geo.lng;
+      changes.push(`coords: ${geo.lat.toFixed(5)}, ${geo.lng.toFixed(5)}`);
+    }
   }
 
   if (Object.keys(updates).length === 0) return null;

@@ -52,6 +52,8 @@ class DiscoverController extends StateNotifier<DiscoverState> {
   final void Function(Set<String>) _onBookmarksChanged;
   List<DiscoverRestaurant> _allRestaurants = const [];
 
+  DiscoverState get currentState => state;
+
   Future<void> load() async {
     try {
       _allRestaurants = await _repository.loadRestaurants();
@@ -90,6 +92,13 @@ class DiscoverController extends StateNotifier<DiscoverState> {
     _applyFilters();
   }
 
+  void toggleArea(String area) {
+    state = state.copyWith(
+      selectedAreas: _toggle(state.selectedAreas, area),
+    );
+    _applyFilters();
+  }
+
   void selectSort(String sortBy) {
     state = state.copyWith(sortBy: sortBy);
     _applyFilters();
@@ -101,6 +110,7 @@ class DiscoverController extends StateNotifier<DiscoverState> {
       selectedFilters: const {},
       selectedCuisines: const {},
       selectedBudgets: const {},
+      selectedAreas: const {},
     );
     _applyFilters();
   }
@@ -114,15 +124,30 @@ class DiscoverController extends StateNotifier<DiscoverState> {
     _onBookmarksChanged(Set.unmodifiable(bookmarks));
   }
 
+  void selectRestaurant(String id) {
+    state = state.copyWith(selectedRestaurantId: id);
+  }
+
+  void clearSelection() {
+    state = state.copyWith(selectedRestaurantId: null);
+  }
+
   void _applyFilters() {
     var restaurants = _allRestaurants.where(_matchesQuery).toList();
     restaurants = restaurants.where(_matchesSelections).toList();
     _sort(restaurants);
+    final visibleIds = restaurants.map((r) => r.id).toSet();
+    final selectedId = state.selectedRestaurantId;
+    final preservedSelection =
+        selectedId != null && visibleIds.contains(selectedId)
+            ? selectedId
+            : null;
     state = state.copyWith(
       status: restaurants.isEmpty
           ? DiscoverStatus.empty
           : DiscoverStatus.content,
       restaurants: List.unmodifiable(restaurants),
+      selectedRestaurantId: preservedSelection,
     );
   }
 
@@ -133,30 +158,44 @@ class DiscoverController extends StateNotifier<DiscoverState> {
     }
     return restaurant.name.toLowerCase().contains(query) ||
         restaurant.cuisine.toLowerCase().contains(query) ||
+        restaurant.categories.any((c) => c.toLowerCase().contains(query)) ||
+        (restaurant.city?.toLowerCase().contains(query) ?? false) ||
         restaurant.description.toLowerCase().contains(query) ||
         restaurant.address.toLowerCase().contains(query);
   }
 
   bool _matchesSelections(DiscoverRestaurant restaurant) {
-    if (state.selectedCuisines.isNotEmpty &&
-        !state.selectedCuisines.contains(restaurant.cuisine)) {
-      return false;
+    if (state.selectedCuisines.isNotEmpty) {
+      final matchesAnyCuisine = state.selectedCuisines.any(
+        (selected) =>
+            restaurant.cuisine.toLowerCase() == selected.toLowerCase() ||
+            restaurant.categories.any(
+              (cat) => cat.toLowerCase() == selected.toLowerCase(),
+            ),
+      );
+      if (!matchesAnyCuisine) {
+        return false;
+      }
     }
     if (state.selectedBudgets.isNotEmpty &&
         !state.selectedBudgets.contains(restaurant.budget)) {
       return false;
     }
+    if (state.selectedAreas.isNotEmpty) {
+      final matchesAnyArea = state.selectedAreas.any((area) {
+        final lowerArea = area.toLowerCase();
+        final city = restaurant.city?.toLowerCase() ?? '';
+        final address = restaurant.address.toLowerCase();
+        return city.contains(lowerArea) || address.contains(lowerArea);
+      });
+      if (!matchesAnyArea) {
+        return false;
+      }
+    }
     for (final filter in state.selectedFilters) {
       final matches = switch (filter) {
         'Saved' => state.bookmarkedIds.contains(restaurant.id),
-        'Hidden Gems' => restaurant.isHiddenGem,
-        // Opening status cannot be derived reliably from free-form operating
-        // hours, so only honour it when a source supplied the label.
-        'Open Now' => restaurant.labels.contains('Open Now'),
         'Budget' => restaurant.budget == 'Low',
-        'Mamak' => restaurant.cuisine == 'Mamak',
-        'Street Food' => restaurant.cuisine == 'Street Food',
-        'Desserts' => restaurant.cuisine == 'Desserts',
         _ => true,
       };
       if (!matches) {
@@ -175,14 +214,19 @@ class DiscoverController extends StateNotifier<DiscoverState> {
         restaurants.sort(
           (a, b) => (a.distanceKm ?? 999).compareTo(b.distanceKm ?? 999),
         );
-      case 'Newest Listings':
+      case 'Newest Listings' || 'Newest':
         restaurants.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      case 'Name' || 'Name (A-Z)':
+        restaurants.sort(
+          (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+        );
+      case 'Popularity' || 'Recommendation Score':
       default:
         restaurants.sort((a, b) {
-          final ratingOrder = (b.rating ?? 0).compareTo(a.rating ?? 0);
-          if (ratingOrder != 0) {
-            return ratingOrder;
-          }
+          final pop = b.popularityScore.compareTo(a.popularityScore);
+          if (pop != 0) return pop;
+          final rating = (b.rating ?? 0).compareTo(a.rating ?? 0);
+          if (rating != 0) return rating;
           return b.createdAt.compareTo(a.createdAt);
         });
     }

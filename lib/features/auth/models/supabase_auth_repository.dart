@@ -88,7 +88,9 @@ class SupabaseAuthRepository implements AuthRepository {
       );
     } on AuthException catch (error) {
       // ignore: avoid_print
-      print('[PasswordReset] AuthException: ${error.message} (code: ${error.code})');
+      print(
+        '[PasswordReset] AuthException: ${error.message} (code: ${error.code})',
+      );
       throw AuthFailure(authErrorMessage(error));
     } on Exception catch (error) {
       // ignore: avoid_print
@@ -107,7 +109,9 @@ class SupabaseAuthRepository implements AuthRepository {
       // automatically. updateUser works against that session.
       final session = Supabase.instance.client.auth.currentSession;
       // ignore: avoid_print
-      print('[PasswordReset] session=${session != null} user=${Supabase.instance.client.auth.currentUser?.id}');
+      print(
+        '[PasswordReset] session=${session != null} user=${Supabase.instance.client.auth.currentUser?.id}',
+      );
       await Supabase.instance.client.auth.updateUser(
         UserAttributes(password: newPassword),
       );
@@ -115,7 +119,9 @@ class SupabaseAuthRepository implements AuthRepository {
       await Supabase.instance.client.auth.signOut();
     } on AuthException catch (error) {
       // ignore: avoid_print
-      print('[PasswordReset] AuthException: ${error.message} (code: ${error.code})');
+      print(
+        '[PasswordReset] AuthException: ${error.message} (code: ${error.code})',
+      );
       throw AuthFailure(authErrorMessage(error));
     } on Exception catch (error) {
       // ignore: avoid_print

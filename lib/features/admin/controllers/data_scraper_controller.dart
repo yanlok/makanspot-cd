@@ -472,7 +472,8 @@ class DataScraperController extends StateNotifier<PipelineState> {
         final details = e.details;
         if (details is Map) {
           message =
-              (details as Map<String, dynamic>)['message'] as String? ?? message;
+              (details as Map<String, dynamic>)['message'] as String? ??
+              message;
         }
       }
       _updateState(

@@ -59,7 +59,15 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       bottom: false,
       child: Column(
         children: [
-          _Header(onBack: context.pop),
+          _Header(
+            onBack: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/profile');
+              }
+            },
+          ),
           Expanded(child: _body(context, state, controller)),
         ],
       ),
@@ -197,10 +205,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         const SizedBox(height: 6),
         const Text(
           'Tap to change photo',
-          style: TextStyle(
-            fontSize: 12,
-            color: AppColors.mutedForeground,
-          ),
+          style: TextStyle(fontSize: 12, color: AppColors.mutedForeground),
         ),
       ],
     );
@@ -286,9 +291,9 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       });
     } on Object {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Could not pick a photo.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not pick a photo.')),
+        );
       }
     }
   }

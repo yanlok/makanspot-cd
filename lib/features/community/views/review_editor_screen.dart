@@ -86,7 +86,21 @@ class _ReviewEditorScreenState extends ConsumerState<ReviewEditorScreen> {
       bottom: false,
       child: Column(
         children: [
-          CommunityPageHeader(title: widget.title, onBack: context.pop),
+          CommunityPageHeader(
+            title: widget.title,
+            onBack: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                final restaurantId = widget.arguments.restaurantId;
+                if (restaurantId != null && restaurantId.isNotEmpty) {
+                  context.go('/restaurant/$restaurantId');
+                } else {
+                  context.go('/community');
+                }
+              }
+            },
+          ),
           Expanded(child: _buildBody(context, state, controller)),
         ],
       ),
@@ -424,9 +438,22 @@ class _RestaurantPickerState extends State<_RestaurantPicker> {
                   .map(
                     (restaurant) => ListTile(
                       key: Key('restaurant-result-${restaurant.id}'),
+                      leading: ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: SizedBox.square(
+                          dimension: 36,
+                          child: MakanNetworkImage(
+                            url: restaurant.imageUrl,
+                            semanticLabel: restaurant.name,
+                            fallbackKey: Key(
+                              'restaurant-search-image-${restaurant.id}',
+                            ),
+                          ),
+                        ),
+                      ),
                       title: Text(restaurant.name),
                       subtitle: Text(restaurant.cuisine),
-                      trailing: const Icon(LucideIcons.utensils, size: 17),
+                      trailing: const Icon(LucideIcons.chevronRight, size: 17),
                       onTap: () => widget.onSelected(restaurant),
                     ),
                   )

@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'discover_repository.dart';
@@ -13,6 +11,7 @@ class SupabaseDiscoverRepository implements DiscoverRepository {
   static const _restaurantSelect = '''
     id, name, description, address, city, state, latitude, longitude,
     phone, price_range, categories, business_hours, popularity_score,
+    google_maps_url,
     created_at,
     restaurant_images(image_url, is_primary)
   ''';
@@ -61,19 +60,23 @@ class SupabaseDiscoverRepository implements DiscoverRepository {
     final categories = (row['categories'] as List?)
         ?.map((category) => category.toString())
         .where((category) => category.isNotEmpty)
-        .toList(growable: false);
+        .toList(growable: false) ??
+        const <String>[];
     final images = row['restaurant_images'] as List? ?? const [];
     final image = images.cast<Map>().firstWhere(
       (item) => item['is_primary'] == true,
       orElse: () =>
           images.cast<Map>().isNotEmpty ? images.cast<Map>().first : const {},
     );
-    final cuisine = categories?.firstOrNull ?? 'Restaurant';
+    final cuisine = categories.firstOrNull ?? 'Restaurant';
 
     return DiscoverRestaurant(
       id: row['id'].toString(),
       name: row['name']?.toString() ?? 'Restaurant',
       cuisine: cuisine,
+      categories: categories,
+      city: row['city']?.toString(),
+      popularityScore: (row['popularity_score'] as num?)?.toInt() ?? 0,
       budget: _budget(row['price_range']),
       isHiddenGem: false,
       labels: const [],
@@ -87,6 +90,7 @@ class SupabaseDiscoverRepository implements DiscoverRepository {
       contact: row['phone']?.toString(),
       latitude: (row['latitude'] as num?)?.toDouble(),
       longitude: (row['longitude'] as num?)?.toDouble(),
+      googleMapsUrl: row['google_maps_url']?.toString(),
     );
   }
 
@@ -107,16 +111,16 @@ class SupabaseDiscoverRepository implements DiscoverRepository {
 
   String _budget(Object? value) {
     return switch (value?.toString()) {
-      r'$' => 'Low',
-      r'$$' => 'Medium',
-      r'$$$' || r'$$$$' => 'High',
-      _ => 'Medium',
+      r'$' || '1' => 'Low',
+      r'$$' || '2' => 'Medium',
+      r'$$$' || r'$$$$' || '3' || '4' => 'High',
+      _ => '',
     };
   }
 
   String _operatingHours(Object? value) {
-    if (value is String) return value;
-    if (value is Map || value is List) return jsonEncode(value);
-    return '';
+    if (value == null) return '';
+    final formatted = formatOperatingHours(value);
+    return formatted == '-' ? '' : formatted;
   }
 }

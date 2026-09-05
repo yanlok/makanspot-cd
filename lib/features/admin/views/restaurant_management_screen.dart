@@ -31,7 +31,8 @@ class RestaurantManagementScreen extends ConsumerWidget {
             // Only paginate when the list actually scrolls; on a short list
             // maxScrollExtent is 0 and every scroll gesture would otherwise
             // trigger a page fetch.
-            final atEnd = metrics.maxScrollExtent > 0 &&
+            final atEnd =
+                metrics.maxScrollExtent > 0 &&
                 metrics.pixels >= metrics.maxScrollExtent - 40;
             if (atEnd) {
               controller.loadMore();
@@ -52,7 +53,9 @@ class RestaurantManagementScreen extends ConsumerWidget {
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _RestaurantCard(restaurant: state.restaurants[restaurantIndex]),
+                  _RestaurantCard(
+                    restaurant: state.restaurants[restaurantIndex],
+                  ),
                   const SizedBox(height: 12),
                 ],
               );
@@ -151,7 +154,8 @@ class RestaurantManagementScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              state.pageError ?? 'We could not load restaurant records right now.',
+              state.pageError ??
+                  'We could not load restaurant records right now.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
@@ -258,8 +262,8 @@ class _RestaurantCard extends StatelessWidget {
                         restaurant.isDeleted
                             ? 'Deleted'
                             : ((restaurant.instagramUsername ?? '').isEmpty
-                                ? 'Instagram not provided'
-                                : 'IG: ${restaurant.instagramUsername}'),
+                                  ? 'Instagram not provided'
+                                  : 'IG: ${restaurant.instagramUsername}'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(

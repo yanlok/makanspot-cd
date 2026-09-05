@@ -54,9 +54,9 @@ class LocationService {
     GeolocatorAdapter? adapter,
     Duration freshFixTimeout = const Duration(seconds: 6),
     Duration maximumCachedAge = const Duration(minutes: 10),
-  })  : _adapter = adapter ?? const GeolocatorAdapter(),
-        _freshFixTimeout = freshFixTimeout,
-        _maximumCachedAge = maximumCachedAge;
+  }) : _adapter = adapter ?? const GeolocatorAdapter(),
+       _freshFixTimeout = freshFixTimeout,
+       _maximumCachedAge = maximumCachedAge;
 
   final GeolocatorAdapter _adapter;
   final Duration _freshFixTimeout;
@@ -71,13 +71,17 @@ class LocationService {
     try {
       final serviceEnabled = await _adapter.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        return const LocationRequestResult(outcome: LocationOutcome.serviceDisabled);
+        return const LocationRequestResult(
+          outcome: LocationOutcome.serviceDisabled,
+        );
       }
 
       final permission = await _ensurePermission();
       switch (permission) {
         case LocationPermission.denied:
-          return const LocationRequestResult(outcome: LocationOutcome.permissionDenied);
+          return const LocationRequestResult(
+            outcome: LocationOutcome.permissionDenied,
+          );
         case LocationPermission.deniedForever:
           return const LocationRequestResult(
             outcome: LocationOutcome.permissionDeniedForever,
@@ -92,7 +96,8 @@ class LocationService {
       try {
         final lastKnown = await _adapter.getLastKnownPosition();
         if (lastKnown != null &&
-            DateTime.now().difference(lastKnown.timestamp) <= _maximumCachedAge) {
+            DateTime.now().difference(lastKnown.timestamp) <=
+                _maximumCachedAge) {
           cached = lastKnown;
         }
       } catch (error) {
@@ -141,20 +146,18 @@ class LocationService {
 class GeolocatorAdapter {
   const GeolocatorAdapter();
 
-  Future<bool> isLocationServiceEnabled() => Geolocator.isLocationServiceEnabled();
+  Future<bool> isLocationServiceEnabled() =>
+      Geolocator.isLocationServiceEnabled();
 
   Future<LocationPermission> checkPermission() => Geolocator.checkPermission();
 
-  Future<LocationPermission> requestPermission() => Geolocator.requestPermission();
+  Future<LocationPermission> requestPermission() =>
+      Geolocator.requestPermission();
 
   Future<Position?> getLastKnownPosition() => Geolocator.getLastKnownPosition();
 
-  Future<Position> getCurrentPosition({
-    LocationSettings? locationSettings,
-  }) {
-    return Geolocator.getCurrentPosition(
-      locationSettings: locationSettings,
-    );
+  Future<Position> getCurrentPosition({LocationSettings? locationSettings}) {
+    return Geolocator.getCurrentPosition(locationSettings: locationSettings);
   }
 }
 

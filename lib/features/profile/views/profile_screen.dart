@@ -54,9 +54,6 @@ class ProfileScreen extends ConsumerWidget {
         children: [
           _ProfileHero(data: data),
           const SizedBox(height: 16),
-          _ProgressCard(score: data.profile.communityScore),
-          if (data.earnedBadges.isNotEmpty) _BadgeSection(data: data),
-          const SizedBox(height: 18),
           _ProfileMenu(
             onLogout: () => _confirmLogout(context, ref),
             onDeleteAccount: () => _confirmDeleteAccount(context, ref),
@@ -176,17 +173,6 @@ class _ProfileHero extends StatelessWidget {
                 ).textTheme.labelMedium?.copyWith(color: AppColors.surface),
               ),
             ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _ProfileLabelChip(label: 'Role: ${_labelize(profile.role)}'),
-                const SizedBox(width: 8),
-                _ProfileLabelChip(
-                  label: 'Status: ${_labelize(profile.accountStatus)}',
-                ),
-              ],
-            ),
             const SizedBox(height: 18),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -200,29 +186,6 @@ class _ProfileHero extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _ProfileLabelChip extends StatelessWidget {
-  const _ProfileLabelChip({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppColors.surface.withValues(alpha: 0.24),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        label,
-        style: Theme.of(
-          context,
-        ).textTheme.labelMedium?.copyWith(color: AppColors.surface),
       ),
     );
   }
@@ -256,124 +219,6 @@ class _Stat extends StatelessWidget {
   }
 }
 
-class _ProgressCard extends StatelessWidget {
-  const _ProgressCard({required this.score});
-
-  final int score;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadii.card),
-        border: Border.all(color: AppColors.secondary),
-        boxShadow: const [
-          BoxShadow(
-            color: AppColors.shadow,
-            blurRadius: 8,
-            offset: Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Next: Makan Sifu',
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-              ),
-              Text(
-                '$score/300',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AppColors.mutedForeground,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: score / 300,
-              minHeight: 8,
-              backgroundColor: AppColors.secondary,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _BadgeSection extends StatelessWidget {
-  const _BadgeSection({required this.data});
-
-  final ProfileData data;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 22, 16, 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Badges', style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 10),
-          Row(
-            children: data.earnedBadges
-                .map(
-                  (badge) => Expanded(
-                    child: Container(
-                      margin: EdgeInsets.only(
-                        right: badge == data.earnedBadges.last ? 0 : 8,
-                      ),
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: AppColors.surface,
-                        borderRadius: BorderRadius.circular(AppRadii.card),
-                        border: Border.all(color: AppColors.secondary),
-                      ),
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(
-                              LucideIcons.award,
-                              size: 20,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                          const SizedBox(height: 5),
-                          Text(
-                            badge,
-                            textAlign: TextAlign.center,
-                            maxLines: 2,
-                            style: Theme.of(context).textTheme.labelMedium,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                )
-                .toList(growable: false),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _ProfileMenu extends StatelessWidget {
   const _ProfileMenu({required this.onLogout, required this.onDeleteAccount});
 
@@ -387,7 +232,6 @@ class _ProfileMenu extends StatelessWidget {
       (LucideIcons.keyRound, 'Change Password', '/profile/change-password'),
       (LucideIcons.fileText, 'My Posts', '/my-posts'),
       (LucideIcons.map, 'Discovery Journey', '/journey'),
-      (LucideIcons.award, 'Achievements & Progress', '/achievements'),
     ];
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
@@ -398,18 +242,10 @@ class _ProfileMenu extends StatelessWidget {
               key: Key('profile-menu-${item.$3}'),
               icon: item.$1,
               label: item.$2,
-              onTap: () => context.go(item.$3),
+              onTap: () => context.push(item.$3),
             ),
             const SizedBox(height: 8),
           ],
-          const SizedBox(height: 8),
-          _MenuTile(
-            key: const Key('profile-logout'),
-            icon: LucideIcons.logOut,
-            label: 'Logout',
-            destructive: true,
-            onTap: onLogout,
-          ),
           const SizedBox(height: 8),
           _MenuTile(
             key: const Key('profile-delete-account'),
@@ -417,6 +253,14 @@ class _ProfileMenu extends StatelessWidget {
             label: 'Delete Account',
             destructive: true,
             onTap: onDeleteAccount,
+          ),
+          const SizedBox(height: 8),
+          _MenuTile(
+            key: const Key('profile-logout'),
+            icon: LucideIcons.logOut,
+            label: 'Logout',
+            destructive: true,
+            onTap: onLogout,
           ),
         ],
       ),
@@ -478,11 +322,4 @@ class _MenuTile extends StatelessWidget {
       ),
     );
   }
-}
-
-String _labelize(String value) {
-  if (value.isEmpty) {
-    return value;
-  }
-  return value[0].toUpperCase() + value.substring(1).toLowerCase();
 }

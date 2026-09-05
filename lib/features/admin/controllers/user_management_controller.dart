@@ -113,9 +113,7 @@ class UserManagementController extends StateNotifier<UserManagementState> {
       );
 
       if (requestId != _requestId) return;
-      final merged = offset == 0
-          ? page.items
-          : [...state.users, ...page.items];
+      final merged = offset == 0 ? page.items : [...state.users, ...page.items];
       state = state.copyWith(
         status: merged.isEmpty
             ? UserManagementStatus.empty

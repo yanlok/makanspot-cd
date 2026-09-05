@@ -27,9 +27,7 @@ class ProfileAvatar extends StatelessWidget {
         height: size,
         padding: EdgeInsets.all(padding),
         color: AppColors.surface,
-        child: ClipOval(
-          child: isNetwork ? _networkImage() : _assetImage(),
-        ),
+        child: ClipOval(child: isNetwork ? _networkImage() : _assetImage()),
       ),
     );
   }

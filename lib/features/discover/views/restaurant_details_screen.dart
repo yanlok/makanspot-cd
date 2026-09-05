@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:makanspot/core/theme/app_theme.dart';
+import 'package:makanspot/shared/services/maps_launcher.dart';
 import 'package:makanspot/shared/widgets/makan_network_image.dart';
 
 import '../controllers/discover_controller.dart';
@@ -57,17 +58,41 @@ class RestaurantDetailsScreen extends ConsumerWidget {
             context.go('/discover');
           }
         },
-        onOpenMaps: () {
-          final destination = controller.mapsDestination();
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Maps: ${destination.host}')));
+        onOpenMaps: () async {
+          final restaurant = ref
+              .read(restaurantDetailsControllerProvider(restaurantId))
+              .restaurant;
+          final url = buildGoogleMapsUrl(
+            googleMapsUrl: restaurant?.googleMapsUrl,
+            latitude: restaurant?.latitude,
+            longitude: restaurant?.longitude,
+            name: restaurant?.name,
+            address: restaurant?.address,
+          );
+          if (url == null) {
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'No location information available for this restaurant.',
+                ),
+              ),
+            );
+            return;
+          }
+          final result = await launchGoogleMaps(url);
+          if (!context.mounted) return;
+          if (!result.isSuccess) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(result.errorMessage!)));
+          }
         },
         onWriteReview: () {
-          context.go('/review/create?restaurant=$restaurantId');
+          context.push('/review/create?restaurant=$restaurantId');
         },
         onReviewLike: controller.toggleReviewLike,
-        onOpenReview: (id) => context.go('/post/$id'),
+        onOpenReview: (id) => context.push('/post/$id'),
       ),
     };
   }
@@ -154,7 +179,7 @@ class _DetailsContent extends StatelessWidget {
                   restaurant.longitude != null) ...[
                 const SizedBox(height: 16),
                 const Text(
-                  'Lokasi Kedai',
+                  'Store Location',
                   style: TextStyle(
                     fontFamily: 'Poppins',
                     fontSize: 14,
@@ -162,7 +187,10 @@ class _DetailsContent extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                const RestaurantMapPreview(),
+                RestaurantMapPreview(
+                  latitude: restaurant.latitude!,
+                  longitude: restaurant.longitude!,
+                ),
               ],
               const SizedBox(height: 16),
               SizedBox(
@@ -180,7 +208,10 @@ class _DetailsContent extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-              _ReviewsHeader(onWriteReview: onWriteReview),
+              _ReviewsHeader(
+                onWriteReview: onWriteReview,
+                showWriteReview: state.reviews.isNotEmpty,
+              ),
               const SizedBox(height: 12),
               if (state.reviews.isEmpty)
                 _NoReviews(onWriteReview: onWriteReview)
@@ -211,8 +242,9 @@ class _RestaurantHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final topInset = MediaQuery.paddingOf(context).top;
     return SizedBox(
-      height: 216,
+      height: 216 + topInset,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -222,7 +254,7 @@ class _RestaurantHero extends StatelessWidget {
             fallbackKey: const Key('restaurant-hero-fallback'),
           ),
           Positioned(
-            top: 16,
+            top: topInset > 0 ? topInset + 8 : 16,
             left: 16,
             child: Material(
               color: AppColors.surface.withValues(alpha: 0.92),
@@ -340,9 +372,13 @@ class _RestaurantStats extends StatelessWidget {
 }
 
 class _ReviewsHeader extends StatelessWidget {
-  const _ReviewsHeader({required this.onWriteReview});
+  const _ReviewsHeader({
+    required this.onWriteReview,
+    this.showWriteReview = true,
+  });
 
   final VoidCallback onWriteReview;
+  final bool showWriteReview;
 
   @override
   Widget build(BuildContext context) {
@@ -356,18 +392,19 @@ class _ReviewsHeader extends StatelessWidget {
             ).textTheme.titleLarge?.copyWith(fontSize: 18),
           ),
         ),
-        TextButton.icon(
-          key: const Key('write-review'),
-          onPressed: onWriteReview,
-          style: TextButton.styleFrom(
-            backgroundColor: AppColors.primary.withValues(alpha: 0.1),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
+        if (showWriteReview)
+          TextButton.icon(
+            key: const Key('write-review'),
+            onPressed: onWriteReview,
+            style: TextButton.styleFrom(
+              backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
+            icon: const Icon(LucideIcons.penLine, size: 16),
+            label: const Text('Write Review'),
           ),
-          icon: const Icon(LucideIcons.penLine, size: 16),
-          label: const Text('Write Review'),
-        ),
       ],
     );
   }
@@ -395,12 +432,13 @@ class _DetailsLoading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final topInset = MediaQuery.paddingOf(context).top;
     return ListView(
       key: const Key('restaurant-details-loading'),
       children: [
-        const SizedBox(
-          height: 216,
-          child: ColoredBox(color: AppColors.secondary),
+        SizedBox(
+          height: 216 + topInset,
+          child: const ColoredBox(color: AppColors.secondary),
         ),
         Padding(
           padding: const EdgeInsets.all(16),
@@ -437,26 +475,28 @@ class _DetailsMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xLarge),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 44, color: AppColors.primary),
-            const SizedBox(height: 14),
-            Text(title, style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: AppColors.mutedForeground),
-            ),
-            if (actionLabel != null && onAction != null) ...[
-              const SizedBox(height: 16),
-              FilledButton(onPressed: onAction, child: Text(actionLabel!)),
+    return SafeArea(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.xLarge),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 44, color: AppColors.primary),
+              const SizedBox(height: 14),
+              Text(title, style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: AppColors.mutedForeground),
+              ),
+              if (actionLabel != null && onAction != null) ...[
+                const SizedBox(height: 16),
+                FilledButton(onPressed: onAction, child: Text(actionLabel!)),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

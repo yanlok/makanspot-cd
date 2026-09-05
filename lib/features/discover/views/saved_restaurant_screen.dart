@@ -57,9 +57,8 @@ class SavedRestaurantScreen extends ConsumerWidget {
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                 itemCount: items.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 12),
-                itemBuilder: (context, index) => _SavedRestaurantTile(
-                  restaurant: items[index],
-                ),
+                itemBuilder: (context, index) =>
+                    _SavedRestaurantTile(restaurant: items[index]),
               ),
       ),
     );
