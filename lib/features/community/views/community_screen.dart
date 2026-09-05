@@ -50,15 +50,15 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
               child: Text('Write a review'),
             ),
           ],
-          child: Container(
-            width: 56,
-            height: 56,
-            decoration: const BoxDecoration(
-              color: AppColors.primary,
-              shape: BoxShape.circle,
+          child: const SizedBox.square(
+            dimension: 56,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(LucideIcons.plus, color: AppColors.surface, size: 28),
             ),
-            alignment: Alignment.center,
-            child: const Icon(LucideIcons.plus, color: AppColors.surface),
           ),
         ),
         body: Column(
@@ -185,6 +185,7 @@ class _CommunityHeader extends StatelessWidget {
                   decoration: const InputDecoration(
                     hintText: 'Find a dish, place, or food story',
                     prefixIcon: Icon(LucideIcons.search, size: 19),
+                    suffixIcon: Icon(LucideIcons.slidersHorizontal, size: 18),
                   ),
                 ),
               ),
