@@ -82,6 +82,12 @@ class SavedPostsScreen extends ConsumerWidget {
               return CommunityPostCard(
                 post: post,
                 onOpen: () => context.push('/post/${post.id}'),
+                onUser: () => context.push(
+                  Uri(
+                    path: '/user/${post.userId}/posts',
+                    queryParameters: {'name': post.username},
+                  ).toString(),
+                ),
                 onRestaurant: () =>
                     context.push('/restaurant/${post.restaurantId}'),
                 onLike: () {},

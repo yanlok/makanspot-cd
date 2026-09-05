@@ -109,7 +109,13 @@ class _CommunityScreenState extends ConsumerState<CommunityScreen> {
             final post = state.posts[index];
             return CommunityPostCard(
               post: post,
-              onOpen: () => context.go('/post/${post.id}'),
+              onOpen: () => context.push('/post/${post.id}'),
+              onUser: () => context.push(
+                Uri(
+                  path: '/user/${post.userId}/posts',
+                  queryParameters: {'name': post.username},
+                ).toString(),
+              ),
               onRestaurant: () =>
                   context.push('/restaurant/${post.restaurantId}'),
               onLike: () => controller.toggleLike(post.id),
@@ -179,7 +185,6 @@ class _CommunityHeader extends StatelessWidget {
                   decoration: const InputDecoration(
                     hintText: 'Find a dish, place, or food story',
                     prefixIcon: Icon(LucideIcons.search, size: 19),
-                    suffixIcon: Icon(LucideIcons.slidersHorizontal, size: 18),
                   ),
                 ),
               ),

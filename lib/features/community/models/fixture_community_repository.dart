@@ -36,6 +36,17 @@ class FixtureCommunityRepository implements CommunityRepository {
   }
 
   @override
+  Future<List<CommunityPost>> loadUserPosts(String userId) async {
+    return List.unmodifiable(
+      _posts
+          .where((post) => post.userId == userId && post.status == 'active')
+          .map(_withCommentCount)
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+    );
+  }
+
+  @override
   Future<List<CommunityPost>> loadSavedPosts() async {
     return List.unmodifiable(
       _posts

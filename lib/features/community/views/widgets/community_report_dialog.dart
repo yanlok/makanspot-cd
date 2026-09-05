@@ -72,15 +72,32 @@ class _CommunityReportSheetState extends State<_CommunityReportSheet> {
               const SizedBox(height: 18),
               DropdownButtonFormField<CommunityReportReason>(
                 initialValue: _reason,
+                isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Reason',
                   prefixIcon: Icon(Icons.flag_outlined),
                 ),
+                selectedItemBuilder: (context) => CommunityReportReason.values
+                    .map(
+                      (reason) => Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: Text(
+                          reason.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
+                    .toList(),
                 items: CommunityReportReason.values
                     .map(
                       (reason) => DropdownMenuItem(
                         value: reason,
-                        child: Text(reason.label),
+                        child: Text(
+                          reason.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     )
                     .toList(),

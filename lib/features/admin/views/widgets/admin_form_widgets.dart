@@ -176,7 +176,14 @@ class AdminSelectField<T> extends StatelessWidget {
           ),
           items: [
             for (final option in options)
-              DropdownMenuItem<T>(value: option.$2, child: Text(option.$1)),
+              DropdownMenuItem<T>(
+                value: option.$2,
+                child: Text(
+                  option.$1,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
           ],
           onChanged: (selected) {
             if (selected != null) {

@@ -123,6 +123,12 @@ class PostDetailsController extends StateNotifier<PostDetailsState> {
     if (trimmed.isEmpty) {
       return;
     }
+    if (parentCommentId != null &&
+        state.comments.any(
+          (comment) => comment.id == parentCommentId && comment.isOwn,
+        )) {
+      return;
+    }
     final comment = await _repository.addComment(
       postId: postId,
       text: trimmed,

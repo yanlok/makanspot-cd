@@ -131,15 +131,17 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
               for (final comment in topLevel) ...[
                 _CommentCard(
                   comment: comment,
-                  isReplying: _replyingTo == comment.id,
-                  onReply: () {
-                    setState(() {
-                      _replyingTo = _replyingTo == comment.id
-                          ? null
-                          : comment.id;
-                      _replyController.clear();
-                    });
-                  },
+                  isReplying: !comment.isOwn && _replyingTo == comment.id,
+                  onReply: comment.isOwn
+                      ? null
+                      : () {
+                          setState(() {
+                            _replyingTo = _replyingTo == comment.id
+                                ? null
+                                : comment.id;
+                            _replyController.clear();
+                          });
+                        },
                   onDelete: comment.isOwn
                       ? () => controller.deleteComment(comment.id)
                       : null,
@@ -149,7 +151,7 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
                   onReport: () =>
                       _showCommentReportDialog(context, controller, comment.id),
                 ),
-                if (_replyingTo == comment.id)
+                if (!comment.isOwn && _replyingTo == comment.id)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(40, 8, 0, 8),
                     child: _CommentComposer(
@@ -679,7 +681,7 @@ class _CommentCard extends StatelessWidget {
                   ],
                 ),
               ),
-              if (!isReply)
+              if (!isReply && onReply != null)
                 TextButton(
                   onPressed: onReply,
                   child: Text(isReplying ? 'Cancel' : 'Reply'),

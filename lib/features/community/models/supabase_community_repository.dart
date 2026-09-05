@@ -45,6 +45,17 @@ class SupabaseCommunityRepository implements CommunityRepository {
   }
 
   @override
+  Future<List<CommunityPost>> loadUserPosts(String userId) async {
+    final rows = await _client
+        .from('posts')
+        .select(_postSelect)
+        .eq('user_id', userId)
+        .eq('status', 'active')
+        .order('created_at', ascending: false);
+    return rows.map<CommunityPost>(_postFromRow).toList(growable: false);
+  }
+
+  @override
   Future<List<CommunityPost>> loadSavedPosts() async {
     final bookmarkRows = await _client
         .from('bookmarks')
@@ -81,21 +92,19 @@ class SupabaseCommunityRepository implements CommunityRepository {
         .isFilter('deleted_at', null)
         .order('name');
     return rows
-        .map<CommunityRestaurant>(
-          (row) {
-            final categories = (row['categories'] as List?)
-                ?.map((category) => category.toString())
-                .where((category) => category.isNotEmpty)
-                .toList(growable: false);
-            final cuisine = categories?.firstOrNull ?? 'Restaurant';
-            return CommunityRestaurant(
-              id: row['id'].toString(),
-              name: row['name']?.toString() ?? 'Restaurant',
-              cuisine: cuisine,
-              imageUrl: _primaryImage(row['restaurant_images']),
-            );
-          },
-        )
+        .map<CommunityRestaurant>((row) {
+          final categories = (row['categories'] as List?)
+              ?.map((category) => category.toString())
+              .where((category) => category.isNotEmpty)
+              .toList(growable: false);
+          final cuisine = categories?.firstOrNull ?? 'Restaurant';
+          return CommunityRestaurant(
+            id: row['id'].toString(),
+            name: row['name']?.toString() ?? 'Restaurant',
+            cuisine: cuisine,
+            imageUrl: _primaryImage(row['restaurant_images']),
+          );
+        })
         .toList(growable: false);
   }
 

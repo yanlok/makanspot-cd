@@ -27,6 +27,7 @@ import 'package:makanspot/features/community/views/my_posts_screen.dart';
 import 'package:makanspot/features/community/views/post_details_screen.dart';
 import 'package:makanspot/features/community/views/review_editor_screen.dart';
 import 'package:makanspot/features/community/views/saved_posts_screen.dart';
+import 'package:makanspot/features/community/views/user_posts_screen.dart';
 import 'package:makanspot/features/discover/controllers/discover_state.dart';
 import 'package:makanspot/features/discover/views/discover_screen.dart';
 import 'package:makanspot/features/discover/views/restaurant_details_screen.dart';
@@ -70,16 +71,13 @@ const _publicRoutes = {
   AppRoutes.resetPassword,
 };
 
-GoRouter createAppRouter({
-  required WidgetRef ref,
-  String? initialLocation,
-}) {
+GoRouter createAppRouter({required WidgetRef ref, String? initialLocation}) {
   final authState = ref.read(authControllerProvider);
   final defaultLocation = authState.session != null
       ? (authState.session!.isAdmin ? AppRoutes.adminScraper : AppRoutes.home)
       : (authState.status == AuthStatus.restoring
-          ? AppRoutes.splash
-          : AppRoutes.login);
+            ? AppRoutes.splash
+            : AppRoutes.login);
 
   return GoRouter(
     initialLocation: initialLocation ?? defaultLocation,
@@ -163,6 +161,13 @@ GoRouter createAppRouter({
             path: '/post/:id',
             builder: (context, state) =>
                 PostDetailsScreen(postId: state.pathParameters['id']!),
+          ),
+          GoRoute(
+            path: '/user/:id/posts',
+            builder: (context, state) => UserPostsScreen(
+              userId: state.pathParameters['id']!,
+              username: state.uri.queryParameters['name'] ?? 'Community member',
+            ),
           ),
           GoRoute(
             path: '/my-posts',
