@@ -64,11 +64,15 @@ class CommunityController extends StateNotifier<CommunityState> {
   List<CommunityPost> _allPosts = const [];
 
   Future<void> load() async {
+    if (!mounted) return;
     state = const CommunityState.loading();
     try {
-      _allPosts = await _repository.loadCommunityPosts();
+      final posts = await _repository.loadCommunityPosts();
+      if (!mounted) return;
+      _allPosts = posts;
       _filter();
     } on Object {
+      if (!mounted) return;
       state = const CommunityState(
         status: CommunityStatus.error,
         errorMessage: 'We could not load community posts right now.',
@@ -77,13 +81,14 @@ class CommunityController extends StateNotifier<CommunityState> {
   }
 
   void updateSearch(String value) {
+    if (!mounted) return;
     state = state.copyWith(searchQuery: value);
     _filter();
   }
 
   Future<void> toggleLike(String id) async {
     final updated = await _repository.toggleLike(id);
-    if (updated == null) {
+    if (!mounted || updated == null) {
       return;
     }
     _allPosts = _allPosts
@@ -94,7 +99,7 @@ class CommunityController extends StateNotifier<CommunityState> {
 
   Future<void> toggleSave(String id) async {
     final updated = await _repository.toggleSave(id);
-    if (updated == null) return;
+    if (!mounted || updated == null) return;
     _allPosts = _allPosts
         .map((post) => post.id == id ? updated : post)
         .toList(growable: false);
@@ -114,6 +119,7 @@ class CommunityController extends StateNotifier<CommunityState> {
   }
 
   void _filter() {
+    if (!mounted) return;
     final query = state.searchQuery.trim().toLowerCase();
     final posts = _allPosts
         .where((post) {

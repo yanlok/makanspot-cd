@@ -38,9 +38,11 @@ class HomeController extends StateNotifier<HomeState> {
   final Now _now;
 
   Future<void> load() async {
+    if (!mounted) return;
     state = HomeState.loading(greeting: _greetingFor(_now()));
     try {
       final feed = await _repository.loadHome();
+      if (!mounted) return;
       state = HomeState(
         status: feed.isEmpty ? HomeStatus.empty : HomeStatus.content,
         greeting: _greetingFor(_now()),
@@ -48,6 +50,7 @@ class HomeController extends StateNotifier<HomeState> {
         bookmarkedIds: state.bookmarkedIds,
       );
     } on Object {
+      if (!mounted) return;
       state = HomeState(
         status: HomeStatus.error,
         greeting: _greetingFor(_now()),
@@ -70,6 +73,7 @@ class HomeController extends StateNotifier<HomeState> {
   }
 
   void toggleBookmark(String restaurantId) {
+    if (!mounted) return;
     final bookmarkedIds = Set<String>.of(state.bookmarkedIds);
     if (!bookmarkedIds.add(restaurantId)) {
       bookmarkedIds.remove(restaurantId);

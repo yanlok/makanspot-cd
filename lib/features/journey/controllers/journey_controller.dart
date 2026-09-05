@@ -145,13 +145,17 @@ class JourneyController extends StateNotifier<JourneyState> {
   final JourneyRepository _repository;
 
   Future<void> load() async {
+    if (!mounted) return;
     state = const JourneyState.loading();
     try {
+      final data = await _repository.loadJourney();
+      if (!mounted) return;
       state = JourneyState(
         status: JourneyStatus.content,
-        data: await _repository.loadJourney(),
+        data: data,
       );
     } on Object {
+      if (!mounted) return;
       state = const JourneyState(
         status: JourneyStatus.error,
         errorMessage: 'We could not load your journey right now.',

@@ -60,12 +60,16 @@ class MyPostsController extends StateNotifier<MyPostsState> {
   final CommunityRepository _repository;
 
   Future<void> load() async {
+    if (!mounted) return;
     try {
+      final posts = await _repository.loadMyPosts();
+      if (!mounted) return;
       state = MyPostsState(
         status: MyPostsStatus.content,
-        posts: await _repository.loadMyPosts(),
+        posts: posts,
       );
     } on Object {
+      if (!mounted) return;
       state = const MyPostsState(
         status: MyPostsStatus.error,
         errorMessage: 'We could not load your posts right now.',
@@ -74,16 +78,19 @@ class MyPostsController extends StateNotifier<MyPostsState> {
   }
 
   void selectArchived(bool value) {
+    if (!mounted) return;
     state = state.copyWith(showArchived: value);
   }
 
   Future<void> archive(String id) async {
     await _repository.archivePost(id);
+    if (!mounted) return;
     await load();
   }
 
   Future<void> unarchive(String id) async {
     await _repository.unarchivePost(id);
+    if (!mounted) return;
     await load();
   }
 

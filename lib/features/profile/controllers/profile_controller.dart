@@ -54,11 +54,14 @@ class ProfileController extends StateNotifier<ProfileState> {
   final ProfileRepository _repository;
 
   Future<void> load() async {
+    if (!mounted) return;
     state = const ProfileState.loading();
     try {
       final profileData = await _repository.loadProfile();
+      if (!mounted) return;
       state = ProfileState(status: ProfileStatus.content, data: profileData);
     } on Object {
+      if (!mounted) return;
       state = const ProfileState(
         status: ProfileStatus.error,
         errorMessage: 'We could not load your profile right now.',
@@ -84,12 +87,16 @@ class EditProfileController extends StateNotifier<ProfileState> {
   final ProfileRepository _repository;
 
   Future<void> load() async {
+    if (!mounted) return;
     try {
+      final data = await _repository.loadProfile();
+      if (!mounted) return;
       state = ProfileState(
         status: ProfileStatus.content,
-        data: await _repository.loadProfile(),
+        data: data,
       );
     } on Object {
+      if (!mounted) return;
       state = const ProfileState(
         status: ProfileStatus.error,
         errorMessage: 'We could not open your profile right now.',

@@ -26,9 +26,11 @@ class RestaurantDetailsController
   final String restaurantId;
 
   Future<void> load() async {
+    if (!mounted) return;
     state = const RestaurantDetailsState.loading();
     try {
       final data = await _repository.loadRestaurant(restaurantId);
+      if (!mounted) return;
       if (data == null) {
         state = const RestaurantDetailsState(
           status: RestaurantDetailsStatus.notFound,
@@ -42,6 +44,7 @@ class RestaurantDetailsController
         reviews: data.reviews,
       );
     } on Object {
+      if (!mounted) return;
       state = const RestaurantDetailsState(
         status: RestaurantDetailsStatus.error,
         reviews: [],
@@ -51,6 +54,7 @@ class RestaurantDetailsController
   }
 
   void toggleReviewLike(String reviewId) {
+    if (!mounted) return;
     final reviews = state.reviews.map((review) {
       if (review.id != reviewId) {
         return review;

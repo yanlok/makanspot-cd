@@ -50,9 +50,11 @@ class SavedPostsController extends StateNotifier<SavedPostsState> {
   final CommunityRepository _repository;
 
   Future<void> load() async {
+    if (!mounted) return;
     state = const SavedPostsState.loading();
     try {
       final posts = await _repository.loadSavedPosts();
+      if (!mounted) return;
       state = SavedPostsState(
         status: posts.isEmpty
             ? SavedPostsStatus.empty
@@ -60,6 +62,7 @@ class SavedPostsController extends StateNotifier<SavedPostsState> {
         posts: posts,
       );
     } on Object {
+      if (!mounted) return;
       state = const SavedPostsState(
         status: SavedPostsStatus.error,
         errorMessage: 'We could not load your saved posts right now.',
@@ -69,6 +72,7 @@ class SavedPostsController extends StateNotifier<SavedPostsState> {
 
   Future<void> toggleSave(String id) async {
     await _repository.toggleSave(id);
+    if (!mounted) return;
     await load();
   }
 }

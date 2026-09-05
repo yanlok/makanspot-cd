@@ -56,9 +56,12 @@ class DiscoverController extends StateNotifier<DiscoverState> {
 
   Future<void> load() async {
     try {
-      _allRestaurants = await _repository.loadRestaurants();
+      final restaurants = await _repository.loadRestaurants();
+      if (!mounted) return;
+      _allRestaurants = restaurants;
       _applyFilters();
     } on Object {
+      if (!mounted) return;
       state = state.copyWith(
         status: DiscoverStatus.error,
         errorMessage: 'We could not load restaurants right now.',
@@ -67,11 +70,13 @@ class DiscoverController extends StateNotifier<DiscoverState> {
   }
 
   void updateSearch(String query) {
+    if (!mounted) return;
     state = state.copyWith(searchQuery: query);
     _applyFilters();
   }
 
   void toggleFilter(String filter) {
+    if (!mounted) return;
     state = state.copyWith(
       selectedFilters: _toggle(state.selectedFilters, filter),
     );
@@ -79,6 +84,7 @@ class DiscoverController extends StateNotifier<DiscoverState> {
   }
 
   void toggleCuisine(String cuisine) {
+    if (!mounted) return;
     state = state.copyWith(
       selectedCuisines: _toggle(state.selectedCuisines, cuisine),
     );
@@ -86,6 +92,7 @@ class DiscoverController extends StateNotifier<DiscoverState> {
   }
 
   void toggleBudget(String budget) {
+    if (!mounted) return;
     state = state.copyWith(
       selectedBudgets: _toggle(state.selectedBudgets, budget),
     );
@@ -93,6 +100,7 @@ class DiscoverController extends StateNotifier<DiscoverState> {
   }
 
   void toggleArea(String area) {
+    if (!mounted) return;
     state = state.copyWith(
       selectedAreas: _toggle(state.selectedAreas, area),
     );
@@ -100,11 +108,13 @@ class DiscoverController extends StateNotifier<DiscoverState> {
   }
 
   void selectSort(String sortBy) {
+    if (!mounted) return;
     state = state.copyWith(sortBy: sortBy);
     _applyFilters();
   }
 
   void clearFilters() {
+    if (!mounted) return;
     state = state.copyWith(
       searchQuery: '',
       selectedFilters: const {},
@@ -116,6 +126,7 @@ class DiscoverController extends StateNotifier<DiscoverState> {
   }
 
   void toggleBookmark(String id) {
+    if (!mounted) return;
     final bookmarks = Set<String>.of(state.bookmarkedIds);
     if (!bookmarks.add(id)) {
       bookmarks.remove(id);
@@ -125,14 +136,17 @@ class DiscoverController extends StateNotifier<DiscoverState> {
   }
 
   void selectRestaurant(String id) {
+    if (!mounted) return;
     state = state.copyWith(selectedRestaurantId: id);
   }
 
   void clearSelection() {
+    if (!mounted) return;
     state = state.copyWith(selectedRestaurantId: null);
   }
 
   void _applyFilters() {
+    if (!mounted) return;
     var restaurants = _allRestaurants.where(_matchesQuery).toList();
     restaurants = restaurants.where(_matchesSelections).toList();
     _sort(restaurants);
@@ -142,6 +156,7 @@ class DiscoverController extends StateNotifier<DiscoverState> {
         selectedId != null && visibleIds.contains(selectedId)
             ? selectedId
             : null;
+    if (!mounted) return;
     state = state.copyWith(
       status: restaurants.isEmpty
           ? DiscoverStatus.empty

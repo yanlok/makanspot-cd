@@ -58,12 +58,7 @@ class _HomeBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return switch (state.status) {
-      HomeStatus.loading => const Column(
-        children: [
-          HomeSectionSkeleton(),
-          HomeSectionSkeleton(),
-        ],
-      ),
+      HomeStatus.loading => const HomeLoadingSkeleton(),
       HomeStatus.empty => const _HomeMessage(
         icon: LucideIcons.utensilsCrossed,
         title: 'No makan spots yet',

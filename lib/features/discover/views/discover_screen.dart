@@ -412,27 +412,23 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
 
   @override
   void dispose() {
+    _isMapReady = false;
     _mapboxMap = null;
     _mapInitialized = false;
     super.dispose();
   }
 
-  bool _sourceUpdateListenerAttached = false;
-
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(discoverControllerProvider(widget.arguments));
-    if (!_sourceUpdateListenerAttached) {
-      _sourceUpdateListenerAttached = true;
-      ref.listen(
-        discoverControllerProvider(widget.arguments),
-        (previous, next) {
-          if (_isMapReady && !identical(previous?.restaurants, next.restaurants)) {
-            unawaited(_updateMapSource());
-          }
-        },
-      );
-    }
+    ref.listen<DiscoverState>(
+      discoverControllerProvider(widget.arguments),
+      (previous, next) {
+        if (_isMapReady && !identical(previous?.restaurants, next.restaurants)) {
+          unawaited(_updateMapSource());
+        }
+      },
+    );
     final controller = ref.read(
       discoverControllerProvider(widget.arguments).notifier,
     );
@@ -965,7 +961,7 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
 
   Future<void> _updateMapSource() async {
     final map = _mapboxMap;
-    if (map == null || !_isMapReady) return;
+    if (map == null || !_isMapReady || !mounted) return;
 
     final state = ref.read(discoverControllerProvider(widget.arguments));
     final restaurants = state.restaurants;
@@ -996,6 +992,7 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
     try {
       final source =
           await map.style.getSource(_restaurantsSourceId) as mp.GeoJsonSource?;
+      if (!mounted || !identical(_mapboxMap, map)) return;
       if (source != null) {
         await source.updateGeoJSON(geoJson);
       }
@@ -1006,7 +1003,7 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
 
   Future<void> _onMapTap(mp.MapContentGestureContext gesture) async {
     final map = _mapboxMap;
-    if (map == null || !_isMapReady) return;
+    if (map == null || !_isMapReady || !mounted) return;
 
     try {
       const interactiveLayers = [
