@@ -97,6 +97,7 @@ class FixtureCommunityRepository implements CommunityRepository {
       isLiked: false,
       status: 'active',
       createdAt: DateTime(2026, 8, 3),
+      isOwn: true,
     );
     _posts.insert(0, post);
     return post;
@@ -148,7 +149,8 @@ class FixtureCommunityRepository implements CommunityRepository {
       id: 'comment-new-${_nextComment++}',
       postId: postId,
       username: 'Yih Loong',
-      userAvatar: '',
+      userAvatar:
+          'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200&h=200&fit=crop',
       text: text,
       userId: 'demo-user',
       isOwn: true,
@@ -237,6 +239,7 @@ class FixtureCommunityRepository implements CommunityRepository {
       commentCount: _comments
           .where((comment) => comment.postId == post.id)
           .length,
+      isOwn: post.userId == 'demo-user',
     );
   }
 }

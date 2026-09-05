@@ -6,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:makanspot/core/theme/app_theme.dart';
 
 import '../../auth/controllers/auth_controller.dart';
+import '../../profile/controllers/profile_controller.dart';
 import '../controllers/home_controller.dart';
 import '../controllers/home_state.dart';
 import '../models/home_feed.dart';
@@ -22,10 +23,17 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(homeControllerProvider);
     final authState = ref.watch(authControllerProvider);
+    final profileState = ref.watch(profileControllerProvider);
+    final userProfile = profileState.data?.profile;
     final userName = authState.session?.username ??
-        (state.feed?.firstName.isNotEmpty == true
-            ? state.feed!.firstName
-            : 'User');
+        (userProfile?.username.isNotEmpty == true
+            ? userProfile!.username
+            : (state.feed?.firstName.isNotEmpty == true
+                ? state.feed!.firstName
+                : 'User'));
+    final profileAsset = (userProfile?.profileAsset.isNotEmpty == true)
+        ? userProfile!.profileAsset
+        : (state.feed?.profileAsset ?? 'assets/images/default_icon.jpg');
 
     return SafeArea(
       bottom: false,
@@ -37,8 +45,7 @@ class HomeScreen extends ConsumerWidget {
               greeting: state.greeting,
               firstName: userName,
               location: state.feed?.location ?? 'Kuala Lumpur',
-              profileAsset:
-                  state.feed?.profileAsset ?? 'assets/images/default_icon.jpg',
+              profileAsset: profileAsset,
               onProfile: () => context.go('/profile'),
             ),
           ),

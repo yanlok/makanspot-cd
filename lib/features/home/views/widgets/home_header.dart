@@ -84,10 +84,29 @@ class HomeHeader extends StatelessWidget {
                           color: AppColors.secondary,
                           width: 2,
                         ),
-                        image: DecorationImage(
-                          image: AssetImage(profileAsset),
-                          fit: BoxFit.cover,
-                        ),
+                      ),
+                      child: ClipOval(
+                        child: profileAsset.startsWith('http')
+                            ? Image.network(
+                                profileAsset,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) =>
+                                    Image.asset(
+                                  'assets/images/default_icon.jpg',
+                                  fit: BoxFit.cover,
+                                ),
+                              )
+                            : Image.asset(
+                                profileAsset.isNotEmpty
+                                    ? profileAsset
+                                    : 'assets/images/default_icon.jpg',
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) =>
+                                    Image.asset(
+                                  'assets/images/default_icon.jpg',
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
                       ),
                     ),
                   ),

@@ -31,25 +31,36 @@ class SupabaseHomeRepository implements HomeRepository {
         .limit(50);
 
     final user = _client.auth.currentUser;
-    Future<String?> fetchUsername() async {
-      if (user == null) return null;
+    Future<({String? username, String? avatarUrl})> fetchUserData() async {
+      if (user == null) return (username: null, avatarUrl: null);
       try {
         final row = await _client
             .from('users')
-            .select('username')
+            .select('username, avatar_url')
             .eq('id', user.id)
             .maybeSingle();
-        if (row != null && row['username'] != null) {
-          return row['username'].toString();
+        if (row != null) {
+          final uname = row['username']?.toString();
+          final avatar = row['avatar_url']?.toString();
+          return (username: uname, avatarUrl: avatar);
         }
       } catch (_) {}
-      return user.userMetadata?['username']?.toString() ??
-          user.email?.split('@').first;
+      final metadata = user.userMetadata ?? const {};
+      return (
+        username: metadata['username']?.toString() ??
+            user.email?.split('@').first,
+        avatarUrl: metadata['avatar_url']?.toString(),
+      );
     }
 
     final recommendedRows = await recommendedQuery;
     final newestRows = await newestQuery;
-    final username = (await fetchUsername()) ?? 'User';
+    final userData = await fetchUserData();
+    final username = userData.username ?? 'User';
+    final avatarUrl = userData.avatarUrl;
+    final profileAsset = (avatarUrl != null && avatarUrl.isNotEmpty)
+        ? avatarUrl
+        : 'assets/images/default_icon.jpg';
 
     final recommended = recommendedRows
         .map((row) => _fromRow(row, defaultLabels: const ['Popular']))
@@ -61,7 +72,7 @@ class SupabaseHomeRepository implements HomeRepository {
     return HomeFeed(
       firstName: username,
       location: 'Kuala Lumpur',
-      profileAsset: 'assets/images/default_icon.jpg',
+      profileAsset: profileAsset,
       recommended: List.unmodifiable(recommended),
       hiddenGems: const [],
       nearby: const [],

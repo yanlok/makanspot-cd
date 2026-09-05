@@ -31,6 +31,7 @@ class CommunityPost {
     this.commentCount = 0,
     required this.status,
     required this.createdAt,
+    this.isOwn = false,
   });
 
   final String id;
@@ -50,6 +51,7 @@ class CommunityPost {
   final int commentCount;
   final String status;
   final DateTime createdAt;
+  final bool isOwn;
 
   CommunityPost copyWith({
     String? reviewText,
@@ -60,6 +62,7 @@ class CommunityPost {
     bool? isSaved,
     int? commentCount,
     String? status,
+    bool? isOwn,
   }) {
     return CommunityPost(
       id: id,
@@ -79,6 +82,7 @@ class CommunityPost {
       commentCount: commentCount ?? this.commentCount,
       status: status ?? this.status,
       createdAt: createdAt,
+      isOwn: isOwn ?? this.isOwn,
     );
   }
 }

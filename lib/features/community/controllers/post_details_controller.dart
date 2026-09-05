@@ -123,6 +123,9 @@ class PostDetailsController extends StateNotifier<PostDetailsState> {
     if (trimmed.isEmpty) {
       return;
     }
+    if (parentCommentId == null && state.post?.isOwn == true) {
+      return;
+    }
     if (parentCommentId != null &&
         state.comments.any(
           (comment) => comment.id == parentCommentId && comment.isOwn,

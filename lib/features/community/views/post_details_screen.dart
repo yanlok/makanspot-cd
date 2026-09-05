@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:makanspot/core/theme/app_theme.dart';
+import 'package:makanspot/features/profile/controllers/profile_controller.dart';
 import 'package:makanspot/shared/widgets/makan_network_image.dart';
 
 import '../controllers/post_details_controller.dart';
@@ -38,6 +39,8 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
     final provider = postDetailsControllerProvider(widget.postId);
     final state = ref.watch(provider);
     final controller = ref.read(provider.notifier);
+    final profileState = ref.watch(profileControllerProvider);
+    final currentUserAvatar = profileState.data?.profile.profileAsset ?? '';
     return SafeArea(
       bottom: false,
       child: DecoratedBox(
@@ -54,7 +57,14 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
                 }
               },
             ),
-            Expanded(child: _buildBody(context, state, controller)),
+            Expanded(
+              child: _buildBody(
+                context,
+                state,
+                controller,
+                currentUserAvatar,
+              ),
+            ),
           ],
         ),
       ),
@@ -65,6 +75,7 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
     BuildContext context,
     PostDetailsState state,
     PostDetailsController controller,
+    String currentUserAvatar,
   ) {
     switch (state.status) {
       case PostDetailsStatus.loading:
@@ -109,28 +120,34 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
               style: Theme.of(context).textTheme.titleSmall,
             ),
             const SizedBox(height: 12),
-            _CommentComposer(
-              controller: _commentController,
-              hint: 'Write a comment...',
-              onSend: () async {
-                await controller.addComment(_commentController.text);
-                _commentController.clear();
-              },
-            ),
-            const SizedBox(height: 16),
+            if (!post.isOwn) ...[
+              _CommentComposer(
+                controller: _commentController,
+                hint: 'Write a comment...',
+                userAvatar: currentUserAvatar,
+                onSend: () async {
+                  await controller.addComment(_commentController.text);
+                  _commentController.clear();
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
             if (topLevel.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(16),
+              Padding(
+                padding: const EdgeInsets.all(16),
                 child: Text(
-                  'No comments yet. Start the conversation!',
+                  post.isOwn
+                      ? 'No comments yet.'
+                      : 'No comments yet. Start the conversation!',
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: AppColors.mutedForeground),
+                  style: const TextStyle(color: AppColors.mutedForeground),
                 ),
               )
             else
               for (final comment in topLevel) ...[
                 _CommentCard(
                   comment: comment,
+                  currentUserAvatar: currentUserAvatar,
                   isReplying: !comment.isOwn && _replyingTo == comment.id,
                   onReply: comment.isOwn
                       ? null
@@ -157,6 +174,7 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
                     child: _CommentComposer(
                       controller: _replyController,
                       hint: 'Reply to ${comment.username}...',
+                      userAvatar: currentUserAvatar,
                       onSend: () async {
                         await controller.addComment(
                           _replyController.text,
@@ -174,6 +192,7 @@ class _PostDetailsScreenState extends ConsumerState<PostDetailsScreen> {
                     padding: const EdgeInsets.fromLTRB(40, 4, 0, 8),
                     child: _CommentCard(
                       comment: reply,
+                      currentUserAvatar: currentUserAvatar,
                       isReply: true,
                       onDelete: reply.isOwn
                           ? () => controller.deleteComment(reply.id)
@@ -523,24 +542,38 @@ class _CommentComposer extends StatelessWidget {
     required this.controller,
     required this.hint,
     required this.onSend,
+    this.userAvatar = '',
   });
 
   final TextEditingController controller;
   final String hint;
   final VoidCallback onSend;
+  final String userAvatar;
 
   @override
   Widget build(BuildContext context) {
+    final hasNetworkAvatar = userAvatar.startsWith('http');
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         ClipOval(
-          child: Image.asset(
-            'assets/images/default_icon.jpg',
-            width: 32,
-            height: 32,
-            fit: BoxFit.cover,
-          ),
+          child: hasNetworkAvatar
+              ? SizedBox.square(
+                  dimension: 32,
+                  child: MakanNetworkImage(
+                    url: userAvatar,
+                    semanticLabel: 'Your profile picture',
+                    fallbackKey: const Key('composer-avatar-fallback'),
+                  ),
+                )
+              : Image.asset(
+                  userAvatar.isNotEmpty
+                      ? userAvatar
+                      : 'assets/images/default_icon.jpg',
+                  width: 32,
+                  height: 32,
+                  fit: BoxFit.cover,
+                ),
         ),
         const SizedBox(width: 8),
         Expanded(
@@ -565,6 +598,7 @@ class _CommentComposer extends StatelessWidget {
 class _CommentCard extends StatelessWidget {
   const _CommentCard({
     required this.comment,
+    this.currentUserAvatar = '',
     this.isReplying = false,
     this.isReply = false,
     this.onReply,
@@ -574,6 +608,7 @@ class _CommentCard extends StatelessWidget {
   });
 
   final CommunityComment comment;
+  final String currentUserAvatar;
   final bool isReplying;
   final bool isReply;
   final VoidCallback? onReply;
@@ -583,6 +618,10 @@ class _CommentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final avatarUrl = comment.userAvatar.isNotEmpty
+        ? comment.userAvatar
+        : (comment.isOwn ? currentUserAvatar : '');
+    final hasNetworkAvatar = avatarUrl.startsWith('http');
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -596,20 +635,22 @@ class _CommentCard extends StatelessWidget {
             ),
           ),
         ClipOval(
-          child: comment.userAvatar.isEmpty
-              ? Image.asset(
-                  'assets/images/default_icon.jpg',
-                  width: isReply ? 28 : 32,
-                  height: isReply ? 28 : 32,
-                  fit: BoxFit.cover,
-                )
-              : SizedBox.square(
+          child: hasNetworkAvatar
+              ? SizedBox.square(
                   dimension: isReply ? 28 : 32,
                   child: MakanNetworkImage(
-                    url: comment.userAvatar,
+                    url: avatarUrl,
                     semanticLabel: comment.username,
                     fallbackKey: Key('comment-avatar-fallback-${comment.id}'),
                   ),
+                )
+              : Image.asset(
+                  avatarUrl.isNotEmpty
+                      ? avatarUrl
+                      : 'assets/images/default_icon.jpg',
+                  width: isReply ? 28 : 32,
+                  height: isReply ? 28 : 32,
+                  fit: BoxFit.cover,
                 ),
         ),
         const SizedBox(width: 8),

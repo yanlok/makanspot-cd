@@ -1,19 +1,56 @@
--- Users may comment on a post or reply to another user's comment, but cannot
--- reply to one of their own comments.
+-- Users may comment on another user's post or reply to another user's comment,
+-- but cannot comment on their own posts or reply to one of their own comments.
+-- SECURITY DEFINER helpers prevent infinite recursion during RLS evaluation.
+
+CREATE OR REPLACE FUNCTION public.can_comment_on_post(
+  p_post_id bigint,
+  p_user_id uuid
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.posts
+    WHERE id = p_post_id
+      AND user_id <> p_user_id
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.can_reply_to_comment(
+  p_parent_comment_id bigint,
+  p_post_id bigint,
+  p_user_id uuid
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.comments
+    WHERE id = p_parent_comment_id
+      AND post_id = p_post_id
+      AND user_id <> p_user_id
+  );
+$$;
+
+GRANT EXECUTE ON FUNCTION public.can_comment_on_post(bigint, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.can_reply_to_comment(bigint, bigint, uuid) TO authenticated;
+
 DROP POLICY IF EXISTS "Users can comment" ON public.comments;
 CREATE POLICY "Users can comment"
   ON public.comments FOR INSERT
   TO authenticated
   WITH CHECK (
-    (SELECT auth.uid()) = user_id
+    (auth.uid() = user_id)
     AND (
-      parent_comment_id IS NULL
-      OR EXISTS (
-        SELECT 1
-        FROM public.comments AS parent_comment
-        WHERE parent_comment.id = comments.parent_comment_id
-          AND parent_comment.post_id = comments.post_id
-          AND parent_comment.user_id <> (SELECT auth.uid())
-      )
+      (parent_comment_id IS NULL AND public.can_comment_on_post(post_id, auth.uid()))
+      OR public.can_reply_to_comment(parent_comment_id, post_id, auth.uid())
     )
   );

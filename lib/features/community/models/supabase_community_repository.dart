@@ -236,19 +236,29 @@ class SupabaseCommunityRepository implements CommunityRepository {
               ? null
               : int.parse(parentCommentId),
         })
-        .select('id,post_id,content,parent_comment_id')
+        .select(
+          'id,post_id,content,parent_comment_id,created_at,users(username,avatar_url)',
+        )
         .single();
+    final user = row['users'] as Map? ?? const {};
     final metadata = _user.userMetadata ?? const {};
+    final username = user['username']?.toString() ??
+        metadata['username']?.toString() ??
+        'You';
+    final userAvatar = user['avatar_url']?.toString() ??
+        metadata['avatar_url']?.toString() ??
+        '';
     return CommunityComment(
       id: row['id'].toString(),
       postId: row['post_id'].toString(),
-      username: metadata['username']?.toString() ?? 'You',
-      userAvatar: metadata['avatar_url']?.toString() ?? '',
+      username: username,
+      userAvatar: userAvatar,
       text: row['content'].toString(),
       parentCommentId: row['parent_comment_id']?.toString(),
       userId: _user.id,
       isOwn: true,
       canPin: true,
+      createdAt: DateTime.tryParse(row['created_at']?.toString() ?? ''),
     );
   }
 
@@ -435,6 +445,8 @@ class SupabaseCommunityRepository implements CommunityRepository {
       createdAt:
           DateTime.tryParse(row['created_at']?.toString() ?? '') ??
           DateTime.now(),
+      isOwn:
+          currentUserId != null && row['user_id']?.toString() == currentUserId,
     );
   }
 }
