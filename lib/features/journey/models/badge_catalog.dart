@@ -104,3 +104,38 @@ List<JourneyAchievement> journeyAchievementsFromCatalog() {
       )
       .toList(growable: false);
 }
+
+/// Computes the community score the same way the Journey screen accrues it:
+/// the stored score, plus review credits (+15 for the first review at a
+/// restaurant, +10 for repeat reviews there), plus points for every earned
+/// achievement from the badge catalog.
+///
+/// [reviews] is the number of restaurant posts; [distinctRestaurants] is how
+/// many different restaurants those posts cover; [cuisineCount] is the number
+/// of distinct cuisines; [likesReceived] is the total likes on the user's
+/// posts. Shared by the Journey and Profile screens so both show the same
+/// score for the same activity.
+int journeyStyleCommunityScore({
+  required int storedScore,
+  required int reviews,
+  required int distinctRestaurants,
+  required int cuisineCount,
+  required int likesReceived,
+}) {
+  final repeatReviews = reviews > distinctRestaurants
+      ? reviews - distinctRestaurants
+      : 0;
+  var score = storedScore + distinctRestaurants * 15 + repeatReviews * 10;
+  for (final achievement in journeyAchievementsFromCatalog()) {
+    final progress = switch (achievement.category) {
+      'visits' || 'reviews' => reviews,
+      'cuisines' => cuisineCount,
+      'social' => likesReceived,
+      _ => 1,
+    };
+    if (progress >= achievement.requirement) {
+      score += achievement.points;
+    }
+  }
+  return score;
+}

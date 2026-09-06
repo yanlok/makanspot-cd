@@ -52,6 +52,10 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     }
     ref.listen(editProfileControllerProvider, (previous, next) {
       if (next.status == ProfileStatus.saved) {
+        // The edit controller keeps its own state; invalidate the shared
+        // profile provider so the profile page and the home header reload the
+        // freshly saved data instead of showing the stale copy.
+        ref.invalidate(profileControllerProvider);
         context.go('/profile');
       }
     });

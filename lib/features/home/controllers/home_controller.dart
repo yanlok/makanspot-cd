@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:makanspot/core/config/supabase_config.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../discover/controllers/discover_controller.dart';
 import '../models/fixture_home_repository.dart';
 import '../models/home_repository.dart';
 import '../models/supabase_home_repository.dart';
@@ -23,17 +24,27 @@ final homeRepositoryProvider = Provider<HomeRepository>((ref) {
 
 final homeControllerProvider =
     StateNotifierProvider.autoDispose<HomeController, HomeState>((ref) {
-      final controller = HomeController(ref.watch(homeRepositoryProvider));
+      final controller = HomeController(ref, ref.watch(homeRepositoryProvider));
       controller.load();
+      ref.listen<AsyncValue<Set<String>>>(
+        savedRestaurantIdsProvider,
+        (previous, next) => next.whenData(controller.syncBookmarks),
+      );
+      // Cover the case where bookmarks already loaded before this controller
+      // subscribed (a newly-created provider's resolution is delivered by the
+      // listen above).
+      ref.read(savedRestaurantIdsProvider).whenData(controller.syncBookmarks);
       return controller;
     });
 
 class HomeController extends StateNotifier<HomeState> {
-  HomeController(HomeRepository repository, {Now? now})
-    : _repository = repository,
+  HomeController(Ref ref, HomeRepository repository, {Now? now})
+    : _ref = ref,
+      _repository = repository,
       _now = now ?? DateTime.now,
       super(HomeState.loading(greeting: _greetingFor((now ?? DateTime.now)())));
 
+  final Ref _ref;
   final HomeRepository _repository;
   final Now _now;
 
@@ -72,13 +83,14 @@ class HomeController extends StateNotifier<HomeState> {
     return Uri(path: '/discover', queryParameters: {'filter': filter});
   }
 
-  void toggleBookmark(String restaurantId) {
+  Future<void> toggleBookmark(String restaurantId) async {
     if (!mounted) return;
-    final bookmarkedIds = Set<String>.of(state.bookmarkedIds);
-    if (!bookmarkedIds.add(restaurantId)) {
-      bookmarkedIds.remove(restaurantId);
-    }
-    state = state.copyWith(bookmarkedIds: Set.unmodifiable(bookmarkedIds));
+    await toggleRestaurantBookmark(_ref, restaurantId);
+  }
+
+  void syncBookmarks(Set<String> ids) {
+    if (!mounted) return;
+    state = state.copyWith(bookmarkedIds: Set.unmodifiable(ids));
   }
 
   static String _greetingFor(DateTime dateTime) {

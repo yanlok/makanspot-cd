@@ -8,9 +8,28 @@ import '../models/fixture_discover_repository.dart';
 import '../models/supabase_discover_repository.dart';
 import 'discover_state.dart';
 
-final savedRestaurantIdsProvider = StateProvider<Set<String>>((ref) {
-  return const {};
+/// The restaurants the signed-in user has saved, loaded from the bookmarks
+/// table. Shared by Home, Discover, the details screen, and the saved list;
+/// invalidate it after a toggle to re-read the source of truth.
+final savedRestaurantIdsProvider = FutureProvider<Set<String>>((ref) {
+  return ref.watch(discoverRepositoryProvider).loadBookmarkedRestaurantIds();
 });
+
+/// Persists a restaurant bookmark (save/unsave) and refreshes
+/// [savedRestaurantIdsProvider] so every screen reflects the change.
+Future<void> toggleRestaurantBookmark(Ref ref, String restaurantId) async {
+  final repository = ref.read(discoverRepositoryProvider);
+  final current =
+      ref.read(savedRestaurantIdsProvider).valueOrNull ?? const <String>{};
+  final saved = !current.contains(restaurantId);
+  try {
+    await repository.setRestaurantBookmark(restaurantId, saved: saved);
+  } on Object {
+    // Leave the current state unchanged; the change could not be persisted.
+    return;
+  }
+  ref.invalidate(savedRestaurantIdsProvider);
+}
 
 final discoverRepositoryProvider = Provider<DiscoverRepository>((ref) {
   if (!SupabaseConfig.isConfigured) {
@@ -27,29 +46,31 @@ final discoverRepositoryProvider = Provider<DiscoverRepository>((ref) {
 final discoverControllerProvider = StateNotifierProvider.autoDispose
     .family<DiscoverController, DiscoverState, DiscoverArguments>((ref, args) {
       final controller = DiscoverController(
+        ref,
         ref.watch(discoverRepositoryProvider),
         args,
-        ref.read(savedRestaurantIdsProvider),
-        (ids) => ref.read(savedRestaurantIdsProvider.notifier).state = ids,
       );
       controller.load();
+      ref.listen<AsyncValue<Set<String>>>(
+        savedRestaurantIdsProvider,
+        (previous, next) => next.whenData(controller.syncBookmarks),
+      );
+      // Cover the case where bookmarks already loaded before this controller
+      // subscribed (a newly-created provider's resolution is delivered by the
+      // listen above).
+      ref.read(savedRestaurantIdsProvider).whenData(controller.syncBookmarks);
       return controller;
     });
 
 class DiscoverController extends StateNotifier<DiscoverState> {
   DiscoverController(
+    this._ref,
     this._repository,
     DiscoverArguments arguments,
-    Set<String> initialBookmarks,
-    this._onBookmarksChanged,
-  ) : super(
-        DiscoverState.loading(
-          arguments,
-        ).copyWith(bookmarkedIds: Set.unmodifiable(initialBookmarks)),
-      );
+  ) : super(DiscoverState.loading(arguments));
 
+  final Ref _ref;
   final DiscoverRepository _repository;
-  final void Function(Set<String>) _onBookmarksChanged;
   List<DiscoverRestaurant> _allRestaurants = const [];
 
   DiscoverState get currentState => state;
@@ -125,14 +146,15 @@ class DiscoverController extends StateNotifier<DiscoverState> {
     _applyFilters();
   }
 
-  void toggleBookmark(String id) {
+  Future<void> toggleBookmark(String id) async {
     if (!mounted) return;
-    final bookmarks = Set<String>.of(state.bookmarkedIds);
-    if (!bookmarks.add(id)) {
-      bookmarks.remove(id);
-    }
-    state = state.copyWith(bookmarkedIds: Set.unmodifiable(bookmarks));
-    _onBookmarksChanged(Set.unmodifiable(bookmarks));
+    await toggleRestaurantBookmark(_ref, id);
+  }
+
+  void syncBookmarks(Set<String> ids) {
+    if (!mounted) return;
+    state = state.copyWith(bookmarkedIds: Set.unmodifiable(ids));
+    _applyFilters();
   }
 
   void selectRestaurant(String id) {

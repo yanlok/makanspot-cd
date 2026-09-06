@@ -25,12 +25,14 @@ class HomeScreen extends ConsumerWidget {
     final authState = ref.watch(authControllerProvider);
     final profileState = ref.watch(profileControllerProvider);
     final userProfile = profileState.data?.profile;
-    final userName = authState.session?.username ??
-        (userProfile?.username.isNotEmpty == true
-            ? userProfile!.username
-            : (state.feed?.firstName.isNotEmpty == true
-                ? state.feed!.firstName
-                : 'User'));
+    // Prefer the live profile (reloaded after edits) over the session's
+    // cached username, so a profile save shows up on Home immediately.
+    final userName = (userProfile?.username.isNotEmpty == true)
+        ? userProfile!.username
+        : (authState.session?.username ??
+              (state.feed?.firstName.isNotEmpty == true
+                  ? state.feed!.firstName
+                  : 'User'));
     final profileAsset = (userProfile?.profileAsset.isNotEmpty == true)
         ? userProfile!.profileAsset
         : (state.feed?.profileAsset ?? 'assets/images/default_icon.jpg');

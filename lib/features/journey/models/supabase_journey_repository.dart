@@ -28,12 +28,14 @@ class SupabaseJourneyRepository implements JourneyRepository {
         .from('posts')
         .select(_visitedSelect)
         .eq('user_id', _user.id)
+        .eq('is_hidden', false)
         .not('restaurants', 'is', null)
         .order('created_at', ascending: false);
     final likeRows = await _client
         .from('posts')
         .select('likes(user_id)')
-        .eq('user_id', _user.id);
+        .eq('user_id', _user.id)
+        .eq('is_hidden', false);
 
     final user = userRow ?? const {};
     final visits = postRows.map<JourneyVisit>(_visitFromRow).toList();

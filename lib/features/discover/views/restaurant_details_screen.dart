@@ -42,15 +42,12 @@ class RestaurantDetailsScreen extends ConsumerWidget {
       ),
       RestaurantDetailsStatus.content => _DetailsContent(
         state: state,
-        isSaved: ref.watch(savedRestaurantIdsProvider).contains(restaurantId),
-        onToggleSave: () {
-          final savedIds = Set<String>.of(ref.read(savedRestaurantIdsProvider));
-          if (!savedIds.add(restaurantId)) {
-            savedIds.remove(restaurantId);
-          }
-          ref.read(savedRestaurantIdsProvider.notifier).state =
-              Set.unmodifiable(savedIds);
-        },
+        isSaved:
+            ref.watch(savedRestaurantIdsProvider).valueOrNull?.contains(
+                  restaurantId,
+                ) ??
+            false,
+        onToggleSave: controller.toggleSaved,
         onBack: () {
           if (context.canPop()) {
             context.pop();

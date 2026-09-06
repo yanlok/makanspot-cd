@@ -81,7 +81,9 @@ class DiscoverRestaurantCard extends StatelessWidget {
                           child: SizedBox.square(
                             dimension: 36,
                             child: Icon(
-                              LucideIcons.bookmark,
+                              isBookmarked
+                                  ? LucideIcons.bookmarkCheck
+                                  : LucideIcons.bookmark,
                               size: 17,
                               color: isBookmarked
                                   ? AppColors.primary

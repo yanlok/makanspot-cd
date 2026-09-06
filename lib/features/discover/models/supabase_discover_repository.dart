@@ -43,9 +43,11 @@ class SupabaseDiscoverRepository implements DiscoverRepository {
         .from('posts')
         .select(
           'id,content,media_urls,rating,'
-          'users!posts_user_id_fkey(username,avatar_url)',
+          'users!posts_user_id_fkey(username,avatar_url),'
+          'likes(user_id)',
         )
         .eq('restaurant_id', id)
+        .eq('is_hidden', false)
         .order('created_at', ascending: false);
 
     return RestaurantDetailsData(
@@ -54,6 +56,83 @@ class SupabaseDiscoverRepository implements DiscoverRepository {
           .map<RestaurantReview>(_reviewFromRow)
           .toList(growable: false),
     );
+  }
+
+  @override
+  Future<RestaurantReview?> toggleReviewLike(String id) async {
+    final user = _client.auth.currentUser;
+    if (user == null) return null;
+    final existing = await _client
+        .from('likes')
+        .select('post_id')
+        .eq('post_id', int.parse(id))
+        .eq('user_id', user.id)
+        .maybeSingle();
+    if (existing == null) {
+      await _client.from('likes').insert({
+        'post_id': int.parse(id),
+        'user_id': user.id,
+      });
+    } else {
+      await _client
+          .from('likes')
+          .delete()
+          .eq('post_id', int.parse(id))
+          .eq('user_id', user.id);
+    }
+    final row = await _client
+        .from('posts')
+        .select(
+          'id,content,media_urls,rating,'
+          'users!posts_user_id_fkey(username,avatar_url),'
+          'likes(user_id)',
+        )
+        .eq('id', id)
+        .maybeSingle();
+    return row == null ? null : _reviewFromRow(row);
+  }
+
+  @override
+  Future<Set<String>> loadBookmarkedRestaurantIds() async {
+    final user = _client.auth.currentUser;
+    if (user == null) return const {};
+    final rows = await _client
+        .from('bookmarks')
+        .select('restaurant_id')
+        .eq('user_id', user.id)
+        .not('restaurant_id', 'is', null);
+    return rows
+        .map<String>((row) => row['restaurant_id'].toString())
+        .toSet();
+  }
+
+  @override
+  Future<void> setRestaurantBookmark(
+    String restaurantId, {
+    required bool saved,
+  }) async {
+    final user = _client.auth.currentUser;
+    if (user == null) return;
+    final restaurantIdValue = int.parse(restaurantId);
+    if (saved) {
+      final existing = await _client
+          .from('bookmarks')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('restaurant_id', restaurantIdValue)
+          .maybeSingle();
+      if (existing != null) return;
+      await _client.from('bookmarks').insert({
+        'user_id': user.id,
+        'restaurant_id': restaurantIdValue,
+      });
+    } else {
+      await _client
+          .from('bookmarks')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('restaurant_id', restaurantIdValue);
+    }
   }
 
   DiscoverRestaurant _restaurantFromRow(Map<String, dynamic> row) {
@@ -97,6 +176,8 @@ class SupabaseDiscoverRepository implements DiscoverRepository {
   RestaurantReview _reviewFromRow(Map<String, dynamic> row) {
     final user = row['users'] as Map? ?? const {};
     final mediaUrls = row['media_urls'] as List? ?? const [];
+    final likes = row['likes'] as List? ?? const [];
+    final currentUserId = _client.auth.currentUser?.id;
     return RestaurantReview(
       id: row['id'].toString(),
       username: user['username']?.toString() ?? 'Food explorer',
@@ -104,8 +185,10 @@ class SupabaseDiscoverRepository implements DiscoverRepository {
       reviewText: row['content']?.toString() ?? '',
       avatarUrl: user['avatar_url']?.toString() ?? '',
       imageUrl: mediaUrls.isEmpty ? '' : mediaUrls.first.toString(),
-      likes: 0,
-      isLiked: false,
+      likes: likes.length,
+      isLiked:
+          currentUserId != null &&
+          likes.any((like) => (like as Map)['user_id'] == currentUserId),
     );
   }
 

@@ -22,7 +22,40 @@ class FixtureDiscoverRepository implements DiscoverRepository {
       reviews: List.unmodifiable(_reviews[id] ?? const []),
     );
   }
+
+  @override
+  Future<RestaurantReview?> toggleReviewLike(String id) async {
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    for (final review in _reviews.values.expand((reviews) => reviews)) {
+      if (review.id != id) continue;
+      final isLiked = !review.isLiked;
+      return review.copyWith(
+        isLiked: isLiked,
+        likes: isLiked ? review.likes + 1 : review.likes - 1,
+      );
+    }
+    return null;
+  }
+
+  @override
+  Future<Set<String>> loadBookmarkedRestaurantIds() async {
+    return Set.unmodifiable(_fixtureBookmarkedRestaurantIds);
+  }
+
+  @override
+  Future<void> setRestaurantBookmark(
+    String restaurantId, {
+    required bool saved,
+  }) async {
+    if (saved) {
+      _fixtureBookmarkedRestaurantIds.add(restaurantId);
+    } else {
+      _fixtureBookmarkedRestaurantIds.remove(restaurantId);
+    }
+  }
 }
+
+final Set<String> _fixtureBookmarkedRestaurantIds = <String>{};
 
 final _restaurants = <DiscoverRestaurant>[
   DiscoverRestaurant(

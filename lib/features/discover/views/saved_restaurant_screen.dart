@@ -11,7 +11,8 @@ import '../models/discover_restaurant.dart';
 
 final savedRestaurantsProvider =
     FutureProvider.autoDispose<List<DiscoverRestaurant>>((ref) async {
-      final savedIds = ref.watch(savedRestaurantIdsProvider);
+      final savedIds =
+          ref.watch(savedRestaurantIdsProvider).valueOrNull ?? const <String>{};
       final restaurants = await ref
           .watch(discoverRepositoryProvider)
           .loadRestaurants();

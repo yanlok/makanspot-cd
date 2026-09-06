@@ -22,7 +22,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
       'id,user_id,restaurant_id,content,rating,media_urls,status,created_at,'
       'users!posts_user_id_fkey(username,avatar_url,community_score),'
       'restaurants!posts_restaurant_id_fkey(name,restaurant_images(image_url,is_primary)),'
-      'likes(user_id),comments(id),bookmarks(user_id)';
+      'likes(user_id),comments(id,is_hidden),bookmarks(user_id)';
 
   @override
   Future<List<CommunityPost>> loadCommunityPosts() async {
@@ -30,6 +30,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
         .from('posts')
         .select(_postSelect)
         .eq('status', 'active')
+        .eq('is_hidden', false)
         .order('created_at', ascending: false);
     return rows.map<CommunityPost>(_postFromRow).toList(growable: false);
   }
@@ -40,6 +41,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
         .from('posts')
         .select(_postSelect)
         .eq('user_id', _user.id)
+        .eq('is_hidden', false)
         .order('created_at', ascending: false);
     return rows.map<CommunityPost>(_postFromRow).toList(growable: false);
   }
@@ -51,6 +53,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
         .select(_postSelect)
         .eq('user_id', userId)
         .eq('status', 'active')
+        .eq('is_hidden', false)
         .order('created_at', ascending: false);
     return rows.map<CommunityPost>(_postFromRow).toList(growable: false);
   }
@@ -73,7 +76,8 @@ class SupabaseCommunityRepository implements CommunityRepository {
         .from('posts')
         .select(_postSelect)
         .inFilter('id', orderedPostIds)
-        .eq('status', 'active');
+        .eq('status', 'active')
+        .eq('is_hidden', false);
     final postsById = {
       for (final row in rows) row['id'].toString(): _postFromRow(row),
     };
@@ -114,6 +118,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
         .from('posts')
         .select(_postSelect)
         .eq('id', id)
+        .eq('is_hidden', false)
         .maybeSingle();
     if (row == null) return null;
     final comments = await _client
@@ -122,6 +127,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
           'id,post_id,content,user_id,parent_comment_id,is_pinned,created_at,users(username,avatar_url)',
         )
         .eq('post_id', id)
+        .eq('is_hidden', false)
         .order('created_at');
     return CommunityPostDetails(
       post: _postFromRow(row),
@@ -242,10 +248,12 @@ class SupabaseCommunityRepository implements CommunityRepository {
         .single();
     final user = row['users'] as Map? ?? const {};
     final metadata = _user.userMetadata ?? const {};
-    final username = user['username']?.toString() ??
+    final username =
+        user['username']?.toString() ??
         metadata['username']?.toString() ??
         'You';
-    final userAvatar = user['avatar_url']?.toString() ??
+    final userAvatar =
+        user['avatar_url']?.toString() ??
         metadata['avatar_url']?.toString() ??
         '';
     return CommunityComment(
@@ -417,6 +425,9 @@ class SupabaseCommunityRepository implements CommunityRepository {
     final restaurant = row['restaurants'] as Map? ?? const {};
     final likes = row['likes'] as List? ?? const [];
     final comments = row['comments'] as List? ?? const [];
+    final visibleCommentCount = comments
+        .where((comment) => (comment as Map)['is_hidden'] != true)
+        .length;
     final bookmarks = row['bookmarks'] as List? ?? const [];
     final currentUserId = _client.auth.currentUser?.id;
     return CommunityPost(
@@ -432,7 +443,7 @@ class SupabaseCommunityRepository implements CommunityRepository {
       rating: row['rating'] as int? ?? 0,
       mediaUrls: List<String>.from(row['media_urls'] as List? ?? const []),
       likes: likes.length,
-      commentCount: comments.length,
+      commentCount: visibleCommentCount,
       isLiked:
           currentUserId != null &&
           likes.any((like) => (like as Map)['user_id'] == currentUserId),

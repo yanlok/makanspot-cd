@@ -105,7 +105,7 @@ class RestaurantReviewCard extends StatelessWidget {
                   key: Key('review-like-${review.id}'),
                   onPressed: onLike,
                   icon: Icon(
-                    LucideIcons.heart,
+                    review.isLiked ? Icons.favorite : LucideIcons.heart,
                     size: 20,
                     color: review.isLiked
                         ? AppColors.destructive

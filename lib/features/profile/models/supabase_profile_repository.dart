@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:makanspot/features/journey/models/badge_catalog.dart';
 import 'package:makanspot/shared/models/profile_titles.dart';
 
 import 'profile_models.dart';
@@ -32,7 +33,18 @@ class SupabaseProfileRepository implements ProfileRepository {
     }
 
     final stats = await _loadProfileStats(userId);
-    final profile = _profileFromRow(userRow);
+    final storedScore = (userRow['community_score'] as num?)?.toInt() ?? 0;
+    // Derive the score the same way the Journey screen does: the stored
+    // score plus review credits and earned achievement points, so the two
+    // screens never disagree.
+    final effectiveScore = journeyStyleCommunityScore(
+      storedScore: storedScore,
+      reviews: stats.reviews,
+      distinctRestaurants: stats.visits,
+      cuisineCount: stats.cuisines,
+      likesReceived: stats.likesReceived,
+    );
+    final profile = _profileFromRow(userRow, score: effectiveScore);
 
     return ProfileData(
       profile: profile,
@@ -102,8 +114,8 @@ class SupabaseProfileRepository implements ProfileRepository {
     return user.id;
   }
 
-  CustomerProfile _profileFromRow(Map<String, dynamic> row) {
-    final score = (row['community_score'] as num?)?.toInt() ?? 0;
+  CustomerProfile _profileFromRow(Map<String, dynamic> row, {int? score}) {
+    final storedScore = (row['community_score'] as num?)?.toInt() ?? 0;
     final isActive = row['is_active'] as bool? ?? true;
     final avatarUrl = row['avatar_url']?.toString() ?? '';
     return CustomerProfile(
@@ -111,59 +123,47 @@ class SupabaseProfileRepository implements ProfileRepository {
       email: _stringOrEmpty(row['email']),
       bio: _stringOrEmpty(row['bio']),
       profileAsset: avatarUrl.isEmpty ? defaultProfileAsset : avatarUrl,
-      profileTitle: profileTitleForScore(score),
+      profileTitle: profileTitleForScore(score ?? storedScore),
       role: _stringOrEmpty(row['role']),
       accountStatus: isActive ? 'active' : 'deactivated',
-      communityScore: score,
+      communityScore: score ?? storedScore,
     );
   }
 
   Future<ProfileStats> _loadProfileStats(String userId) async {
-    // The journey row is auto-created per user; fall back to counting posts
-    // so the numbers stay honest when that migration has not run.
-    try {
-      final journey = await _client
-          .from('journeys')
-          .select('restaurants_visited, reviews_written, cities_explored')
-          .eq('user_id', userId)
-          .maybeSingle();
-      if (journey != null) {
-        final reviews = (journey['reviews_written'] as num?)?.toInt() ?? 0;
-        final visits = (journey['restaurants_visited'] as num?)?.toInt() ?? 0;
-        final cuisines = (journey['cities_explored'] as num?)?.toInt() ?? 0;
-        return ProfileStats(
-          visits: visits,
-          reviews: reviews,
-          cuisines: cuisines,
-          earnedBadges: await _loadEarnedBadges(userId),
-        );
-      }
-    } on Object {
-      // fall through to the post-count fallback below.
-    }
-
+    // Derived from the user's actual posts. The `journeys` table row is
+    // auto-created with zeros and nothing in the app updates it yet, so it
+    // cannot be used as the source of these numbers.
     final postRows = await _client
         .from('posts')
         .select('''
           id,
-          restaurants!inner(id, categories)
+          restaurants!inner(id, categories),
+          likes(user_id)
         ''')
-        .eq('user_id', userId);
+        .eq('user_id', userId)
+        .eq('is_hidden', false);
 
+    final restaurantIds = <String>{};
     final cuisineNames = <String>{};
+    var likesReceived = 0;
     for (final row in postRows) {
       final restaurant = row['restaurants'] as Map<String, dynamic>?;
+      final restaurantId = restaurant?['id']?.toString() ?? '';
+      if (restaurantId.isNotEmpty) restaurantIds.add(restaurantId);
       final categories = restaurant?['categories'] as List? ?? const [];
       for (final item in categories) {
         final name = item?.toString();
         if (name != null && name.isNotEmpty) cuisineNames.add(name);
       }
+      likesReceived += (row['likes'] as List? ?? const []).length;
     }
 
     return ProfileStats(
-      visits: postRows.length,
+      visits: restaurantIds.length,
       reviews: postRows.length,
       cuisines: cuisineNames.length,
+      likesReceived: likesReceived,
       earnedBadges: await _loadEarnedBadges(userId),
     );
   }
@@ -203,11 +203,13 @@ class ProfileStats {
     required this.visits,
     required this.reviews,
     required this.cuisines,
+    required this.likesReceived,
     required this.earnedBadges,
   });
 
   final int visits;
   final int reviews;
   final int cuisines;
+  final int likesReceived;
   final List<String> earnedBadges;
 }

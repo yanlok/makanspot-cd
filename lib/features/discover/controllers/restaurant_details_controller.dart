@@ -10,6 +10,7 @@ final restaurantDetailsControllerProvider = StateNotifierProvider.autoDispose
       id,
     ) {
       final controller = RestaurantDetailsController(
+        ref,
         ref.watch(discoverRepositoryProvider),
         id,
       );
@@ -19,9 +20,10 @@ final restaurantDetailsControllerProvider = StateNotifierProvider.autoDispose
 
 class RestaurantDetailsController
     extends StateNotifier<RestaurantDetailsState> {
-  RestaurantDetailsController(this._repository, this.restaurantId)
+  RestaurantDetailsController(this._ref, this._repository, this.restaurantId)
     : super(const RestaurantDetailsState.loading());
 
+  final Ref _ref;
   final DiscoverRepository _repository;
   final String restaurantId;
 
@@ -53,19 +55,25 @@ class RestaurantDetailsController
     }
   }
 
-  void toggleReviewLike(String reviewId) {
+  /// Saves or unsaves the current restaurant, keeping the shared
+  /// [savedRestaurantIdsProvider] in sync.
+  Future<void> toggleSaved() async {
     if (!mounted) return;
-    final reviews = state.reviews.map((review) {
-      if (review.id != reviewId) {
-        return review;
-      }
-      final isLiked = !review.isLiked;
-      return review.copyWith(
-        isLiked: isLiked,
-        likes: isLiked ? review.likes + 1 : review.likes - 1,
-      );
-    }).toList();
-    state = state.copyWith(reviews: List.unmodifiable(reviews));
+    await toggleRestaurantBookmark(_ref, restaurantId);
+  }
+
+  Future<void> toggleReviewLike(String reviewId) async {
+    if (!mounted) return;
+    try {
+      final updated = await _repository.toggleReviewLike(reviewId);
+      if (!mounted || updated == null) return;
+      final reviews = state.reviews
+          .map((review) => review.id == reviewId ? updated : review)
+          .toList();
+      state = state.copyWith(reviews: List.unmodifiable(reviews));
+    } on Object {
+      // Leave the current state unchanged; the like could not be persisted.
+    }
   }
 
   Uri mapsDestination() {
