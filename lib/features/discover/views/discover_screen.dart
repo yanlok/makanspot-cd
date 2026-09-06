@@ -259,23 +259,25 @@ class _MapPullUpState extends State<MapPullUp> {
                           _QuickFilterChip(
                             icon: LucideIcons.bookmark,
                             label: 'Saved',
-                            isSelected:
-                                widget.state.selectedFilters.contains('Saved'),
+                            isSelected: widget.state.selectedFilters.contains(
+                              'Saved',
+                            ),
                             onTap: () => widget.onToggleFilter('Saved'),
                           ),
                           const SizedBox(width: 8),
                           _QuickFilterChip(
                             label: r'$ Budget',
-                            isSelected:
-                                widget.state.selectedBudgets.contains('Low'),
+                            isSelected: widget.state.selectedBudgets.contains(
+                              'Low',
+                            ),
                             onTap: () => widget.onToggleBudget('Low'),
                           ),
                           const SizedBox(width: 8),
                           for (final cuisine in _quickCuisines) ...[
                             _QuickFilterChip(
                               label: cuisine,
-                              isSelected:
-                                  widget.state.selectedCuisines.contains(cuisine),
+                              isSelected: widget.state.selectedCuisines
+                                  .contains(cuisine),
                               onTap: () => widget.onToggleCuisine(cuisine),
                             ),
                             const SizedBox(width: 8),
@@ -302,28 +304,26 @@ class _MapPullUpState extends State<MapPullUp> {
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                 sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final restaurant = visibleRestaurants[index];
-                      final isSelected = restaurant.id == selectedId;
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: SizedBox(
-                          height: 180,
-                          child: DiscoverRestaurantCard(
-                            restaurant: restaurant,
-                            isSelected: isSelected,
-                            isBookmarked: widget.state.bookmarkedIds
-                                .contains(restaurant.id),
-                            onBookmark: () =>
-                                widget.onToggleBookmark(restaurant.id),
-                            onOpen: () => widget.onOpenRestaurant(restaurant.id),
+                  delegate: SliverChildBuilderDelegate((context, index) {
+                    final restaurant = visibleRestaurants[index];
+                    final isSelected = restaurant.id == selectedId;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: SizedBox(
+                        height: 180,
+                        child: DiscoverRestaurantCard(
+                          restaurant: restaurant,
+                          isSelected: isSelected,
+                          isBookmarked: widget.state.bookmarkedIds.contains(
+                            restaurant.id,
                           ),
+                          onBookmark: () =>
+                              widget.onToggleBookmark(restaurant.id),
+                          onOpen: () => widget.onOpenRestaurant(restaurant.id),
                         ),
-                      );
-                    },
-                    childCount: visibleRestaurants.length,
-                  ),
+                      ),
+                    );
+                  }, childCount: visibleRestaurants.length),
                 ),
               ),
               if (hasMore && _isLoadingMore)
@@ -372,9 +372,7 @@ class _MapPullUpState extends State<MapPullUp> {
                     ),
                   ),
                 ),
-              const SliverToBoxAdapter(
-                child: SizedBox(height: 24),
-              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 24)),
             ],
           ],
         ),
@@ -421,14 +419,14 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(discoverControllerProvider(widget.arguments));
-    ref.listen<DiscoverState>(
-      discoverControllerProvider(widget.arguments),
-      (previous, next) {
-        if (_isMapReady && !identical(previous?.restaurants, next.restaurants)) {
-          unawaited(_updateMapSource());
-        }
-      },
-    );
+    ref.listen<DiscoverState>(discoverControllerProvider(widget.arguments), (
+      previous,
+      next,
+    ) {
+      if (_isMapReady && !identical(previous?.restaurants, next.restaurants)) {
+        unawaited(_updateMapSource());
+      }
+    });
     final controller = ref.read(
       discoverControllerProvider(widget.arguments).notifier,
     );
@@ -615,7 +613,10 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
   }
 
   Future<void> _completeMapInitialization(mp.MapboxMap controller) async {
-    if (_mapInitialized || !_nativeMapLoaded || !mounted || !identical(_mapboxMap, controller)) {
+    if (_mapInitialized ||
+        !_nativeMapLoaded ||
+        !mounted ||
+        !identical(_mapboxMap, controller)) {
       return;
     }
     _mapInitialized = true;
@@ -796,20 +797,43 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
           'maxzoom': 15,
           'paint': {
             'heatmap-opacity': [
-              'interpolate', ['linear'], ['zoom'],
-              0, 0.6, 10, 0.7, 13, 0.3, 15, 0,
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              0,
+              0.6,
+              10,
+              0.7,
+              13,
+              0.3,
+              15,
+              0,
             ],
             'heatmap-radius': [
-              'interpolate', ['linear'], ['zoom'],
-              0, 2, 8, 12, 12, 25,
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              0,
+              2,
+              8,
+              12,
+              12,
+              25,
             ],
             'heatmap-color': [
-              'interpolate', ['linear'], ['heatmap-density'],
-              0, 'rgba(217,108,39,0)',
-              0.2, 'rgba(217,108,39,0.12)',
-              0.5, 'rgba(217,108,39,0.3)',
-              0.8, 'rgba(169,71,27,0.5)',
-              1, 'rgba(169,71,27,0.7)',
+              'interpolate',
+              ['linear'],
+              ['heatmap-density'],
+              0,
+              'rgba(217,108,39,0)',
+              0.2,
+              'rgba(217,108,39,0.12)',
+              0.5,
+              'rgba(217,108,39,0.3)',
+              0.8,
+              'rgba(169,71,27,0.5)',
+              1,
+              'rgba(169,71,27,0.7)',
             ],
             'heatmap-weight': [
               'case',
@@ -835,12 +859,22 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
           'maxzoom': 15,
           'paint': {
             'circle-color': [
-              'step', ['get', 'point_count'],
-              '#D96C27', 100, '#A9471B', 750, '#8B3514',
+              'step',
+              ['get', 'point_count'],
+              '#D96C27',
+              100,
+              '#A9471B',
+              750,
+              '#8B3514',
             ],
             'circle-radius': [
-              'step', ['get', 'point_count'],
-              18, 100, 26, 750, 34,
+              'step',
+              ['get', 'point_count'],
+              18,
+              100,
+              26,
+              750,
+              34,
             ],
             'circle-opacity': 0.85,
             'circle-stroke-color': '#FFFFFF',
@@ -866,9 +900,7 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
             'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
             'text-size': 13,
           },
-          'paint': {
-            'text-color': '#FFFFFF',
-          },
+          'paint': {'text-color': '#FFFFFF'},
         }),
         null,
       );
@@ -881,19 +913,34 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
           'id': 'restaurants-points',
           'type': 'circle',
           'source': _restaurantsSourceId,
-          'filter': ['!', ['has', 'point_count']],
+          'filter': [
+            '!',
+            ['has', 'point_count'],
+          ],
           'minzoom': 13,
           'paint': {
             'circle-color': '#D96C27',
             'circle-radius': [
-              'interpolate', ['linear'], ['zoom'],
-              13, 4, 15, 6, 18, 8,
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              13,
+              4,
+              15,
+              6,
+              18,
+              8,
             ],
             'circle-stroke-color': '#FFFFFF',
             'circle-stroke-width': 2,
             'circle-opacity': [
-              'interpolate', ['linear'], ['zoom'],
-              13, 0, 14, 1,
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              13,
+              0,
+              14,
+              1,
             ],
           },
         }),
@@ -913,10 +960,16 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
         signboard,
         false,
         [
-          mp.ImageStretches(first: 12, second: 32), // stretchable middle band (x)
+          mp.ImageStretches(
+            first: 12,
+            second: 32,
+          ), // stretchable middle band (x)
         ],
         [
-          mp.ImageStretches(first: 4, second: 20), // stretchable middle band (y)
+          mp.ImageStretches(
+            first: 4,
+            second: 20,
+          ), // stretchable middle band (y)
         ],
         mp.ImageContent(
           left: 6,
@@ -930,7 +983,10 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
           'id': 'restaurants-signboards',
           'type': 'symbol',
           'source': _restaurantsSourceId,
-          'filter': ['!', ['has', 'point_count']],
+          'filter': [
+            '!',
+            ['has', 'point_count'],
+          ],
           'minzoom': 15,
           'layout': {
             'icon-image': 'restaurant-signboard',
@@ -945,8 +1001,13 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
           'paint': {
             'text-color': '#FFFFFF',
             'icon-opacity': [
-              'interpolate', ['linear'], ['zoom'],
-              15, 0, 15.5, 1,
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              15,
+              0,
+              15.5,
+              1,
             ],
           },
         }),
@@ -970,17 +1031,14 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
         .where((r) => r.latitude != null && r.longitude != null)
         .map(
           (r) => {
-                'type': 'Feature',
-                'id': r.id,
-                'geometry': {
-                  'type': 'Point',
-                  'coordinates': [r.longitude!, r.latitude!],
-                },
-                'properties': {
-                  'id': r.id,
-                  'name': r.name,
-                },
-              },
+            'type': 'Feature',
+            'id': r.id,
+            'geometry': {
+              'type': 'Point',
+              'coordinates': [r.longitude!, r.latitude!],
+            },
+            'properties': {'id': r.id, 'name': r.name},
+          },
         )
         .toList();
 
@@ -1029,8 +1087,14 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
           mp.RenderedQueryGeometry.fromScreenBox(
             mp.ScreenBox(
               min: mp.ScreenCoordinate(
-                x: (gesture.touchPosition.x - hitSlop).clamp(0.0, double.infinity),
-                y: (gesture.touchPosition.y - hitSlop).clamp(0.0, double.infinity),
+                x: (gesture.touchPosition.x - hitSlop).clamp(
+                  0.0,
+                  double.infinity,
+                ),
+                y: (gesture.touchPosition.y - hitSlop).clamp(
+                  0.0,
+                  double.infinity,
+                ),
               ),
               max: mp.ScreenCoordinate(
                 x: gesture.touchPosition.x + hitSlop,
@@ -1061,10 +1125,7 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> {
           );
           final zoom = double.tryParse(expansionZoom.value ?? '') ?? 16;
           await map.flyTo(
-            mp.CameraOptions(
-              center: gesture.point,
-              zoom: zoom + 0.5,
-            ),
+            mp.CameraOptions(center: gesture.point, zoom: zoom + 0.5),
             mp.MapAnimationOptions(duration: 300),
           );
           return;
@@ -1135,14 +1196,18 @@ class _FilterSheetButton extends StatelessWidget {
               if (hasActive) ...[
                 const SizedBox(width: 6),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 5,
+                    vertical: 1,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.surface,
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  constraints:
-                      const BoxConstraints(minWidth: 18, minHeight: 18),
+                  constraints: const BoxConstraints(
+                    minWidth: 18,
+                    minHeight: 18,
+                  ),
                   alignment: Alignment.center,
                   child: Text(
                     '$activeCount',

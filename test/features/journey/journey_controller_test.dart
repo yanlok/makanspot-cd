@@ -61,6 +61,18 @@ void main() {
       expect(controller.state.status, JourneyStatus.error);
       expect(controller.state.errorMessage, isNotEmpty);
     });
+
+    test('credits earned achievements once', () async {
+      final controller = JourneyController(_AchievementRepository());
+
+      await controller.load();
+      expect(controller.state.data!.user.communityScore, 30);
+      expect(controller.state.data!.scoreHistory, hasLength(1));
+
+      await controller.load();
+      expect(controller.state.data!.user.communityScore, 0);
+      expect(controller.state.data!.scoreHistory, isEmpty);
+    });
   });
 }
 
@@ -125,4 +137,42 @@ class _FixtureRepository implements JourneyRepository {
 class _FailingRepository implements JourneyRepository {
   @override
   Future<JourneyData> loadJourney() async => throw StateError('offline');
+}
+
+class _AchievementRepository implements JourneyRepository {
+  @override
+  Future<JourneyData> loadJourney() async => JourneyData(
+    user: const JourneyUser(
+      username: 'User',
+      email: 'user@example.com',
+      profileTitle: 'Explorer',
+      communityScore: 0,
+      profileAsset: 'asset',
+    ),
+    visits: [
+      JourneyVisit(
+        id: 'visit-1',
+        restaurantId: 'rest-1',
+        restaurantName: 'Place',
+        restaurantImage: 'image',
+        cuisine: 'Malaysian',
+        visitDate: DateTime(2026, 8, 1),
+        postId: 'post-1',
+      ),
+    ],
+    locations: const [],
+    reviewCount: 0,
+    totalLikes: 0,
+    achievements: const [
+      JourneyAchievement(
+        name: 'First Bite',
+        description: 'Visit your first restaurant',
+        category: 'visits',
+        requirement: 1,
+        points: 30,
+        iconName: 'utensils',
+      ),
+    ],
+    scoreHistory: const [],
+  );
 }

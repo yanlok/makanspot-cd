@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:makanspot/core/theme/app_theme.dart';
+import 'package:makanspot/shared/services/maps_launcher.dart';
 import 'package:makanspot/shared/widgets/makan_network_image.dart';
 
 import '../controllers/journey_controller.dart';
@@ -358,9 +359,13 @@ class _SelectedLocation extends StatelessWidget {
           ),
           IconButton(
             tooltip: 'Open in Maps',
-            onPressed: () => ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text('Maps: ${mapsUri.host}'))),
+            onPressed: () async {
+              final result = await launchGoogleMaps(mapsUri);
+              if (!context.mounted || result.isSuccess) return;
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text(result.errorMessage!)));
+            },
             icon: const Icon(LucideIcons.navigation, size: 18),
           ),
           FilledButton(

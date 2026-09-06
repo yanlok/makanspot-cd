@@ -143,17 +143,15 @@ class JourneyController extends StateNotifier<JourneyState> {
   JourneyController(this._repository) : super(const JourneyState.loading());
 
   final JourneyRepository _repository;
+  final Set<String> _awardedAchievementNames = <String>{};
 
   Future<void> load() async {
     if (!mounted) return;
     state = const JourneyState.loading();
     try {
-      final data = await _repository.loadJourney();
+      final data = _awardEarnedAchievements(await _repository.loadJourney());
       if (!mounted) return;
-      state = JourneyState(
-        status: JourneyStatus.content,
-        data: data,
-      );
+      state = JourneyState(status: JourneyStatus.content, data: data);
     } on Object {
       if (!mounted) return;
       state = const JourneyState(
@@ -259,14 +257,57 @@ class JourneyController extends StateNotifier<JourneyState> {
       isReview: true,
     );
     state = state.copyWith(
-      data: data.copyWith(
-        user: data.user.copyWith(
-          communityScore: data.user.communityScore + activity.points,
+      data: _awardEarnedAchievements(
+        data.copyWith(
+          user: data.user.copyWith(
+            communityScore: data.user.communityScore + activity.points,
+          ),
+          visits: visits,
+          reviewCount: data.reviewCount + 1,
+          scoreHistory: [activity, ...data.scoreHistory],
         ),
-        visits: visits,
-        reviewCount: data.reviewCount + 1,
-        scoreHistory: [activity, ...data.scoreHistory],
       ),
+    );
+  }
+
+  JourneyData _awardEarnedAchievements(JourneyData data) {
+    final awarded =
+        data.scoreHistory
+            .where(
+              (activity) => activity.description.startsWith('Achievement: '),
+            )
+            .map((activity) => activity.description.substring(14))
+            .toSet()
+          ..addAll(_awardedAchievementNames);
+    final newlyEarned = data.achievementProgress.where(
+      (progress) =>
+          progress.earned && !awarded.contains(progress.achievement.name),
+    );
+    if (newlyEarned.isEmpty) return data;
+
+    final now = DateTime.now();
+    final achievementActivities = newlyEarned
+        .map(
+          (progress) => JourneyScoreActivity(
+            description: 'Achievement: ${progress.achievement.name}',
+            points: progress.achievement.points,
+            date: now,
+            isReview: false,
+          ),
+        )
+        .toList(growable: false);
+    final earnedPoints = achievementActivities.fold<int>(
+      0,
+      (total, activity) => total + activity.points,
+    );
+    _awardedAchievementNames.addAll(
+      newlyEarned.map((progress) => progress.achievement.name),
+    );
+    return data.copyWith(
+      user: data.user.copyWith(
+        communityScore: data.user.communityScore + earnedPoints,
+      ),
+      scoreHistory: [...achievementActivities, ...data.scoreHistory],
     );
   }
 
@@ -275,9 +316,9 @@ class JourneyController extends StateNotifier<JourneyState> {
     final query = hasCoords
         ? '${location.latitude},${location.longitude}'
         : location.name;
-    return Uri.https('www.google.com', '/maps/search/', {
+    return Uri.https('www.google.com', '/maps/dir/', {
       'api': '1',
-      'query': query,
+      'destination': query,
     });
   }
 }
