@@ -318,6 +318,8 @@ class PipelineState {
     this.discoverySources = const [],
     this.recentRuns = const [],
     this.autoRun,
+    this.latestDiscoveredRestaurant,
+    this.activeHashtag,
   });
 
   final PipelineStatus status;
@@ -338,6 +340,8 @@ class PipelineState {
   final List<DiscoverySourceSummary> discoverySources;
   final List<ScrapeRunSummary> recentRuns;
   final AutoRunState? autoRun;
+  final String? latestDiscoveredRestaurant;
+  final String? activeHashtag;
 
   PipelineState copyWith({
     PipelineStatus? status,
@@ -358,6 +362,8 @@ class PipelineState {
     List<DiscoverySourceSummary>? discoverySources,
     List<ScrapeRunSummary>? recentRuns,
     AutoRunState? autoRun,
+    String? latestDiscoveredRestaurant,
+    String? activeHashtag,
   }) {
     return PipelineState(
       status: status ?? this.status,
@@ -378,6 +384,9 @@ class PipelineState {
       discoverySources: discoverySources ?? this.discoverySources,
       recentRuns: recentRuns ?? this.recentRuns,
       autoRun: autoRun ?? this.autoRun,
+      latestDiscoveredRestaurant:
+          latestDiscoveredRestaurant ?? this.latestDiscoveredRestaurant,
+      activeHashtag: activeHashtag ?? this.activeHashtag,
     );
   }
 }

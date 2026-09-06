@@ -464,6 +464,20 @@ export function isInMalaysia(lat: number, lng: number): boolean {
 }
 
 /**
+ * Checks if a coordinate pair corresponds to known broad country/city centroids
+ * that result from vague geocoding (e.g., Malaysia center, Subang Jaya center, PJ center).
+ */
+export function isBroadCentroid(lat: number, lng: number): boolean {
+  // Malaysia country centroid (4.496643, 102.27572)
+  if (Math.abs(lat - 4.4966) < 0.05 && Math.abs(lng - 102.275) < 0.05) return true;
+  // Subang Jaya city centroid (3.050528, 101.58283)
+  if (Math.abs(lat - 3.050528) < 0.005 && Math.abs(lng - 101.58283) < 0.005) return true;
+  // Petaling Jaya city centroid (3.099973, 101.64656)
+  if (Math.abs(lat - 3.099973) < 0.005 && Math.abs(lng - 101.64656) < 0.005) return true;
+  return false;
+}
+
+/**
  * Deterministic geocoding via Nominatim (OpenStreetMap) — free, no API key.
  * Replaces the LLM coordinate guessing that clustered restaurants at one
  * point. Honours the 1 req/sec public-instance policy with internal spacing.
@@ -503,6 +517,164 @@ export async function geocodeWithNominatim(
     if (!isInMalaysia(lat, lng)) return null;
     return { lat, lng };
   } catch {
+    return null;
+  }
+}
+
+/**
+ * Geocodes an address or venue name using the Mapbox Geocoding API
+ * (temporary geocoding endpoint, free tier with 100,000 req/month).
+ * Returns { lat, lng } if resolved and verified within Malaysia, or null.
+ */
+export async function geocodeWithMapbox(
+  query: string,
+  token?: string,
+  options?: { rejectBroadArea?: boolean },
+): Promise<{ lat: number; lng: number; placeType?: string } | null> {
+  const mapboxToken =
+    token ??
+    Deno.env.get("MAPBOX_ACCESS_TOKEN") ??
+    Deno.env.get("MAPBOX_TOKEN");
+  if (!mapboxToken || !query.trim()) return null;
+
+  try {
+    const encoded = encodeURIComponent(query.trim());
+    // Standard temporary geocoding API: mapbox.places (free tier)
+    const url =
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json` +
+      `?access_token=${mapboxToken}&country=MY&limit=1`;
+    const resp = await fetchWithTimeout(url, {}, 10_000);
+    if (!resp.ok) {
+      console.error(
+        `[mapbox-geocode] API error: ${resp.status} for query "${query}"`,
+      );
+      return null;
+    }
+
+    const data = await resp.json();
+    const feature = data?.features?.[0];
+    if (!feature?.center || !Array.isArray(feature.center)) {
+      return null;
+    }
+
+    const [lng, lat] = feature.center;
+    if (
+      typeof lng !== "number" ||
+      typeof lat !== "number" ||
+      !Number.isFinite(lng) ||
+      !Number.isFinite(lat)
+    ) {
+      return null;
+    }
+
+    if (!isInMalaysia(lat, lng)) {
+      return null;
+    }
+
+    const placeTypes = (feature.place_type as string[] | undefined) ?? [];
+    const primaryType = placeTypes[0] ?? "";
+
+    // Reject entire-country and entire-region matches (which cluster all venues at one point)
+    if (placeTypes.includes("country") || placeTypes.includes("region")) {
+      return null;
+    }
+
+    // If rejectBroadArea is enabled, reject city-level centroids ("place") so we require
+    // a specific poi, address, neighborhood, or locality
+    if (options?.rejectBroadArea && placeTypes.includes("place")) {
+      return null;
+    }
+
+    // Guard against exact centroid of Malaysia (4.496..., 102.275...)
+    if (Math.abs(lat - 4.4966) < 0.05 && Math.abs(lng - 102.275) < 0.05) {
+      return null;
+    }
+
+    return { lat, lng, placeType: primaryType };
+  } catch (err) {
+    console.error(`[mapbox-geocode] Request error for "${query}":`, err);
+    return null;
+  }
+}
+
+/**
+ * Uses LLM knowledge to find the specific street address, mall, building,
+ * or commercial area in Malaysia for a restaurant given its name and city.
+ */
+export async function resolveAddressWithLLM(
+  name: string,
+  city?: string | null,
+  caption?: string | null,
+): Promise<string | null> {
+  const apiKey =
+    Deno.env.get("MIMO_API_KEY") ??
+    Deno.env.get("LLM_API_KEY") ??
+    Deno.env.get("OPENAI_API_KEY");
+  const baseUrl =
+    (Deno.env.get("MIMO_BASE_URL") ??
+      Deno.env.get("LLM_BASE_URL") ??
+      "https://api.openai.com/v1")
+      .replace(/\/+$/, "");
+  const model =
+    Deno.env.get("MIMO_MODEL") ??
+    Deno.env.get("LLM_MODEL") ??
+    Deno.env.get("OPENAI_MODEL") ??
+    "gpt-4o-mini";
+
+  if (!apiKey || !name.trim()) return null;
+
+  const prompt =
+    `Find the specific physical street address or venue location in Malaysia for this restaurant/cafe.\n` +
+    `Restaurant: "${name}"\n` +
+    (city ? `City/Area: "${city}"\n` : "") +
+    (caption ? `Caption context: "${caption.slice(0, 300)}"\n` : "") +
+    `\nRules:\n` +
+    `1. Provide the specific physical location (e.g. unit number, street name, commercial hub, or shopping mall like "Lot 10, Bukit Bintang" or "SS15, Subang Jaya").\n` +
+    `2. If you do not know the physical location in Malaysia, return null.\n` +
+    `3. Return STRICT JSON only: {"address": string | null}`;
+
+  try {
+    const resp = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are an expert Malaysian venue address locator. Return strict JSON only.",
+          },
+          { role: "user", content: prompt },
+        ],
+      }),
+    }, 15_000);
+
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) return null;
+    const parsed = JSON.parse(content) as { address?: string | null };
+    const raw = parsed.address?.trim();
+    if (!raw) return null;
+    const lower = raw.toLowerCase();
+    if (
+      lower === "null" ||
+      lower === "none" ||
+      lower === "n/a" ||
+      lower === "unknown" ||
+      lower === "not found" ||
+      lower === "not specified"
+    ) {
+      return null;
+    }
+    return raw;
+  } catch (_e) {
     return null;
   }
 }
@@ -868,6 +1040,8 @@ export interface ImageChainOptions {
   websiteUrl: string | null;
   /** First category from restaurants.categories (used to pick placeholder). */
   category: string | null;
+  /** Whether to fall back to an SVG placeholder if all real photo sources fail. Default false. */
+  allowPlaceholder?: boolean;
 }
 
 export interface ImageChainResult {
@@ -1119,17 +1293,19 @@ export async function persistRestaurantImageChain(
     if (t3.ok) return { source: "website_og", imageUrl: t3.imageUrl };
   }
 
-  // Tier 4: placeholder (score 0.1)
-  const placeholderUrl = await ensurePlaceholder(supabase, opts.category);
-  if (placeholderUrl) {
-    const t4 = await tryPersist(
-      supabase,
-      restaurantId,
-      placeholderUrl,
-      0.1,
-      "placeholder",
-    );
-    if (t4.ok) return { source: "placeholder", imageUrl: t4.imageUrl };
+  // Tier 4: placeholder (score 0.1) — only when explicitly allowed (default: false)
+  if (opts.allowPlaceholder) {
+    const placeholderUrl = await ensurePlaceholder(supabase, opts.category);
+    if (placeholderUrl) {
+      const t4 = await tryPersist(
+        supabase,
+        restaurantId,
+        placeholderUrl,
+        0.1,
+        "placeholder",
+      );
+      if (t4.ok) return { source: "placeholder", imageUrl: t4.imageUrl };
+    }
   }
 
   return { source: null, imageUrl: null };

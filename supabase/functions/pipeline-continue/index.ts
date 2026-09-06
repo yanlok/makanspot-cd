@@ -38,10 +38,11 @@ import {
 } from "../_shared/apify.ts";
 import {
   deriveCategories,
-  ensurePlaceholder,
   extractGoogleMapsUrl,
   extractVenue,
+  geocodeWithMapbox,
   geocodeWithNominatim,
+  isBroadCentroid,
   isInMalaysia,
   isLikelyNotRestaurant,
   nameRelation,
@@ -50,6 +51,7 @@ import {
   persistPrimaryImage,
   persistRestaurantImageChain,
   popularityScore,
+  resolveAddressWithLLM,
   resolveShortMapsUrl,
   selectBestImageCandidate,
   sumComponentCosts,
@@ -1637,20 +1639,91 @@ async function handleEnrich(
       }
 
       // Deterministic geocoding for genuinely new restaurants only.
-      if (latitude === null || longitude === null) {
-        // Pick the first non-blank venue identifier (address can be "")
-        const venuePart = [extraction.address, extraction.name]
-          .find((part): part is string => !!part && part.trim().length > 0);
-        const geoQuery = [venuePart, extraction.city, "Malaysia"]
-          .filter((part): part is string => !!part && part.trim().length > 0)
-          .join(", ");
-        if (geoQuery.length > 3) {
-          const geo = await geocodeWithNominatim(geoQuery);
-          if (geo) {
-            latitude = geo.lat;
-            longitude = geo.lng;
+      if (
+        latitude === null ||
+        longitude === null ||
+        isBroadCentroid(latitude, longitude)
+      ) {
+        // If address is missing or too brief, ask LLM to find the specific street/mall address
+        let addressToGeocode = extraction.address;
+        if (!addressToGeocode || addressToGeocode.trim().length < 6) {
+          const llmAddress = await resolveAddressWithLLM(
+            extraction.name,
+            extraction.city,
+            post.caption,
+          );
+          if (llmAddress) {
+            addressToGeocode = llmAddress;
+            extraction.address = llmAddress;
           }
         }
+
+        const addressQuery = [addressToGeocode, extraction.city, "Malaysia"]
+          .filter((part): part is string => !!part && part.trim().length > 0)
+          .join(", ");
+        const nameQuery = [extraction.name, extraction.city, "Malaysia"]
+          .filter((part): part is string => !!part && part.trim().length > 0)
+          .join(", ");
+
+        // 1. Try Mapbox with specific address (rejecting broad city/country centroids)
+        let geo: { lat: number; lng: number } | null = null;
+        if (addressQuery.length > 10) {
+          geo = await geocodeWithMapbox(addressQuery, undefined, {
+            rejectBroadArea: true,
+          });
+        }
+        // 2. Try Mapbox with venue name + city
+        if (!geo && nameQuery.length > 3) {
+          geo = await geocodeWithMapbox(nameQuery, undefined, {
+            rejectBroadArea: true,
+          });
+        }
+
+        // 3. Fallback to Nominatim if Mapbox didn't match (rejecting centroid)
+        if (!geo && addressQuery.length > 10) {
+          const nomGeo = await geocodeWithNominatim(addressQuery);
+          if (nomGeo && !isBroadCentroid(nomGeo.lat, nomGeo.lng)) {
+            geo = nomGeo;
+          }
+        }
+        if (!geo && nameQuery.length > 3) {
+          const nomGeo = await geocodeWithNominatim(nameQuery);
+          if (nomGeo && !isBroadCentroid(nomGeo.lat, nomGeo.lng)) {
+            geo = nomGeo;
+          }
+        }
+
+        if (
+          geo &&
+          isInMalaysia(geo.lat, geo.lng) &&
+          !isBroadCentroid(geo.lat, geo.lng)
+        ) {
+          latitude = geo.lat;
+          longitude = geo.lng;
+        }
+      }
+
+      // STRICT REQUIREMENT: Candidate MUST have valid coordinates in Malaysia!
+      // If no valid coordinates can be resolved, skip and completely remove candidate.
+      if (
+        latitude === null ||
+        longitude === null ||
+        !isInMalaysia(latitude, longitude) ||
+        isBroadCentroid(latitude, longitude)
+      ) {
+        console.log(
+          `[pipeline-continue] Candidate "${extraction.name}" has no valid lat/lng in Malaysia. Skipping candidate completely.`,
+        );
+        await supabase
+          .from("scraped_posts")
+          .update({
+            status: "skipped",
+            error: "skipped_no_location",
+          })
+          .eq("id", post.id);
+        state.stats.posts_skipped++;
+        skipped++;
+        continue;
       }
 
       const { data: newRestaurant, error: insertErr } = await supabase
@@ -1769,6 +1842,111 @@ async function handleEnrich(
   await scheduleContinue(jobId, 0);
 }
 
+/**
+ * Completely purge a candidate restaurant that lacks a valid primary photo.
+ * Removes all linked child rows (restaurant_images, restaurant_social_posts,
+ * restaurant_social_metrics, restaurant_sources), deletes the restaurant record,
+ * marks promoting/linked posts in scraped_posts as skipped with error "skipped_no_valid_image",
+ * and updates pipeline statistics.
+ */
+async function deleteInvalidRestaurant(
+  supabase: DbClient,
+  restaurantId: number,
+  state: PipelineState,
+  linkedPostIds: number[] = [],
+  errorReason: string = "skipped_no_valid_image",
+) {
+  try {
+    // 1. Delete child rows from related tables
+    const { error: imgErr } = await supabase
+      .from("restaurant_images")
+      .delete()
+      .eq("restaurant_id", restaurantId);
+    if (imgErr) {
+      console.warn(
+        `[deleteInvalidRestaurant] restaurant_images delete warning: ${imgErr.message}`,
+      );
+    }
+
+    const { error: postLinkErr } = await supabase
+      .from("restaurant_social_posts")
+      .delete()
+      .eq("restaurant_id", restaurantId);
+    if (postLinkErr) {
+      console.warn(
+        `[deleteInvalidRestaurant] restaurant_social_posts delete warning: ${postLinkErr.message}`,
+      );
+    }
+
+    const { error: metricErr } = await supabase
+      .from("restaurant_social_metrics")
+      .delete()
+      .eq("restaurant_id", restaurantId);
+    if (metricErr) {
+      console.warn(
+        `[deleteInvalidRestaurant] restaurant_social_metrics delete warning: ${metricErr.message}`,
+      );
+    }
+
+    const { error: srcErr } = await supabase
+      .from("restaurant_sources")
+      .delete()
+      .eq("restaurant_id", restaurantId);
+    if (srcErr) {
+      console.warn(
+        `[deleteInvalidRestaurant] restaurant_sources delete warning: ${srcErr.message}`,
+      );
+    }
+
+    // 2. Delete the restaurant record
+    const { error: restErr } = await supabase
+      .from("restaurants")
+      .delete()
+      .eq("id", restaurantId);
+    if (restErr) {
+      console.error(
+        `[deleteInvalidRestaurant] restaurants delete error: ${restErr.message}`,
+      );
+    }
+
+    // 3. Mark associated scraped_posts as skipped
+    if (linkedPostIds.length > 0) {
+      const { error: postUpdateErr } = await supabase
+        .from("scraped_posts")
+        .update({
+          status: "skipped",
+          error: errorReason,
+        })
+        .in("id", linkedPostIds);
+      if (postUpdateErr) {
+        console.warn(
+          `[deleteInvalidRestaurant] scraped_posts update warning: ${postUpdateErr.message}`,
+        );
+      }
+    }
+
+    // 4. Update pipeline stats: decrement created, increment no_image & skipped
+    state.stats.restaurants_created = Math.max(
+      0,
+      (state.stats.restaurants_created ?? 1) - 1,
+    );
+    state.stats.restaurants_no_image =
+      (state.stats.restaurants_no_image ?? 0) + 1;
+    state.stats.posts_skipped =
+      (state.stats.posts_skipped ?? 0) + linkedPostIds.length;
+
+    console.log(
+      `[deleteInvalidRestaurant] Cleanly removed invalid restaurant ${restaurantId} and marked ${linkedPostIds.length} post(s) as skipped_no_valid_image.`,
+    );
+  } catch (err) {
+    console.error(
+      `[deleteInvalidRestaurant] Error removing restaurant ${restaurantId}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Step 6: Metrics — recompute social aggregates for affected restaurants
 // ---------------------------------------------------------------------------
@@ -1791,6 +1969,7 @@ async function handleMetrics(
     hashtags: string[] | null;
   }
   const ids = state.affected_restaurant_ids ?? [];
+  const deletedRestaurantIds = new Set<number>();
   const now = Date.now();
   const DAY = 86_400_000;
 
@@ -1907,15 +2086,13 @@ async function handleMetrics(
       now,
     );
 
-    // Skip the chain entirely when the restaurant already has a primary
-    // image (existing restaurant re-matched this run, or a previously
-    // selected photo).  Running the chain against an existing primary can
-    // only add junk rows (e.g. a non-primary placeholder when the post tier
-    // fails) or overwrite an image we did not choose.
+    // Skip the chain entirely when the restaurant already has an authentic
+    // primary photo (existing restaurant re-matched this run, or a previously
+    // selected photo). Placeholders do NOT count as a valid primary photo for discovery.
     const { data: existingPrimary, error: existingPrimaryError } =
       await supabase
         .from("restaurant_images")
-        .select("id")
+        .select("id, image_url")
         .eq("restaurant_id", restaurantId)
         .eq("is_primary", true)
         .limit(1)
@@ -1926,14 +2103,33 @@ async function handleMetrics(
       );
     }
 
-    if (!existingPrimary) {
+    const hasValidExistingPrimary =
+      existingPrimary &&
+      typeof existingPrimary.image_url === "string" &&
+      !existingPrimary.image_url.includes("placeholders/");
+
+    if (!hasValidExistingPrimary) {
+      // Clean up any stale placeholder row so it does not pollute the table
+      if (existingPrimary?.id) {
+        await supabase
+          .from("restaurant_images")
+          .delete()
+          .eq("id", existingPrimary.id);
+      }
+
       // Load restaurant metadata for the fallback chain (website + categories).
       const { data: restaurantMeta } = await supabase
         .from("restaurants")
-        .select("website, categories")
+        .select("name, website, categories, created_at")
         .eq("id", restaurantId)
         .is("deleted_at", null)
         .maybeSingle();
+
+      const isNewlyCreated =
+        !!restaurantMeta?.created_at &&
+        !!state.started_at &&
+        new Date(restaurantMeta.created_at).getTime() >=
+          new Date(state.started_at).getTime() - 60_000;
 
       // Try to recover the IG owner profile_pic_url from the Apify dataset.
       // The location_posts dataset has addParentData: true, so each record
@@ -1950,8 +2146,8 @@ async function handleMetrics(
         );
       }
 
-      // Run the full chain.  Tier 1 is the post image (and runs the validator);
-      // tiers 2-4 are the new free fallbacks.  Never throws.
+      // Run the full chain. Tier 1 is the post image; tiers 2-3 are profile pic & website OG.
+      // Category SVG placeholders are strictly disallowed (allowPlaceholder: false) for discovery.
       const chainResult = await persistRestaurantImageChain(
         supabase,
         restaurantId,
@@ -1961,6 +2157,7 @@ async function handleMetrics(
           ownerProfilePicUrl,
           websiteUrl: restaurantMeta?.website ?? null,
           category: (restaurantMeta?.categories ?? [])[0] ?? null,
+          allowPlaceholder: false,
         },
       );
       if (chainResult.source && chainResult.source !== "post") {
@@ -1969,46 +2166,38 @@ async function handleMetrics(
         );
       }
 
-      // Image requirement: check if restaurant now has a primary image.
-      // Restaurants without a primary image are not display-ready.
+      // Image requirement: verify that restaurant has an authentic, validated primary image.
+      // Restaurants without a valid photo are rejected and directly removed.
       const { data: primaryImg } = await supabase
         .from("restaurant_images")
-        .select("id")
+        .select("id, image_url")
         .eq("restaurant_id", restaurantId)
         .eq("is_primary", true)
         .limit(1)
         .maybeSingle();
-      if (!primaryImg) {
-        // Final safety net: the chain should have written a placeholder, but if
-        // every tier reported success without actually persisting, try once
-        // more inline before counting this restaurant as no-image.
-        const placeholderUrl = await ensurePlaceholder(
-          supabase,
-          (restaurantMeta?.categories ?? [])[0] ?? null,
+
+      const hasValidImage =
+        primaryImg &&
+        typeof primaryImg.image_url === "string" &&
+        !primaryImg.image_url.includes("placeholders/");
+
+      if (!hasValidImage && isNewlyCreated) {
+        console.log(
+          `[image-requirement] Newly created restaurant ${restaurantId} ("${
+            restaurantMeta?.name ?? "unknown"
+          }") has no valid primary photo. Directly removing restaurant.`,
         );
-        if (placeholderUrl) {
-          await tryPersist(
-            supabase,
-            restaurantId,
-            placeholderUrl,
-            0.1,
-            "placeholder_emergency",
-          );
-          const { data: retryImg } = await supabase
-            .from("restaurant_images")
-            .select("id")
-            .eq("restaurant_id", restaurantId)
-            .eq("is_primary", true)
-            .limit(1)
-            .maybeSingle();
-          if (!retryImg) {
-            state.stats.restaurants_no_image =
-              (state.stats.restaurants_no_image ?? 0) + 1;
-          }
-        } else {
-          state.stats.restaurants_no_image =
-            (state.stats.restaurants_no_image ?? 0) + 1;
-        }
+        await deleteInvalidRestaurant(
+          supabase,
+          restaurantId,
+          state,
+          postIds,
+        );
+        deletedRestaurantIds.add(restaurantId);
+      } else if (!hasValidImage) {
+        console.warn(
+          `[image-requirement] Pre-existing restaurant ${restaurantId} has no valid primary photo. Preserving existing record.`,
+        );
       }
     }
     state.metrics_index = index + 1;
@@ -2019,6 +2208,11 @@ async function handleMetrics(
     }
   }
 
+  if (deletedRestaurantIds.size > 0) {
+    state.affected_restaurant_ids = (state.affected_restaurant_ids ?? []).filter(
+      (id) => !deletedRestaurantIds.has(id),
+    );
+  }
   state.metrics_index = 0;
   state.current_step = "complete";
   await updateState(supabase, jobId, state);
@@ -2190,6 +2384,158 @@ async function handleComplete(
       if (sourceUpdateError) {
         throw new Error(
           `Discovery-source update failed: ${sourceUpdateError.message}`,
+        );
+      }
+    }
+  }
+
+  // Safety-net: purge any restaurant from this job that lacks valid coordinates
+  // or a validated primary image. Each restaurant leaving the pipeline MUST
+  // have:
+  // 1. Valid coordinates (lat/lng in Malaysia).
+  // 2. An authentic, non-placeholder primary image.
+  const affectedIds = state.affected_restaurant_ids ?? [];
+  if (affectedIds.length > 0) {
+    for (const restaurantId of affectedIds) {
+      try {
+        // 1. Coordinate check & Mapbox recovery
+        const { data: rest } = await supabase
+          .from("restaurants")
+          .select("id, name, address, city, latitude, longitude, created_at")
+          .eq("id", restaurantId)
+          .is("deleted_at", null)
+          .maybeSingle();
+
+        if (rest) {
+          // Strictly protect pre-existing restaurants: only candidates created
+          // during this pipeline job may be purged by the safety-net.
+          const isNewlyCreated =
+            !!rest.created_at &&
+            !!state.started_at &&
+            new Date(rest.created_at).getTime() >=
+              new Date(state.started_at).getTime() - 60_000;
+
+          let lat = rest.latitude;
+          let lng = rest.longitude;
+          const needsGeocoding =
+            lat === null ||
+            lng === null ||
+            !isInMalaysia(lat, lng) ||
+            isBroadCentroid(lat, lng);
+
+          if (needsGeocoding) {
+            let addr = rest.address;
+            if (!addr || addr.trim().length < 10) {
+              const llmAddress = await resolveAddressWithLLM(
+                rest.name,
+                rest.city,
+              );
+              if (llmAddress) {
+                addr = llmAddress;
+              }
+            }
+
+            // Two-stage lookup: first try street/mall address, then venue name + city
+            let geo: { lat: number; lng: number } | null = null;
+            if (addr && addr.trim().length > 6) {
+              const addrQuery = [addr.trim(), rest.city, "Malaysia"]
+                .filter(Boolean)
+                .join(", ");
+              geo = await geocodeWithMapbox(addrQuery, undefined, {
+                rejectBroadArea: true,
+              });
+            }
+            if (!geo && rest.name) {
+              const nameQuery = [rest.name.trim(), rest.city, "Malaysia"]
+                .filter(Boolean)
+                .join(", ");
+              geo = await geocodeWithMapbox(nameQuery, undefined, {
+                rejectBroadArea: true,
+              });
+            }
+
+            if (
+              geo &&
+              isInMalaysia(geo.lat, geo.lng) &&
+              !isBroadCentroid(geo.lat, geo.lng)
+            ) {
+              lat = geo.lat;
+              lng = geo.lng;
+              await supabase
+                .from("restaurants")
+                .update({
+                  latitude: lat,
+                  longitude: lng,
+                  ...(addr ? { address: addr } : {}),
+                })
+                .eq("id", restaurantId);
+            } else if (isNewlyCreated) {
+              console.log(
+                `[pipeline-complete] Newly created restaurant ${restaurantId} ("${rest.name}") has no valid coordinates. Running safety-net purge.`,
+              );
+              const { data: links } = await supabase
+                .from("restaurant_social_posts")
+                .select("post_id")
+                .eq("restaurant_id", restaurantId);
+              const postIds = (links ?? []).map((l: { post_id: number }) =>
+                l.post_id
+              );
+              await deleteInvalidRestaurant(
+                supabase,
+                restaurantId,
+                state,
+                postIds,
+                "skipped_no_location",
+              );
+              continue; // Cleanly removed, skip image check
+            } else {
+              console.warn(
+                `[pipeline-complete] Pre-existing restaurant ${restaurantId} ("${rest.name}") has unresolvable coordinates. Preserving existing record.`,
+              );
+            }
+          }
+
+          // 2. Image check & purge (only for newly created restaurants)
+          if (isNewlyCreated) {
+            const { data: img } = await supabase
+              .from("restaurant_images")
+              .select("id, image_url")
+              .eq("restaurant_id", restaurantId)
+              .eq("is_primary", true)
+              .limit(1)
+              .maybeSingle();
+
+            const hasValidImage =
+              img &&
+              typeof img.image_url === "string" &&
+              !img.image_url.includes("placeholders/");
+
+            if (!hasValidImage) {
+              console.log(
+                `[pipeline-complete] Newly created restaurant ${restaurantId} has no valid primary image — running safety-net purge.`,
+              );
+              const { data: links } = await supabase
+                .from("restaurant_social_posts")
+                .select("post_id")
+                .eq("restaurant_id", restaurantId);
+              const postIds = (links ?? []).map((l: { post_id: number }) =>
+                l.post_id
+              );
+              await deleteInvalidRestaurant(
+                supabase,
+                restaurantId,
+                state,
+                postIds,
+                "skipped_no_valid_image",
+              );
+            }
+          }
+        }
+      } catch (safetyErr) {
+        // Log but do not throw — completion should not be blocked by cleanup.
+        console.error(
+          `[pipeline-complete] Safety-net purge failed for restaurant ${restaurantId}:`,
+          safetyErr,
         );
       }
     }

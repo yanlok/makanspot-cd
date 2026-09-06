@@ -288,17 +288,19 @@ async function handleResume(
     }, 400);
   }
 
-  // Guard: no active scrape runs
+  // Guard: no active scrape runs from OTHER sessions
+  // (the auto-run's own last job may still be finishing — that's OK to resume over)
   const { data: activeScrape } = await supabase
     .from("scrape_runs")
     .select("id")
     .in("status", ["pending", "running"])
+    .neq("auto_run_id", autoRunId)
     .limit(1)
     .maybeSingle();
   if (activeScrape) {
     return jsonResponse({
       error: "scrape_run_already_active",
-      message: "A scrape run is already in progress.",
+      message: "A scrape run from another session is already in progress.",
     }, 409);
   }
 

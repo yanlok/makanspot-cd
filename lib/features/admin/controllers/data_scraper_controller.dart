@@ -217,7 +217,8 @@ class DataScraperController extends StateNotifier<PipelineState> {
             'created_at, discovery_sources(source_type, source_value, area, created_at)',
           )
           .order('created_at', ascending: false)
-          .limit(10);
+          .limit(200);
+
 
       double totalCost = 0;
       for (final row in costRows) {
@@ -278,8 +279,39 @@ class DataScraperController extends StateNotifier<PipelineState> {
       final data = resp.data as Map<String, dynamic>?;
       if (data == null) return;
 
+      // 1. Check if an auto-run is active in the backend
+      final autoRunData = data['auto_run'] as Map<String, dynamic>?;
+      if (autoRunData != null) {
+        final autoRun = AutoRunState.fromMap(autoRunData);
+        if (autoRun.isActive) {
+          final runId = autoRun.id ?? autoRunData['id']?.toString();
+          if (runId != null && runId.isNotEmpty) {
+            await _persistAutoRunId(runId);
+            _updateState(
+              (s) => s.copyWith(
+                status: PipelineStatus.processing,
+                stepMessage: 'Reconnecting to auto-run...',
+                autoRun: autoRun,
+                result: null,
+              ),
+            );
+            _startAutoRunPolling(runId);
+            return;
+          }
+        }
+      }
+
+      // 2. Only reconnect to active scrape run if it is a standalone single scan
       final activeRun = data['active_run'] as Map<String, dynamic>?;
       if (activeRun != null && activeRun['status'] == 'running') {
+        final autoRunId = activeRun['auto_run_id']?.toString();
+        if (autoRunId != null && autoRunId.isNotEmpty) {
+          // This scrape run belongs to an auto-run session
+          await _persistAutoRunId(autoRunId);
+          await _reconnectAutoRun(autoRunId);
+          return;
+        }
+
         final runId = activeRun['id'] as String;
         _updateState(
           (s) => s.copyWith(
@@ -287,6 +319,7 @@ class DataScraperController extends StateNotifier<PipelineState> {
             currentStep: PipelineStep.ingest,
             stepMessage: 'Reconnecting to active scan...',
             activeRunId: runId,
+            autoRun: null,
           ),
         );
         _startPolling(runId);
@@ -310,7 +343,10 @@ class DataScraperController extends StateNotifier<PipelineState> {
         stepMessage: 'Starting pipeline...',
         error: null,
         result: null,
+        autoRun: null,
         activeRunId: null,
+        latestDiscoveredRestaurant: null,
+        activeHashtag: null,
       ),
     );
 
@@ -417,6 +453,9 @@ class DataScraperController extends StateNotifier<PipelineState> {
         stepMessage: 'Starting auto-run...',
         error: null,
         result: null,
+        autoRun: null,
+        latestDiscoveredRestaurant: null,
+        activeHashtag: null,
       ),
     );
 
@@ -632,6 +671,7 @@ class DataScraperController extends StateNotifier<PipelineState> {
               status: PipelineStatus.complete,
               stepMessage: 'Auto-run finished',
               autoRun: null,
+              result: null,
             ),
           );
           await _loadStats();
@@ -648,6 +688,7 @@ class DataScraperController extends StateNotifier<PipelineState> {
               status: PipelineStatus.complete,
               stepMessage: autoRun.stopReason ?? 'Auto-run finished',
               autoRun: autoRun,
+              result: null,
               activeRunId: null,
               activeJobId: null,
             ),
@@ -658,6 +699,28 @@ class DataScraperController extends StateNotifier<PipelineState> {
 
         // Still active — update state and continue polling
         final activeRun = data?['active_run'] as Map<String, dynamic>?;
+        final sourceData = activeRun?['discovery_sources'] as Map<String, dynamic>?;
+        final activeHashtag = sourceData?['source_value'] as String? ?? state.activeHashtag;
+
+        String? latestName = state.latestDiscoveredRestaurant;
+        if (autoRun.newRestaurants > 0 &&
+            (autoRun.newRestaurants != (state.autoRun?.newRestaurants ?? 0) ||
+                latestName == null)) {
+          try {
+            final recent = await _supabase
+                .from('restaurants')
+                .select('name')
+                .order('created_at', ascending: false)
+                .limit(1)
+                .maybeSingle();
+            if (recent != null && recent['name'] != null) {
+              latestName = recent['name'] as String;
+            }
+          } catch (e) {
+            developer.log('Failed to fetch latest restaurant: $e', name: 'DataScraper');
+          }
+        }
+
         final stepMessage = activeRun != null
             ? 'Query ${autoRun.queriesCompleted + 1} in progress...'
             : 'Preparing next query...';
@@ -667,6 +730,8 @@ class DataScraperController extends StateNotifier<PipelineState> {
             status: PipelineStatus.processing,
             stepMessage: stepMessage,
             autoRun: autoRun,
+            activeHashtag: activeHashtag,
+            latestDiscoveredRestaurant: latestName,
           ),
         );
 
@@ -689,9 +754,9 @@ class DataScraperController extends StateNotifier<PipelineState> {
 
   void _startPolling(String runId, {String? jobId, int attempt = 0}) {
     _pollTimer?.cancel();
-    const maxAttempts = 180;
+    const maxAttempts = 450; // 15 minutes at 2s intervals
 
-    _pollTimer = Timer(const Duration(seconds: 5), () async {
+    _pollTimer = Timer(const Duration(seconds: 2), () async {
       if (_isDisposed) return;
 
       final nextAttempt = attempt + 1;
@@ -731,8 +796,9 @@ class DataScraperController extends StateNotifier<PipelineState> {
       final data = resp.data as Map<String, dynamic>?;
       if (data == null) return null;
 
-      // Use specific_run when available (direct match by run_id)
-      final specificRun = data['specific_run'] as Map<String, dynamic>?;
+      // Use specific_run when available, fallback to active_run
+      final specificRun =
+          (data['specific_run'] ?? data['active_run']) as Map<String, dynamic>?;
       if (specificRun != null) {
         final runStatus = specificRun['status'] as String? ?? 'running';
         if (runStatus == 'completed' || runStatus == 'failed') {
@@ -746,17 +812,42 @@ class DataScraperController extends StateNotifier<PipelineState> {
           };
         }
 
-        // Still running — update progress from stats
-        final stats = data['stats'] as Map<String, dynamic>?;
-        if (stats != null) {
-          final step = _inferStep(specificRun);
-          _updateState(
-            (s) => s.copyWith(
-              currentStep: step,
-              stepMessage: _stepMessage(step, stats),
-            ),
-          );
+        // Still running — update progress from real backend step & stats
+        final globalStats = data['stats'] as Map<String, dynamic>? ?? {};
+        final sourceData = specificRun['discovery_sources'] as Map<String, dynamic>?;
+        final activeHashtag = sourceData?['source_value'] as String?;
+        final rootCurrentStep = data['current_step'] as String?;
+
+        String? latestName = state.latestDiscoveredRestaurant;
+        final newRestCount = specificRun['new_restaurants'] as int? ?? 0;
+        if (newRestCount > 0 && latestName == null) {
+          try {
+            final recent = await _supabase
+                .from('restaurants')
+                .select('name')
+                .order('created_at', ascending: false)
+                .limit(1)
+                .maybeSingle();
+            if (recent != null && recent['name'] != null) {
+              latestName = recent['name'] as String;
+            }
+          } catch (_) {}
         }
+
+        final step = _inferStep(
+          specificRun,
+          dataCurrentStep: rootCurrentStep,
+        );
+
+        _updateState(
+          (s) => s.copyWith(
+            currentStep: step,
+            stepMessage: _stepMessage(step, globalStats, specificRun: specificRun),
+            activeHashtag: activeHashtag ?? s.activeHashtag,
+            latestDiscoveredRestaurant:
+                latestName ?? s.latestDiscoveredRestaurant,
+          ),
+        );
         return null;
       }
 
@@ -767,39 +858,83 @@ class DataScraperController extends StateNotifier<PipelineState> {
     }
   }
 
-  PipelineStep _inferStep(Map<String, dynamic> run) {
+  PipelineStep _inferStep(
+    Map<String, dynamic> run, {
+    String? dataCurrentStep,
+  }) {
+    // 1. Check real current_step from backend pipeline state machine
+    String? stepStr = dataCurrentStep;
+    final result = run['result'];
+    if (stepStr == null && result is Map<String, dynamic>) {
+      stepStr = result['current_step'] as String?;
+    }
+    stepStr ??= run['current_step'] as String?;
+
+    if (stepStr != null) {
+      switch (stepStr) {
+        case 'scrape':
+        case 'location_posts_scrape':
+          return PipelineStep.scrape;
+        case 'ingest':
+        case 'location_posts_ingest':
+          return PipelineStep.ingest;
+        case 'detect':
+          return PipelineStep.detect;
+        case 'resolve':
+          return PipelineStep.resolve;
+        case 'enrich':
+          return PipelineStep.enrich;
+        case 'metrics':
+        case 'complete':
+          return PipelineStep.metrics;
+      }
+    }
+
     final status = run['status'] as String? ?? 'running';
     if (status == 'completed' || status == 'failed') {
       return PipelineStep.metrics;
     }
 
-    final posts = run['posts_received'] as int? ?? 0;
-    final restaurants = run['new_restaurants'] as int? ?? 0;
-
-    if (posts == 0) return PipelineStep.scrape;
-    if (restaurants == 0) return PipelineStep.detect;
-    return PipelineStep.enrich;
+    return PipelineStep.scrape;
   }
 
-  String _stepMessage(PipelineStep step, Map<String, dynamic> stats) {
-    final posts = stats['total_posts'] as int? ?? 0;
-    final pending = stats['pending'] as int? ?? 0;
-    final promoted = stats['promoted'] as int? ?? 0;
-    final restaurants = stats['total_restaurants'] as int? ?? 0;
+  String _stepMessage(
+    PipelineStep step,
+    Map<String, dynamic> stats, {
+    Map<String, dynamic>? specificRun,
+  }) {
+    final runResult = specificRun?['result'] as Map<String, dynamic>?;
+    final runStats = runResult?['stats'] as Map<String, dynamic>?;
+
+    final runPosts = (runStats?['posts_received'] as int?) ??
+        (specificRun?['posts_received'] as int?);
+    final runCandidates = (runStats?['candidates_detected'] as int?) ??
+        (specificRun?['restaurant_candidates'] as int?);
+    final runRestaurants = (runStats?['restaurants_created'] as int?) ??
+        (specificRun?['new_restaurants'] as int?);
 
     switch (step) {
       case PipelineStep.scrape:
-        return 'Scraping Instagram...';
+        return 'Scraping Instagram content...';
       case PipelineStep.ingest:
-        return 'Ingesting posts... ($posts total)';
+        if (runPosts != null && runPosts > 0) {
+          return 'Ingesting $runPosts Instagram posts...';
+        }
+        return 'Ingesting scraped posts...';
       case PipelineStep.detect:
-        return 'Detecting restaurants... ($pending pending)';
+        if (runCandidates != null && runCandidates > 0) {
+          return 'Detecting restaurants ($runCandidates candidates)...';
+        }
+        return 'Detecting restaurant candidates with AI...';
       case PipelineStep.resolve:
-        return 'Resolving candidates...';
+        return 'Resolving locations & coordinates...';
       case PipelineStep.enrich:
-        return 'Enriching restaurants... ($promoted promoted)';
+        if (runRestaurants != null && runRestaurants > 0) {
+          return 'Enriching restaurants ($runRestaurants created)...';
+        }
+        return 'Enriching restaurant details & cuisine...';
       case PipelineStep.metrics:
-        return 'Updating metrics... ($restaurants restaurants)';
+        return 'Evaluating social metrics & verifying photos...';
     }
   }
 
@@ -833,6 +968,7 @@ class DataScraperController extends StateNotifier<PipelineState> {
         currentStep: PipelineStep.metrics,
         stepMessage: 'Complete!',
         result: scanResult,
+        autoRun: null,
         lastScanTime: DateTime.now(),
         activeRunId: null,
         activeJobId: null,

@@ -70,7 +70,7 @@ Deno.serve(async (req: Request) => {
         : supabase
           .from("scrape_runs")
           .select(
-            "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, verified_restaurants, cost_usd, error, created_at, discovery_sources(source_type, source_value, area, created_at)",
+            "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, verified_restaurants, cost_usd, error, created_at, result, discovery_sources(source_type, source_value, area, created_at)",
           )
           .in("status", ["running", "pending"])
           .order("created_at", { ascending: false })
@@ -79,17 +79,17 @@ Deno.serve(async (req: Request) => {
       supabase
         .from("scrape_runs")
         .select(
-          "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, cost_usd, error, created_at, discovery_sources(source_type, source_value, area, created_at)",
+          "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, cost_usd, error, created_at, result, discovery_sources(source_type, source_value, area, created_at)",
         )
         .in("status", ["completed", "failed"])
         .order("created_at", { ascending: false })
         .limit(10),
-      // If run_id provided, also fetch it separately for the response
+      // If run_id provided, also fetch it separately for the response (with result)
       runId
         ? supabase
           .from("scrape_runs")
           .select(
-            "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, cost_usd, error, created_at, discovery_sources(source_type, source_value, area, created_at)",
+            "id, source_id, status, started_at, completed_at, posts_received, new_posts, restaurant_candidates, new_restaurants, cost_usd, error, created_at, result, discovery_sources(source_type, source_value, area, created_at)",
           )
           .eq("id", runId)
           .maybeSingle()
@@ -170,8 +170,12 @@ Deno.serve(async (req: Request) => {
       `posts=${totalPosts}, restaurants=${totalRestaurants ?? 0}`,
   );
 
+  const runResult = ((specificRun?.result ?? activeRun?.result) as Record<string, unknown> | null);
+  const currentStep = (runResult?.current_step as string) ?? null;
+
   return jsonResponse({
     status,
+    current_step: currentStep,
     active_run: activeRun ?? null,
     specific_run: specificRun ?? null,
     auto_run: autoRunResult.data ?? null,

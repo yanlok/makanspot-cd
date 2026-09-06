@@ -3,16 +3,17 @@
 // geocode-restaurants
 // ----------------------------------------------------------------------------
 // Re-geocodes restaurants using the Mapbox Temporary Geocoding API (free tier:
-// 100K requests/month). Updates latitude and longitude for restaurants that
-// lack coordinates or that the caller explicitly asks to re-geocode.
+// 100K requests/month). Resolves specific addresses via LLM when missing or
+// clustered, and enforces anti-centroid filtering.
 //
 // POST body: {
-//   restaurant_ids?: number[],  -- specific IDs to geocode (omit for batch mode)
-//   batch_size?: number,        -- max restaurants to process (default 10, max 50)
-//   force?: boolean             -- re-geocode even if lat/lng already exist
+//   restaurant_ids?: number[],      -- specific IDs to geocode (omit for batch mode)
+//   batch_size?: number,            -- max restaurants to process (default 20, max 100)
+//   force?: boolean,                -- re-geocode even if lat/lng already exist
+//   remove_unresolvable?: boolean   -- soft-delete restaurants whose location cannot be resolved
 // }
 //
-// Response: { geocoded: number, skipped: number, failed: number, results: [...] }
+// Response: { geocoded: number, deleted: number, skipped: number, failed: number, results: [...] }
 // ============================================================================
 
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
@@ -20,7 +21,12 @@ type DbClient = SupabaseClient<any, any, any, any, any>;
 
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { isAdminRequest } from "../_shared/auth.ts";
-import { fetchWithTimeout } from "../_shared/http.ts";
+import {
+  geocodeWithMapbox,
+  isBroadCentroid,
+  isInMalaysia,
+  resolveAddressWithLLM,
+} from "../_shared/enrich.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,6 +47,7 @@ interface GeocodeResult {
   status: string;
   latitude: number | null;
   longitude: number | null;
+  resolved_address?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,11 +81,13 @@ Deno.serve(async (req: Request) => {
     ? body.restaurant_ids.filter((id: unknown) => typeof id === "number")
     : null;
   const batchSize = typeof body.batch_size === "number"
-    ? Math.max(1, Math.min(50, Math.trunc(body.batch_size)))
-    : 10;
+    ? Math.max(1, Math.min(100, Math.trunc(body.batch_size)))
+    : 20;
   const force = body.force === true;
+  const removeUnresolvable = body.remove_unresolvable === true;
 
-  const mapboxToken = Deno.env.get("MAPBOX_ACCESS_TOKEN");
+  const mapboxToken =
+    Deno.env.get("MAPBOX_ACCESS_TOKEN") ?? Deno.env.get("MAPBOX_TOKEN");
   if (!mapboxToken) {
     return jsonResponse(
       { error: "MAPBOX_ACCESS_TOKEN environment variable is not set" },
@@ -87,7 +96,14 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const result = await geocodeBatch(supabase, mapboxToken, specificIds, batchSize, force);
+    const result = await geocodeBatch(
+      supabase,
+      mapboxToken,
+      specificIds,
+      batchSize,
+      force,
+      removeUnresolvable,
+    );
     return jsonResponse(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -106,6 +122,7 @@ async function geocodeBatch(
   specificIds: number[] | null,
   batchSize: number,
   force: boolean,
+  removeUnresolvable: boolean,
 ) {
   let query = supabase
     .from("restaurants")
@@ -117,9 +134,12 @@ async function geocodeBatch(
   if (specificIds && specificIds.length > 0) {
     query = query.in("id", specificIds);
   } else if (!force) {
-    // Only restaurants missing valid coordinates
+    // Target restaurants missing coordinates or falling into known centroid clusters
     query = query.or(
-      "latitude.is.null,longitude.is.null,latitude.eq.0,longitude.eq.0",
+      "latitude.is.null,longitude.is.null,latitude.eq.0,longitude.eq.0," +
+        "and(latitude.gte.4.45,latitude.lte.4.55)," +
+        "and(latitude.gte.3.045,latitude.lte.3.055)," +
+        "and(latitude.gte.3.095,latitude.lte.3.105)",
     );
   }
 
@@ -130,65 +150,113 @@ async function geocodeBatch(
     throw new Error(`Failed to fetch restaurants: ${fetchErr.message}`);
   }
   if (!restaurants || restaurants.length === 0) {
-    return { geocoded: 0, skipped: 0, failed: 0, results: [] };
+    return { geocoded: 0, deleted: 0, skipped: 0, failed: 0, results: [] };
   }
 
+  // Filter for candidates that need geocoding
+  const candidates = (restaurants as Restaurant[]).filter((r) => {
+    if (force) return true;
+    const lat = r.latitude;
+    const lng = r.longitude;
+    if (lat === null || lng === null) return true;
+    if (!isInMalaysia(lat, lng)) return true;
+    if (isBroadCentroid(lat, lng)) return true;
+    return false;
+  }).slice(0, batchSize);
+
   let geocoded = 0;
+  let deleted = 0;
   let skipped = 0;
   let failed = 0;
   const results: GeocodeResult[] = [];
 
-  for (const restaurant of restaurants) {
-    const r = restaurant as Restaurant;
+  for (const r of candidates) {
     try {
-      // Skip if already has valid coordinates and force is not set
-      if (
-        !force &&
-        typeof r.latitude === "number" &&
-        Number.isFinite(r.latitude) &&
-        typeof r.longitude === "number" &&
-        Number.isFinite(r.longitude)
-      ) {
-        skipped++;
+      let addrToUse = r.address;
+      let newAddressDiscovered: string | null = null;
+
+      // If address is absent or vague (< 10 chars), consult LLM to identify specific street/mall
+      if (!addrToUse || addrToUse.trim().length < 10) {
+        const llmAddress = await resolveAddressWithLLM(r.name, r.city);
+        if (llmAddress) {
+          addrToUse = llmAddress;
+          newAddressDiscovered = llmAddress;
+        }
+      }
+
+      // Geocode using Mapbox temporary API, rejecting broad city/country centroids
+      let geo: { lat: number; lng: number } | null = null;
+      if (addrToUse && addrToUse.trim().length > 6) {
+        const addrQuery = [addrToUse.trim(), r.city, "Malaysia"]
+          .filter(Boolean)
+          .join(", ");
+        geo = await geocodeWithMapbox(addrQuery, mapboxToken, {
+          rejectBroadArea: true,
+        });
+      }
+
+      if (!geo && r.name) {
+        const nameQuery = [r.name.trim(), r.city, "Malaysia"]
+          .filter(Boolean)
+          .join(", ");
+        geo = await geocodeWithMapbox(nameQuery, mapboxToken, {
+          rejectBroadArea: true,
+        });
+      }
+
+      if (geo && isInMalaysia(geo.lat, geo.lng) && !isBroadCentroid(geo.lat, geo.lng)) {
+        const updateData: Record<string, unknown> = {
+          latitude: geo.lat,
+          longitude: geo.lng,
+          updated_at: new Date().toISOString(),
+        };
+        if (newAddressDiscovered) {
+          updateData.address = newAddressDiscovered;
+        }
+
+        const { error: updateErr } = await supabase
+          .from("restaurants")
+          .update(updateData)
+          .eq("id", r.id);
+
+        if (updateErr) {
+          throw new Error(`Update failed: ${updateErr.message}`);
+        }
+
+        geocoded++;
         results.push({
           id: r.id,
           name: r.name,
-          status: "skipped",
-          latitude: r.latitude,
-          longitude: r.longitude,
+          status: "geocoded",
+          latitude: geo.lat,
+          longitude: geo.lng,
+          resolved_address: newAddressDiscovered ?? r.address,
         });
       } else {
-        const coords = await geocodeSingle(r, mapboxToken);
-        if (coords) {
-          // Update database
-          const { error: updateErr } = await supabase
+        // Location cannot be accurately determined
+        if (removeUnresolvable) {
+          await supabase
             .from("restaurants")
             .update({
-              latitude: coords.latitude,
-              longitude: coords.longitude,
+              deleted_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             })
             .eq("id", r.id);
 
-          if (updateErr) {
-            throw new Error(`Update failed: ${updateErr.message}`);
-          }
-
-          geocoded++;
+          deleted++;
           results.push({
             id: r.id,
             name: r.name,
-            status: "geocoded",
-            latitude: coords.latitude,
-            longitude: coords.longitude,
+            status: "deleted_unresolvable",
+            latitude: r.latitude,
+            longitude: r.longitude,
           });
         } else {
-          // No features returned — keep existing coords
           skipped++;
           results.push({
             id: r.id,
             name: r.name,
-            status: "skipped",
+            status: "unresolved_skipped",
             latitude: r.latitude,
             longitude: r.longitude,
           });
@@ -207,59 +275,13 @@ async function geocodeBatch(
       });
     }
 
-    // Rate limit: 1 second between geocoding API calls
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    // Rate limit: 500ms between calls
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
   console.log(
-    `[geocode-restaurants] Done: ${geocoded} geocoded, ${skipped} skipped, ${failed} failed`,
+    `[geocode-restaurants] Done: ${geocoded} geocoded, ${deleted} deleted, ${skipped} skipped, ${failed} failed`,
   );
 
-  return { geocoded, skipped, failed, results };
-}
-
-// ---------------------------------------------------------------------------
-// Geocode a single restaurant via Mapbox
-// ---------------------------------------------------------------------------
-
-async function geocodeSingle(
-  restaurant: Restaurant,
-  mapboxToken: string,
-): Promise<{ latitude: number; longitude: number } | null> {
-  // Build geocoding query from available fields
-  const parts: string[] = [];
-  if (restaurant.name) parts.push(restaurant.name);
-  if (restaurant.address) parts.push(restaurant.address);
-  if (restaurant.city) parts.push(restaurant.city);
-  parts.push("Malaysia");
-
-  const query = parts.join(" ");
-  const encoded = encodeURIComponent(query);
-
-  const url =
-    `https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json` +
-    `?access_token=${mapboxToken}&limit=1`;
-
-  const resp = await fetchWithTimeout(url, {}, 15_000);
-
-  if (!resp.ok) {
-    console.error(`[geocode] Mapbox API error: ${resp.status} for "${query}"`);
-    return null;
-  }
-
-  const data = await resp.json();
-  const feature = data?.features?.[0];
-  if (!feature?.center || !Array.isArray(feature.center)) {
-    return null;
-  }
-
-  const [longitude, latitude] = feature.center;
-  if (typeof longitude !== "number" || typeof latitude !== "number") {
-    return null;
-  }
-  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
-    return null;
-  }
-
-  return { latitude, longitude };
+  return { geocoded, deleted, skipped, failed, results };
 }
