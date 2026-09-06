@@ -6,6 +6,15 @@ import '../models/admin_repository.dart';
 
 enum UserDetailsStatus { loading, content, notFound, error }
 
+enum UserAccountField { username, email, phone, communityScore }
+
+class UserSaveResult {
+  const UserSaveResult({this.error, this.invalidFields = const {}});
+
+  final String? error;
+  final Set<UserAccountField> invalidFields;
+}
+
 class UserDetailsState {
   const UserDetailsState({
     required this.status,
@@ -81,9 +90,8 @@ class UserDetailsController extends StateNotifier<UserDetailsState> {
     }
   }
 
-  /// Saves the editable fields and returns a user-facing failure message,
-  /// or null when the save succeeded.
-  Future<String?> save({
+  /// Saves the editable fields and identifies fields that need correction.
+  Future<UserSaveResult> save({
     required String rawUsername,
     required String rawEmail,
     required String rawPhone,
@@ -93,32 +101,23 @@ class UserDetailsController extends StateNotifier<UserDetailsState> {
     final username = rawUsername.trim();
     final email = rawEmail.trim();
     final phone = rawPhone.trim();
-    final missingFields = <String>[
-      if (username.isEmpty) 'Name',
-      if (email.isEmpty) 'Email',
-      if (phone.isEmpty) 'Phone number',
-    ];
-    if (missingFields.length == 3) {
-      return 'Name,Email,Phone number is required';
-    }
-    if (missingFields.length == 1) {
-      return '${missingFields.single} is required';
-    }
-    if (missingFields.isNotEmpty) {
-      return '${missingFields.join(' and ')} are required';
-    }
-    if (!_namePattern.hasMatch(username)) {
-      return 'Name can contain letters and underscores only.';
-    }
-    if (!_emailPattern.hasMatch(email)) {
-      return 'Enter a valid email address.';
-    }
-    if (!_phonePattern.hasMatch(phone)) {
-      return 'Enter a valid phone number.';
+    final invalidFields = invalidFieldsFor(
+      username: username,
+      email: email,
+      phone: phone,
+      communityScore: rawCommunityScore,
+    );
+    if (invalidFields.isNotEmpty) {
+      return UserSaveResult(
+        error: 'Please enter valid information in the required fields.',
+        invalidFields: invalidFields,
+      );
     }
     final user = state.user;
     if (user == null) {
-      return null;
+      return const UserSaveResult(
+        error: 'Unable to update the user account. Please try again.',
+      );
     }
     final communityScore = int.tryParse(rawCommunityScore.trim()) ?? 0;
     try {
@@ -127,19 +126,21 @@ class UserDetailsController extends StateNotifier<UserDetailsState> {
         _repository.emailExists(email, user.id),
         _repository.phoneExists(phone, user.id),
       ]);
-      final duplicateFields = <String>[
-        if (duplicates[0]) 'Name',
-        if (duplicates[1]) 'Email',
-        if (duplicates[2]) 'Phone number',
-      ];
-      if (duplicateFields.length == 1) {
-        return '${duplicateFields.single} is already in use.';
-      }
+      final duplicateFields = <UserAccountField>{
+        if (duplicates[0]) UserAccountField.username,
+        if (duplicates[1]) UserAccountField.email,
+        if (duplicates[2]) UserAccountField.phone,
+      };
       if (duplicateFields.isNotEmpty) {
-        return '${duplicateFields.join(', ')} are already in use.';
+        return UserSaveResult(
+          error: 'The name,email address or phone number is already in use.',
+          invalidFields: duplicateFields,
+        );
       }
     } on Object {
-      return 'Could not validate your changes right now.';
+      return const UserSaveResult(
+        error: 'Unable to update the user account. Please try again.',
+      );
     }
 
     state = state.copyWith(isSaving: true);
@@ -152,6 +153,9 @@ class UserDetailsController extends StateNotifier<UserDetailsState> {
         role: role,
         communityScore: communityScore,
       );
+      if (updated == null) {
+        throw StateError('User update affected no rows.');
+      }
       await _recordAudit(
         action: 'update_user',
         target: updated,
@@ -182,13 +186,25 @@ class UserDetailsController extends StateNotifier<UserDetailsState> {
             ? null
             : adminUserAccountId(updated, _allUsers),
       );
-      return null;
-    } on Object {
+      return const UserSaveResult();
+    } on Object catch (error) {
+      final duplicate = _isDuplicateError(error);
       state = state.copyWith(
         isSaving: false,
-        errorMessage: 'Could not save changes.',
+        errorMessage: duplicate
+            ? 'The name,email address or phone number is already in use.'
+            : 'Unable to update the user account. Please try again.',
       );
-      return state.errorMessage;
+      return UserSaveResult(
+        error: state.errorMessage,
+        invalidFields: duplicate
+            ? const {
+                UserAccountField.username,
+                UserAccountField.email,
+                UserAccountField.phone,
+              }
+            : const {},
+      );
     }
   }
 
@@ -206,20 +222,15 @@ class UserDetailsController extends StateNotifier<UserDetailsState> {
         user.id,
         newStatus,
       );
-      await _recordAudit(
-        action: 'toggle_account_status',
-        target: updated,
-        changes: {
-          'is_active': {
-            'from': user.accountStatus == AdminAccountStatus.active,
-            'to': newStatus == AdminAccountStatus.active,
-          },
-        },
-      );
+      if (updated == null) {
+        throw StateError('Account status update affected no rows.');
+      }
       state = state.copyWith(user: updated);
       return null;
     } on Object {
-      return 'Could not update status.';
+      return newStatus == AdminAccountStatus.active
+          ? 'Unable to activate the user account. Please try again.'
+          : 'Unable to deactivate the user account. Please try again.';
     }
   }
 
@@ -259,4 +270,34 @@ class UserDetailsController extends StateNotifier<UserDetailsState> {
     caseSensitive: false,
   );
   static final _phonePattern = RegExp(r'^0\d{2}-\d{7}$');
+
+  static bool _isDuplicateError(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('23505') || message.contains('duplicate key');
+  }
+
+  static Set<UserAccountField> invalidFieldsFor({
+    required String username,
+    required String email,
+    required String phone,
+    required String communityScore,
+  }) {
+    final invalidFields = <UserAccountField>{};
+    if (username.trim().isEmpty || !_namePattern.hasMatch(username.trim())) {
+      invalidFields.add(UserAccountField.username);
+    }
+    if (email.trim().isEmpty || !_emailPattern.hasMatch(email.trim())) {
+      invalidFields.add(UserAccountField.email);
+    }
+    if (phone.trim().isEmpty || !_phonePattern.hasMatch(phone.trim())) {
+      invalidFields.add(UserAccountField.phone);
+    }
+    if (communityScore.trim().isNotEmpty) {
+      final score = int.tryParse(communityScore.trim());
+      if (score == null || score < 0) {
+        invalidFields.add(UserAccountField.communityScore);
+      }
+    }
+    return invalidFields;
+  }
 }

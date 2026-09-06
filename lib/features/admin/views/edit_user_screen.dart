@@ -32,6 +32,7 @@ class _EditUserScreenState extends ConsumerState<EditUserScreen> {
   AdminUserRole _role = AdminUserRole.user;
   bool _seeded = false;
   String? _errorMessage;
+  Set<UserAccountField> _invalidFields = const {};
 
   @override
   void dispose() {
@@ -54,8 +55,11 @@ class _EditUserScreenState extends ConsumerState<EditUserScreen> {
   }
 
   Future<void> _save() async {
-    setState(() => _errorMessage = null);
-    final error = await ref
+    setState(() {
+      _errorMessage = null;
+      _invalidFields = const {};
+    });
+    final result = await ref
         .read(userDetailsControllerProvider(widget.userId).notifier)
         .save(
           rawUsername: _usernameController.text,
@@ -67,15 +71,18 @@ class _EditUserScreenState extends ConsumerState<EditUserScreen> {
     if (!mounted) {
       return;
     }
-    if (error != null) {
-      setState(() => _errorMessage = error);
+    if (result.error != null) {
+      setState(() {
+        _errorMessage = result.error;
+        _invalidFields = result.invalidFields;
+      });
       return;
     }
     _accountIdController.text =
         ref.read(userDetailsControllerProvider(widget.userId)).accountId ?? '';
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Changes Saved — User information updated.'),
+        content: Text('User account details updated successfully.'),
       ),
     );
   }
@@ -91,13 +98,13 @@ class _EditUserScreenState extends ConsumerState<EditUserScreen> {
       context,
       title: activating ? 'Activate Account?' : 'Deactivate Account?',
       message: activating
-          ? '${user.username} will regain access to the account.'
-          : '${user.username} will no longer be able to use the account '
-                'until it is reactivated.',
+          ? 'Are you sure you want to activate this account?'
+          : 'Are you sure you want to deactivate this account?',
       confirmLabel: activating ? 'Activate' : 'Deactivate',
       destructive: !activating,
-    );
-    if ((confirmed ?? false) && mounted) {
+    ) ==
+        true;
+    if (confirmed && mounted) {
       final error = await ref
           .read(userDetailsControllerProvider(widget.userId).notifier)
           .toggleAccountStatus();
@@ -113,8 +120,8 @@ class _EditUserScreenState extends ConsumerState<EditUserScreen> {
         SnackBar(
           content: Text(
             activating
-                ? 'Account Activated — ${user.username} can now sign in.'
-                : 'Account Deactivated — ${user.username} can no longer sign in.',
+                ? 'User account activated successfully.'
+                : 'User account deactivated successfully.',
           ),
         ),
       );
@@ -157,6 +164,7 @@ class _EditUserScreenState extends ConsumerState<EditUserScreen> {
               accountIdController: _accountIdController,
               communityScoreController: _communityScoreController,
               role: _role,
+              invalidFields: _invalidFields,
               onRoleChanged: (value) => setState(() => _role = value),
             ),
             if (_errorMessage != null) ...[
@@ -214,6 +222,7 @@ class _EditFormCard extends StatelessWidget {
     required this.accountIdController,
     required this.communityScoreController,
     required this.role,
+    required this.invalidFields,
     required this.onRoleChanged,
   });
 
@@ -224,6 +233,7 @@ class _EditFormCard extends StatelessWidget {
   final TextEditingController accountIdController;
   final TextEditingController communityScoreController;
   final AdminUserRole role;
+  final Set<UserAccountField> invalidFields;
   final ValueChanged<AdminUserRole> onRoleChanged;
 
   @override
@@ -283,6 +293,7 @@ class _EditFormCard extends StatelessWidget {
                 ),
               ],
               fieldKey: const Key('admin-user-username'),
+              hasError: invalidFields.contains(UserAccountField.username),
             ),
           ),
           const SizedBox(height: 16),
@@ -294,11 +305,12 @@ class _EditFormCard extends StatelessWidget {
               helperText: 'Enter a valid email address',
               keyboardType: TextInputType.emailAddress,
               fieldKey: const Key('admin-user-email'),
+              hasError: invalidFields.contains(UserAccountField.email),
             ),
           ),
           const SizedBox(height: 16),
           _field(
-            label: 'Phone Number',
+            label: 'Phone Number *',
             child: AdminInputField(
               controller: phoneController,
               hint: '012-3456789',
@@ -308,6 +320,7 @@ class _EditFormCard extends StatelessWidget {
                 FilteringTextInputFormatter.allow(RegExp(r'[0-9-]')),
               ],
               fieldKey: const Key('admin-user-phone'),
+              hasError: invalidFields.contains(UserAccountField.phone),
             ),
           ),
           const SizedBox(height: 16),
@@ -342,6 +355,7 @@ class _EditFormCard extends StatelessWidget {
               hint: '',
               keyboardType: TextInputType.number,
               fieldKey: const Key('admin-user-community-score'),
+              hasError: invalidFields.contains(UserAccountField.communityScore),
             ),
           ),
         ],

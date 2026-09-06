@@ -5,13 +5,29 @@ import '../models/admin_repository.dart';
 
 enum RestaurantDetailsStatus { loading, content, notFound, error }
 
+enum RestaurantInformationField {
+  name,
+  phone,
+  website,
+  businessHours,
+  latitude,
+  longitude,
+}
+
 class AdminSaveResult {
-  const AdminSaveResult({this.error, this.createdId});
+  const AdminSaveResult({
+    this.error,
+    this.createdId,
+    this.invalidFields = const {},
+  });
 
   final String? error;
 
   /// Set when a new restaurant was created.
   final String? createdId;
+
+  /// Fields that need the administrator's attention before saving.
+  final Set<RestaurantInformationField> invalidFields;
 }
 
 class RestaurantDetailsState {
@@ -91,15 +107,38 @@ class RestaurantDetailsController
     } on Object {
       state = const RestaurantDetailsState(
         status: RestaurantDetailsStatus.error,
-        errorMessage: 'We could not load this restaurant right now.',
+        errorMessage: 'Unable to retrieve restaurant information. Please try again.',
       );
     }
   }
 
   Future<AdminSaveResult> save(AdminRestaurantDraft draft) async {
     final name = draft.name.trim();
-    if (name.isEmpty) {
-      return const AdminSaveResult(error: 'Restaurant name is required');
+    final invalidFields = invalidFieldsFor(draft, name);
+    if (invalidFields.isNotEmpty) {
+      return AdminSaveResult(
+        error: 'Please enter valid information in the required fields.',
+        invalidFields: invalidFields,
+      );
+    }
+    if (!isCreate) {
+      try {
+        if (await _repository.restaurantExists(
+          _draftWithName(draft, name),
+          _restaurantId,
+        )) {
+          return const AdminSaveResult(
+            error:
+                'A similar restaurant record already exists. Please review the information.',
+          );
+        }
+      } on Object catch (error) {
+        return AdminSaveResult(
+          error: _isDuplicateError(error)
+              ? 'A similar restaurant record already exists. Please review the information.'
+              : 'Unable to update restaurant information. Please try again.',
+        );
+      }
     }
     state = state.copyWith(isSaving: true);
     try {
@@ -123,12 +162,20 @@ class RestaurantDetailsController
       }
       state = state.copyWith(isSaving: false, restaurant: updated);
       return const AdminSaveResult();
-    } on Object {
+    } on Object catch (error) {
+      final invalidInformation = _isInvalidInformationError(error);
       state = state.copyWith(
         isSaving: false,
-        errorMessage: 'Could not save restaurant.',
+        errorMessage: invalidInformation
+            ? 'Please enter valid information in the required fields.'
+            : _isDuplicateError(error)
+            ? 'A similar restaurant record already exists. Please review the information.'
+            : 'Unable to update restaurant information. Please try again.',
       );
-      return AdminSaveResult(error: state.errorMessage);
+      return AdminSaveResult(
+        error: state.errorMessage,
+        invalidFields: invalidInformation ? invalidFieldsFor(draft, name) : const {},
+      );
     }
   }
 
@@ -144,20 +191,97 @@ class RestaurantDetailsController
       instagramUsername: draft.instagramUsername,
       priceRange: draft.priceRange,
       businessHours: draft.businessHours,
+      businessHoursText: draft.businessHoursText,
       description: draft.description,
       imageUrl: draft.imageUrl,
       latitude: draft.latitude,
       longitude: draft.longitude,
+      latitudeText: draft.latitudeText,
+      longitudeText: draft.longitudeText,
     );
   }
 
+  static Set<RestaurantInformationField> invalidFieldsFor(
+    AdminRestaurantDraft draft,
+    String name,
+  ) {
+    final invalidFields = <RestaurantInformationField>{};
+    if (name.isEmpty) {
+      invalidFields.add(RestaurantInformationField.name);
+    }
+
+    final phone = draft.phone?.trim() ?? '';
+    if (phone.isNotEmpty && !RegExp(r'^01\d-\d{7}$').hasMatch(phone)) {
+      invalidFields.add(RestaurantInformationField.phone);
+    }
+
+    final businessHours = draft.businessHoursText?.trim() ?? '';
+    if (businessHours.isNotEmpty && !_isValidBusinessHours(businessHours)) {
+      invalidFields.add(RestaurantInformationField.businessHours);
+    }
+
+    final website = draft.website?.trim() ?? '';
+    if (website.isNotEmpty) {
+      final uri = Uri.tryParse(website);
+      if (uri == null ||
+          !uri.hasAuthority ||
+          (uri.scheme != 'http' && uri.scheme != 'https')) {
+        invalidFields.add(RestaurantInformationField.website);
+      }
+    }
+
+    if (!_hasValidCoordinate(draft.latitudeText, -90, 90)) {
+      invalidFields.add(RestaurantInformationField.latitude);
+    }
+    if (!_hasValidCoordinate(draft.longitudeText, -180, 180)) {
+      invalidFields.add(RestaurantInformationField.longitude);
+    }
+    return invalidFields;
+  }
+
+  static bool _hasValidCoordinate(String? rawValue, double min, double max) {
+    final value = rawValue?.trim() ?? '';
+    if (value.isEmpty) return true;
+    final coordinate = double.tryParse(value);
+    return coordinate != null && coordinate >= min && coordinate <= max;
+  }
+
+  static bool _isValidBusinessHours(String value) {
+    final timeRange = RegExp(
+      r'^\s*[^:;]+:\s*([01]\d|2[0-3]):[0-5]\d\s*-\s*([01]\d|2[0-3]):[0-5]\d\s*$',
+    );
+    final entries = value.split(';');
+    return entries.isNotEmpty && entries.every(timeRange.hasMatch);
+  }
+
+  static bool _isDuplicateError(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('23505') ||
+        message.contains('duplicate key') ||
+        message.contains('similar restaurant record') ||
+        message.contains('restaurant with this name already exists');
+  }
+
+  static bool _isInvalidInformationError(Object error) {
+    final message = error.toString().toLowerCase();
+    return message.contains('22023') ||
+        message.contains('invalid restaurant information');
+  }
+
   /// Returns a user-facing failure message, or null when removal succeeded.
-  Future<String?> remove() async {
+  Future<String?> remove({
+    required RestaurantRemovalReason reason,
+    String? additionalNote,
+  }) async {
     if (isCreate) {
       return null;
     }
     try {
-      await _repository.deleteRestaurant(_restaurantId);
+      await _repository.deleteRestaurant(
+        _restaurantId,
+        reason: reason,
+        additionalNote: additionalNote,
+      );
       return null;
     } on Object {
       return 'Could not remove restaurant.';

@@ -67,8 +67,10 @@ class AdminInputField extends StatelessWidget {
     this.fieldKey,
     this.keyboardType,
     this.enabled = true,
+    this.hasError = false,
     this.onChanged,
     this.helperText,
+    this.errorText,
     this.inputFormatters,
     super.key,
   });
@@ -78,8 +80,10 @@ class AdminInputField extends StatelessWidget {
   final Key? fieldKey;
   final TextInputType? keyboardType;
   final bool enabled;
+  final bool hasError;
   final ValueChanged<String>? onChanged;
   final String? helperText;
+  final String? errorText;
   final List<TextInputFormatter>? inputFormatters;
 
   @override
@@ -103,12 +107,18 @@ class AdminInputField extends StatelessWidget {
             vertical: 10,
           ),
           border: _border(AppColors.secondary),
-          enabledBorder: _border(AppColors.secondary),
-          focusedBorder: _border(AppColors.primary, width: 2),
+          enabledBorder: _border(
+            hasError ? AppColors.destructive : AppColors.secondary,
+          ),
+          focusedBorder: _border(
+            hasError ? AppColors.destructive : AppColors.primary,
+            width: 2,
+          ),
         ),
       ),
     );
-    if (helperText == null) {
+    final detailText = hasError && errorText != null ? errorText : helperText;
+    if (detailText == null) {
       return input;
     }
     return Column(
@@ -117,10 +127,12 @@ class AdminInputField extends StatelessWidget {
         input,
         const SizedBox(height: 4),
         Text(
-          helperText!,
+          detailText,
           style: Theme.of(
             context,
-          ).textTheme.bodySmall?.copyWith(color: AppColors.mutedForeground),
+          ).textTheme.bodySmall?.copyWith(
+            color: hasError ? AppColors.destructive : AppColors.mutedForeground,
+          ),
         ),
       ],
     );

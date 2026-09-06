@@ -333,7 +333,9 @@ class SupabaseAdminRepository implements AdminRepository {
       query = query.or(
         'name.ilike.%$term%,'
         'address.ilike.%$term%,'
-        'categories::text.ilike.%$term%',
+        'city.ilike.%$term%,'
+        'state.ilike.%$term%,'
+        'description.ilike.%$term%',
       );
     }
 
@@ -434,18 +436,39 @@ class SupabaseAdminRepository implements AdminRepository {
   }
 
   @override
-  Future<void> deleteRestaurant(String id) async {
-    final updated = await _client
+  Future<bool> restaurantExists(
+    AdminRestaurantDraft draft,
+    String excludeRestaurantId,
+  ) async {
+    final rows = await _client
         .from('restaurants')
-        .update({'deleted_at': DateTime.now().toUtc().toIso8601String()})
-        .eq('id', int.parse(id))
-        .select('id');
-    if (updated.isEmpty) {
-      throw StateError(
-        'Restaurant deletion affected no rows. The restaurant may already be '
-        'deleted or the signed-in account may lack admin permissions.',
-      );
-    }
+        .select(
+          'id, name, address, city, state, latitude, longitude, phone, '
+          'website, instagram_username',
+        )
+        .neq('id', int.parse(excludeRestaurantId));
+    return rows.any(
+      (row) => _matchesRestaurantIdentity(
+        row as Map<String, dynamic>,
+        draft,
+      ),
+    );
+  }
+
+  @override
+  Future<void> deleteRestaurant(
+    String id, {
+    required RestaurantRemovalReason reason,
+    String? additionalNote,
+  }) async {
+    await _client.rpc(
+      'admin_remove_restaurant',
+      params: {
+        'p_restaurant_id': int.parse(id),
+        'p_reason': reason.label,
+        'p_additional_note': _nullIfBlank(additionalNote ?? ''),
+      },
+    );
   }
 
   // ── Private helpers ──────────────────────────────────────────────
@@ -604,6 +627,60 @@ class SupabaseAdminRepository implements AdminRepository {
         .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
         .trim()
         .replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  bool _matchesRestaurantIdentity(
+    Map<String, dynamic> restaurant,
+    AdminRestaurantDraft draft,
+  ) {
+    final proposedName = _normalizeRestaurantName(draft.name);
+    if (proposedName.isNotEmpty &&
+        _normalizeRestaurantName(_stringOrEmpty(restaurant['name'])) ==
+            proposedName) {
+      return true;
+    }
+
+    final proposedPhone = _nullIfBlank(draft.phone);
+    if (proposedPhone != null &&
+        _stringOrEmpty(restaurant['phone']).trim() == proposedPhone) {
+      return true;
+    }
+
+    final proposedWebsite = _nullIfBlank(draft.website);
+    if (proposedWebsite != null &&
+        _stringOrEmpty(restaurant['website']).trim().toLowerCase() ==
+            proposedWebsite.toLowerCase()) {
+      return true;
+    }
+
+    final proposedInstagram = _nullIfBlank(draft.instagramUsername);
+    if (proposedInstagram != null &&
+        _stringOrEmpty(restaurant['instagram_username']).trim().toLowerCase() ==
+            proposedInstagram.toLowerCase()) {
+      return true;
+    }
+
+    final proposedAddress = _nullIfBlank(draft.address);
+    if (proposedAddress != null &&
+        _normalizedIdentityValue(restaurant['address']) ==
+            _normalizedIdentityValue(proposedAddress) &&
+        _normalizedIdentityValue(restaurant['city']) ==
+            _normalizedIdentityValue(draft.city) &&
+        _normalizedIdentityValue(restaurant['state']) ==
+            _normalizedIdentityValue(draft.state)) {
+      return true;
+    }
+
+    final latitude = restaurant['latitude'] as num?;
+    final longitude = restaurant['longitude'] as num?;
+    return draft.latitude != null &&
+        draft.longitude != null &&
+        latitude?.toDouble() == draft.latitude &&
+        longitude?.toDouble() == draft.longitude;
+  }
+
+  String _normalizedIdentityValue(Object? value) {
+    return _stringOrEmpty(value).trim().toLowerCase();
   }
 
   AdminRestaurant _restaurantFromRow(Map<String, dynamic> row) {

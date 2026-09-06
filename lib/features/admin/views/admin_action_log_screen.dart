@@ -116,7 +116,10 @@ class _ActionLogCard extends StatelessWidget {
             style: valueStyle,
           ),
           _LogRow(
-            label: entry.action == 'update_restaurant' ? 'Restaurant' : 'User',
+            label: entry.action == 'update_restaurant' ||
+                    entry.action == 'remove_restaurant'
+                ? 'Restaurant'
+                : 'User',
             value: entry.targetUsername,
             style: valueStyle,
           ),
@@ -154,6 +157,7 @@ class _ActionLogCard extends StatelessWidget {
     'update_user' => 'Update User Account',
     'toggle_account_status' => 'Update Account Status',
     'update_restaurant' => 'Update Restaurant Information',
+    'remove_restaurant' => 'Remove Restaurant',
     _ =>
       action
           .split('_')
@@ -185,6 +189,10 @@ class _ActionLogCard extends StatelessWidget {
     'verification_status' => 'Verification Status',
     'latitude' => 'Latitude',
     'longitude' => 'Longitude',
+    'removal_reason' => 'Removal Reason',
+    'additional_note' => 'Additional Note',
+    'disposition' => 'Result',
+    'deactivation_reason' => 'Deactivation Reason',
     _ => field,
   };
 

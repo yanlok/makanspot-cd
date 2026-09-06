@@ -128,10 +128,14 @@ class RestaurantManagementScreen extends ConsumerWidget {
         if (state.status == RestaurantManagementStatus.loading)
           const AdminListSkeleton(count: 5, cardHeight: 144)
         else if (state.status == RestaurantManagementStatus.empty)
-          const AdminEmptyState(
+          AdminEmptyState(
             icon: LucideIcons.utensilsCrossed,
-            title: 'No Restaurants Found',
-            message: 'No restaurants match your filters.',
+            title: state.hasAppliedCriteria
+                ? 'No Matching Restaurants'
+                : 'No Restaurants Found',
+            message: state.hasAppliedCriteria
+                ? 'No restaurants match your search or filter criteria.'
+                : 'No restaurant records are available.',
           ),
       ],
     );
@@ -155,13 +159,13 @@ class RestaurantManagementScreen extends ConsumerWidget {
             const SizedBox(height: 8),
             Text(
               state.pageError ??
-                  'We could not load restaurant records right now.',
+                  'Unable to retrieve restaurant information. Please try again.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 16),
             FilledButton(
               onPressed: controller.loadFirstPage,
-              child: const Text('Try Again'),
+              child: const Text('Retry'),
             ),
           ],
         ),
@@ -182,7 +186,8 @@ class RestaurantManagementScreen extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Could not load more restaurants.',
+              state.pageError ??
+                  'Unable to retrieve restaurant information. Please try again.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 12),

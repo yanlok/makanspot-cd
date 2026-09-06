@@ -15,6 +15,7 @@ class UserManagementState {
     this.statusFilter = UserStatusFilter.all,
     this.roleFilter = UserRoleFilter.all,
     this.hasMore = false,
+    this.hasAppliedCriteria = false,
     this.pageError,
   });
 
@@ -27,6 +28,8 @@ class UserManagementState {
   final UserStatusFilter statusFilter;
   final UserRoleFilter roleFilter;
   final bool hasMore;
+  /// Distinguishes an empty database from an empty search/filter result.
+  final bool hasAppliedCriteria;
   final String? pageError;
 
   UserManagementState copyWith({
@@ -36,6 +39,7 @@ class UserManagementState {
     UserStatusFilter? statusFilter,
     UserRoleFilter? roleFilter,
     bool? hasMore,
+    bool? hasAppliedCriteria,
     String? pageError,
   }) {
     return UserManagementState(
@@ -45,6 +49,7 @@ class UserManagementState {
       statusFilter: statusFilter ?? this.statusFilter,
       roleFilter: roleFilter ?? this.roleFilter,
       hasMore: hasMore ?? this.hasMore,
+      hasAppliedCriteria: hasAppliedCriteria ?? this.hasAppliedCriteria,
       pageError: pageError,
     );
   }
@@ -76,7 +81,11 @@ class UserManagementController extends StateNotifier<UserManagementState> {
 
   Future<void> loadFirstPage() async {
     final requestId = ++_requestId;
-    state = state.copyWith(status: UserManagementStatus.loading);
+    state = state.copyWith(
+      status: UserManagementStatus.loading,
+      users: const [],
+      hasMore: false,
+    );
     await _fetchPage(0, requestId);
   }
 
@@ -87,17 +96,35 @@ class UserManagementController extends StateNotifier<UserManagementState> {
   }
 
   void updateSearch(String value) {
-    state = state.copyWith(searchQuery: value);
+    state = state.copyWith(
+      searchQuery: value,
+      hasAppliedCriteria:
+          value.trim().isNotEmpty ||
+          state.statusFilter != UserStatusFilter.all ||
+          state.roleFilter != UserRoleFilter.all,
+    );
     loadFirstPage();
   }
 
   void selectStatusFilter(UserStatusFilter filter) {
-    state = state.copyWith(statusFilter: filter);
+    state = state.copyWith(
+      statusFilter: filter,
+      hasAppliedCriteria:
+          filter != UserStatusFilter.all ||
+          state.roleFilter != UserRoleFilter.all ||
+          state.searchQuery.trim().isNotEmpty,
+    );
     loadFirstPage();
   }
 
   void selectRoleFilter(UserRoleFilter filter) {
-    state = state.copyWith(roleFilter: filter);
+    state = state.copyWith(
+      roleFilter: filter,
+      hasAppliedCriteria:
+          filter != UserRoleFilter.all ||
+          state.statusFilter != UserStatusFilter.all ||
+          state.searchQuery.trim().isNotEmpty,
+    );
     loadFirstPage();
   }
 
@@ -121,17 +148,17 @@ class UserManagementController extends StateNotifier<UserManagementState> {
         users: List.unmodifiable(merged),
         hasMore: page.hasMore,
       );
-    } on Object catch (error) {
+    } on Object {
       if (requestId != _requestId) return;
       if (offset == 0) {
         state = state.copyWith(
           status: UserManagementStatus.error,
-          pageError: error.toString(),
+          pageError: 'Unable to retrieve user accounts. Please try again.',
         );
       } else {
         state = state.copyWith(
           status: UserManagementStatus.content,
-          pageError: error.toString(),
+          pageError: 'Unable to retrieve user accounts. Please try again.',
         );
       }
     } finally {

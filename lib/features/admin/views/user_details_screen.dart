@@ -7,6 +7,7 @@ import 'package:makanspot/core/theme/app_theme.dart';
 
 import '../controllers/user_details_controller.dart';
 import '../models/admin_models.dart';
+import 'widgets/admin_confirm_dialog.dart';
 import 'widgets/admin_form_widgets.dart';
 import 'widgets/admin_skeletons.dart';
 import 'widgets/admin_status_badge.dart';
@@ -16,6 +17,43 @@ class UserDetailsScreen extends ConsumerWidget {
   const UserDetailsScreen({required this.userId, super.key});
 
   final String userId;
+
+  Future<void> _toggleStatus(
+    BuildContext context,
+    WidgetRef ref,
+    AdminUser user,
+  ) async {
+    final activating = user.accountStatus == AdminAccountStatus.deactivated;
+    final confirmed = await showAdminConfirmDialog(
+      context,
+      title: activating ? 'Activate Account?' : 'Deactivate Account?',
+      message: activating
+          ? 'Are you sure you want to activate this account?'
+          : 'Are you sure you want to deactivate this account?',
+      confirmLabel: activating ? 'Activate' : 'Deactivate',
+      destructive: !activating,
+    ) ==
+        true;
+    if (!confirmed || !context.mounted) return;
+
+    final error = await ref
+        .read(userDetailsControllerProvider(userId).notifier)
+        .toggleAccountStatus();
+    if (!context.mounted) return;
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          activating
+              ? 'User account activated successfully.'
+              : 'User account deactivated successfully.',
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -49,6 +87,23 @@ class UserDetailsScreen extends ConsumerWidget {
               icon: LucideIcons.pencil,
               buttonKey: const Key('admin-user-edit'),
               onPressed: () => context.go('/admin/users/$userId/edit'),
+            ),
+            const SizedBox(height: 12),
+            AdminOutlineButton(
+              label: user.accountStatus == AdminAccountStatus.active
+                  ? 'Deactivate Account'
+                  : 'Activate Account',
+              icon: user.accountStatus == AdminAccountStatus.active
+                  ? LucideIcons.userX
+                  : LucideIcons.userCheck,
+              borderColor: user.accountStatus == AdminAccountStatus.active
+                  ? AppColors.destructive
+                  : AppColors.success,
+              foregroundColor: user.accountStatus == AdminAccountStatus.active
+                  ? AppColors.destructive
+                  : AppColors.success,
+              buttonKey: const Key('admin-user-details-toggle-status'),
+              onPressed: () => _toggleStatus(context, ref, user),
             ),
           ],
         ],

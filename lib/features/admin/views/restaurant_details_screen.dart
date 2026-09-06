@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -25,6 +26,8 @@ const _categories = <String>[
 ];
 
 const _priceRanges = <String>['\$', '\$\$', '\$\$\$', '\$\$\$\$'];
+const _restaurantUpdateFailureMessage =
+    'Unable to update restaurant information. Please try again.';
 
 class RestaurantDetailsScreen extends ConsumerStatefulWidget {
   const RestaurantDetailsScreen({required this.restaurantId, super.key});
@@ -45,11 +48,13 @@ class _RestaurantDetailsScreenState
   final _cityController = TextEditingController();
   final _stateController = TextEditingController();
   final _instagramController = TextEditingController();
+  final _businessHoursController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _latitudeController = TextEditingController();
   final _longitudeController = TextEditingController();
 
   final Set<String> _selectedCategories = {};
+  Set<RestaurantInformationField> _invalidFields = const {};
   String _priceRange = _priceRanges.first;
   String _imageUrl = '';
   bool _uploading = false;
@@ -77,6 +82,7 @@ class _RestaurantDetailsScreenState
     _cityController.dispose();
     _stateController.dispose();
     _instagramController.dispose();
+    _businessHoursController.dispose();
     _descriptionController.dispose();
     _latitudeController.dispose();
     _longitudeController.dispose();
@@ -94,6 +100,7 @@ class _RestaurantDetailsScreenState
     _phoneController.text = restaurant.phone ?? '';
     _websiteController.text = restaurant.website ?? '';
     _instagramController.text = restaurant.instagramUsername ?? '';
+    _businessHoursController.text = _businessHoursText(restaurant.businessHours);
     _priceRange = _priceRanges.contains(restaurant.priceRange)
         ? restaurant.priceRange!
         : _priceRanges.first;
@@ -115,14 +122,37 @@ class _RestaurantDetailsScreenState
       website: _websiteController.text,
       instagramUsername: _instagramController.text,
       priceRange: _priceRange,
+      businessHours: _businessHoursMap(_businessHoursController.text),
+      businessHoursText: _businessHoursController.text,
       description: _descriptionController.text,
       imageUrl: _imageUrl,
       latitude: double.tryParse(_latitudeController.text.trim()),
       longitude: double.tryParse(_longitudeController.text.trim()),
+      latitudeText: _latitudeController.text,
+      longitudeText: _longitudeController.text,
     );
   }
 
+  static String _businessHoursText(Map<String, dynamic>? businessHours) {
+    if (businessHours == null || businessHours.isEmpty) return '';
+    return businessHours.entries.map((entry) => '${entry.key}: ${entry.value}').join('; ');
+  }
+
+  static Map<String, dynamic>? _businessHoursMap(String value) {
+    final text = value.trim();
+    if (text.isEmpty) return null;
+    final hours = <String, dynamic>{};
+    for (final entry in text.split(';')) {
+      final separator = entry.indexOf(':');
+      if (separator <= 0) return null;
+      hours[entry.substring(0, separator).trim()] =
+          entry.substring(separator + 1).trim();
+    }
+    return hours;
+  }
+
   Future<void> _save() async {
+    setState(() => _invalidFields = const {});
     final result = await ref
         .read(restaurantDetailsControllerProvider(widget.restaurantId).notifier)
         .save(_draft());
@@ -131,6 +161,16 @@ class _RestaurantDetailsScreenState
     }
     final messenger = ScaffoldMessenger.of(context);
     if (result.error != null) {
+      final previousRestaurant = ref
+          .read(restaurantDetailsControllerProvider(widget.restaurantId))
+          .restaurant;
+      setState(() {
+        _invalidFields = result.invalidFields;
+        if (result.error == _restaurantUpdateFailureMessage &&
+            previousRestaurant != null) {
+          _seed(previousRestaurant);
+        }
+      });
       messenger.showSnackBar(SnackBar(content: Text(result.error!)));
       return;
     }
@@ -148,7 +188,7 @@ class _RestaurantDetailsScreenState
     }
     messenger.showSnackBar(
       const SnackBar(
-        content: Text('Changes Saved — Restaurant information updated.'),
+        content: Text('Restaurant information updated successfully.'),
       ),
     );
     if (widget.restaurantId != 'new') {
@@ -171,7 +211,10 @@ class _RestaurantDetailsScreenState
           .read(
             restaurantDetailsControllerProvider(widget.restaurantId).notifier,
           )
-          .remove();
+          .remove(
+            reason: RestaurantRemovalReason.other,
+            additionalNote: 'Removed from the legacy edit screen.',
+          );
       if (!mounted) {
         return;
       }
@@ -244,7 +287,22 @@ class _RestaurantDetailsScreenState
               style: TextStyle(fontSize: 14, color: AppColors.mutedForeground),
             )
           else if (state.status == RestaurantDetailsStatus.error)
-            Text(state.errorMessage!, textAlign: TextAlign.center)
+            Column(
+              children: [
+                Text(state.errorMessage!, textAlign: TextAlign.center),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: ref
+                      .read(
+                        restaurantDetailsControllerProvider(
+                          widget.restaurantId,
+                        ).notifier,
+                      )
+                      .load,
+                  child: const Text('Retry'),
+                ),
+              ],
+            )
           else ...[
             _DetailsHeader(
               isCreate: isCreate,
@@ -264,10 +322,12 @@ class _RestaurantDetailsScreenState
               phoneController: _phoneController,
               websiteController: _websiteController,
               instagramController: _instagramController,
+              businessHoursController: _businessHoursController,
               descriptionController: _descriptionController,
               latitudeController: _latitudeController,
               longitudeController: _longitudeController,
               selectedCategories: _selectedCategories,
+              invalidFields: _invalidFields,
               priceRange: _priceRange,
               imageUrl: _imageUrl,
               uploading: _uploading,
@@ -289,19 +349,8 @@ class _RestaurantDetailsScreenState
               isLoading: state.isSaving,
               icon: LucideIcons.save,
               buttonKey: const Key('admin-restaurant-save'),
-              onPressed: _nameController.text.trim().isEmpty ? null : _save,
+              onPressed: _save,
             ),
-            if (!isCreate) ...[
-              const SizedBox(height: 12),
-              AdminOutlineButton(
-                label: 'Remove Restaurant',
-                icon: LucideIcons.trash2,
-                borderColor: AppColors.destructive,
-                foregroundColor: AppColors.destructive,
-                buttonKey: const Key('admin-restaurant-remove'),
-                onPressed: _remove,
-              ),
-            ],
           ],
         ],
       ),
@@ -473,10 +522,12 @@ class _FormCard extends StatelessWidget {
     required this.phoneController,
     required this.websiteController,
     required this.instagramController,
+    required this.businessHoursController,
     required this.descriptionController,
     required this.latitudeController,
     required this.longitudeController,
     required this.selectedCategories,
+    required this.invalidFields,
     required this.priceRange,
     required this.imageUrl,
     required this.uploading,
@@ -492,10 +543,12 @@ class _FormCard extends StatelessWidget {
   final TextEditingController phoneController;
   final TextEditingController websiteController;
   final TextEditingController instagramController;
+  final TextEditingController businessHoursController;
   final TextEditingController descriptionController;
   final TextEditingController latitudeController;
   final TextEditingController longitudeController;
   final Set<String> selectedCategories;
+  final Set<RestaurantInformationField> invalidFields;
   final String priceRange;
   final String imageUrl;
   final bool uploading;
@@ -527,6 +580,7 @@ class _FormCard extends StatelessWidget {
               controller: nameController,
               hint: 'Restaurant name',
               fieldKey: const Key('admin-restaurant-name'),
+              hasError: invalidFields.contains(RestaurantInformationField.name),
             ),
           ),
           const SizedBox(height: 16),
@@ -585,10 +639,16 @@ class _FormCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _field(
-            label: 'Phone',
+            label: 'Phone (01X-XXXXXXX)',
             child: AdminInputField(
               controller: phoneController,
-              hint: 'Phone number',
+              hint: '012-3456789',
+              fieldKey: const Key('admin-restaurant-phone'),
+              keyboardType: TextInputType.phone,
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9-]')),
+              ],
+              hasError: invalidFields.contains(RestaurantInformationField.phone),
             ),
           ),
           const SizedBox(height: 16),
@@ -597,6 +657,10 @@ class _FormCard extends StatelessWidget {
             child: AdminInputField(
               controller: websiteController,
               hint: 'e.g. https://example.com',
+              fieldKey: const Key('admin-restaurant-website'),
+              hasError: invalidFields.contains(RestaurantInformationField.website),
+              errorText:
+                  'Please enter a valid URL starting with http:// or https://.',
             ),
           ),
           const SizedBox(height: 16),
@@ -605,6 +669,19 @@ class _FormCard extends StatelessWidget {
             child: AdminInputField(
               controller: instagramController,
               hint: 'e.g. myrestaurant',
+            ),
+          ),
+          const SizedBox(height: 16),
+          _field(
+            label: 'Business Hours',
+            child: AdminInputField(
+              controller: businessHoursController,
+              hint: 'Mon: 09:00-18:00; Tue: 09:00-18:00',
+              fieldKey: const Key('admin-restaurant-business-hours'),
+              helperText: 'Use 24-hour time: Day: HH:mm-HH:mm',
+              hasError: invalidFields.contains(
+                RestaurantInformationField.businessHours,
+              ),
             ),
           ),
           const SizedBox(height: 16),
@@ -625,6 +702,9 @@ class _FormCard extends StatelessWidget {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
+              hasError: invalidFields.contains(
+                RestaurantInformationField.latitude,
+              ),
             ),
           ),
           const SizedBox(height: 16),
@@ -635,6 +715,9 @@ class _FormCard extends StatelessWidget {
               hint: '101.6869',
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
+              ),
+              hasError: invalidFields.contains(
+                RestaurantInformationField.longitude,
               ),
             ),
           ),

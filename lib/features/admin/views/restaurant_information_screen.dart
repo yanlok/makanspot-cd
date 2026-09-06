@@ -11,16 +11,47 @@ import 'widgets/admin_form_widgets.dart';
 import 'widgets/admin_page_header.dart';
 import 'widgets/admin_skeletons.dart';
 
-class RestaurantInformationScreen extends ConsumerWidget {
+class RestaurantInformationScreen extends ConsumerStatefulWidget {
   const RestaurantInformationScreen({required this.restaurantId, super.key});
 
   final String restaurantId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(restaurantDetailsControllerProvider(restaurantId));
+  ConsumerState<RestaurantInformationScreen> createState() =>
+      _RestaurantInformationScreenState();
+}
+
+class _RestaurantInformationScreenState
+    extends ConsumerState<RestaurantInformationScreen> {
+  Future<void> _removeRestaurant() async {
+    final request = await _showRestaurantRemovalDialog(context);
+    if (request == null || !mounted) return;
+
+    final error = await ref
+        .read(restaurantDetailsControllerProvider(widget.restaurantId).notifier)
+        .remove(
+          reason: request.reason,
+          additionalNote: request.additionalNote,
+        );
+    if (!mounted) return;
+
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('restaurant remove successfully.')),
+    );
+    context.go('/admin/restaurants');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(
+      restaurantDetailsControllerProvider(widget.restaurantId),
+    );
     final controller = ref.read(
-      restaurantDetailsControllerProvider(restaurantId).notifier,
+      restaurantDetailsControllerProvider(widget.restaurantId).notifier,
     );
     final restaurant = state.restaurant;
     return SafeArea(
@@ -61,10 +92,190 @@ class RestaurantInformationScreen extends ConsumerWidget {
               onPressed: () =>
                   context.go('/admin/restaurants/${restaurant.id}/edit'),
             ),
+            const SizedBox(height: 12),
+            AdminOutlineButton(
+              label: 'Remove Restaurant',
+              icon: LucideIcons.trash2,
+              borderColor: AppColors.destructive,
+              foregroundColor: AppColors.destructive,
+              buttonKey: const Key('admin-restaurant-remove'),
+              onPressed: _removeRestaurant,
+            ),
           ],
         ],
       ),
     );
+  }
+}
+
+class _RestaurantRemovalRequest {
+  const _RestaurantRemovalRequest({
+    required this.reason,
+    required this.additionalNote,
+  });
+
+  final RestaurantRemovalReason reason;
+  final String? additionalNote;
+}
+
+Future<_RestaurantRemovalRequest?> _showRestaurantRemovalDialog(
+  BuildContext context,
+) async {
+  final noteController = TextEditingController();
+  RestaurantRemovalReason? selectedReason;
+  var showReasonError = false;
+  var showNoteError = false;
+
+  try {
+    return await showModalBottomSheet<_RestaurantRemovalRequest>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: AppColors.foreground.withValues(alpha: 0.4),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          child: SafeArea(
+            top: false,
+            child: SingleChildScrollView(
+              child: Container(
+                key: const Key('admin-restaurant-removal-dialog'),
+                margin: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(AppRadii.large),
+                  border: Border.all(color: AppColors.secondary),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Remove Restaurant?',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'please provide a reason for removing the restaurant',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.mutedForeground,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    const AdminFieldLabel('Removal reason *'),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<RestaurantRemovalReason>(
+                      key: const Key('admin-restaurant-removal-reason'),
+                      value: selectedReason,
+                      isExpanded: true,
+                      hint: const Text('Choose a reason'),
+                      items: RestaurantRemovalReason.values
+                          .map(
+                            (reason) => DropdownMenuItem(
+                              value: reason,
+                              child: Text(reason.label),
+                            ),
+                          )
+                          .toList(growable: false),
+                      onChanged: (reason) => setSheetState(() {
+                        selectedReason = reason;
+                        showReasonError = false;
+                        if (reason != RestaurantRemovalReason.other) {
+                          showNoteError = false;
+                        }
+                      }),
+                      decoration: const InputDecoration(
+                        filled: true,
+                        fillColor: AppColors.surface,
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    if (showReasonError) ...[
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Choose a removal reason.',
+                        style: TextStyle(color: AppColors.destructive),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    const AdminFieldLabel('Additional note — optional'),
+                    const SizedBox(height: 8),
+                    TextField(
+                      key: const Key('admin-restaurant-removal-note'),
+                      controller: noteController,
+                      maxLines: 3,
+                      onChanged: (_) {
+                        if (showNoteError) {
+                          setSheetState(() => showNoteError = false);
+                        }
+                      },
+                      decoration: InputDecoration(
+                        hintText: selectedReason == RestaurantRemovalReason.other
+                            ? 'Required when Other is selected'
+                            : 'Add details if helpful',
+                        errorText: showNoteError
+                            ? 'An additional note is required for Other.'
+                            : null,
+                        filled: true,
+                        fillColor: AppColors.surface,
+                        border: const OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: FilledButton(
+                        key: const Key('admin-restaurant-removal-confirm'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.destructive,
+                          foregroundColor: AppColors.surface,
+                        ),
+                        onPressed: () {
+                          final requiresNote =
+                              selectedReason == RestaurantRemovalReason.other;
+                          final note = noteController.text.trim();
+                          if (selectedReason == null ||
+                              (requiresNote && note.isEmpty)) {
+                            setSheetState(() {
+                              showReasonError = selectedReason == null;
+                              showNoteError = requiresNote && note.isEmpty;
+                            });
+                            return;
+                          }
+                          Navigator.of(sheetContext).pop(
+                            _RestaurantRemovalRequest(
+                              reason: selectedReason!,
+                              additionalNote: note.isEmpty ? null : note,
+                            ),
+                          );
+                        },
+                        child: const Text('Remove Restaurant'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(sheetContext).pop(),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  } finally {
+    noteController.dispose();
   }
 }
 
@@ -320,7 +531,7 @@ class _RestaurantInformationError extends StatelessWidget {
             const SizedBox(height: 12),
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 16),
-            FilledButton(onPressed: onRetry, child: const Text('Try Again')),
+            FilledButton(onPressed: onRetry, child: const Text('Retry')),
           ],
         ),
       ),

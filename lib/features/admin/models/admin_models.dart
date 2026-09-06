@@ -13,6 +13,22 @@ enum RestaurantStatusFilter { all, active, deleted }
 
 enum RestaurantSort { nameAscending, nameDescending }
 
+/// The administrator's required explanation for removing a restaurant.
+enum RestaurantRemovalReason {
+  permanentlyClosed,
+  duplicateListing,
+  platformPolicyViolation,
+  other;
+
+  String get label => switch (this) {
+    RestaurantRemovalReason.permanentlyClosed => 'Restaurant Permanently Closed',
+    RestaurantRemovalReason.duplicateListing => 'Duplicate Restaurant Listing',
+    RestaurantRemovalReason.platformPolicyViolation =>
+      'Violation of Platform Policies',
+    RestaurantRemovalReason.other => 'Other',
+  };
+}
+
 class AdminRestaurantPage {
   const AdminRestaurantPage({required this.items, required this.hasMore});
 
@@ -212,10 +228,13 @@ class AdminRestaurantDraft {
     this.state,
     this.latitude,
     this.longitude,
+    this.latitudeText,
+    this.longitudeText,
     this.phone,
     this.website,
     this.priceRange,
     this.businessHours,
+    this.businessHoursText,
     this.instagramUsername,
     this.imageUrl,
   });
@@ -228,10 +247,14 @@ class AdminRestaurantDraft {
   final String? state;
   final double? latitude;
   final double? longitude;
+  final String? latitudeText;
+  final String? longitudeText;
   final String? phone;
   final String? website;
   final String? priceRange;
   final Map<String, dynamic>? businessHours;
+  /// Retains the editable value so malformed time ranges are not discarded.
+  final String? businessHoursText;
   final String? instagramUsername;
   final String? imageUrl;
 }

@@ -74,7 +74,20 @@ abstract interface class AdminRepository {
     AdminRestaurantDraft draft,
   );
 
-  Future<void> deleteRestaurant(String id);
+  /// True when another restaurant has a conflicting identity field. The
+  /// current restaurant's primary-key ID is always excluded from the check.
+  Future<bool> restaurantExists(
+    AdminRestaurantDraft draft,
+    String excludeRestaurantId,
+  );
+
+  /// Removes a restaurant from active results. Restaurants with community
+  /// history are archived; records without history are permanently removed.
+  Future<void> deleteRestaurant(
+    String id, {
+    required RestaurantRemovalReason reason,
+    String? additionalNote,
+  });
 
   /// Returns all reported content grouped by post or comment.
   Future<List<ReportedContentGroup>> loadReportedContentGroups();

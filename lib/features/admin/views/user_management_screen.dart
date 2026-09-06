@@ -135,10 +135,14 @@ class UserManagementScreen extends ConsumerWidget {
         if (state.status == UserManagementStatus.loading)
           const AdminListSkeleton(count: 5, cardHeight: 112)
         else if (state.status == UserManagementStatus.empty)
-          const AdminEmptyState(
+          AdminEmptyState(
             icon: LucideIcons.users,
-            title: 'No accounts found.',
-            message: 'Try a different search or filter.',
+            title: state.hasAppliedCriteria
+                ? 'No Matching User Accounts'
+                : 'No User Accounts Found',
+            message: state.hasAppliedCriteria
+                ? 'No user accounts match your search or filter criteria.'
+                : 'No user accounts are available.',
           ),
       ],
     );
@@ -152,7 +156,7 @@ class UserManagementScreen extends ConsumerWidget {
       return _UserManagementError(
         message:
             state.pageError ??
-            'Unable to retrieve user accounts. Check your connection and try again.',
+            'Unable to retrieve user accounts. Please try again.',
         onRetry: controller.loadFirstPage,
       );
     }
@@ -170,8 +174,9 @@ class UserManagementScreen extends ConsumerWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'Could not load more users.',
+            Text(
+              state.pageError ??
+                  'Unable to retrieve user accounts. Please try again.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 12),
@@ -221,7 +226,7 @@ class _UserManagementError extends StatelessWidget {
             const SizedBox(height: 12),
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 16),
-            FilledButton(onPressed: onRetry, child: const Text('Try Again')),
+            FilledButton(onPressed: onRetry, child: const Text('Retry')),
           ],
         ),
       ),

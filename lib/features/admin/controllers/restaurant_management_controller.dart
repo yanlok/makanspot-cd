@@ -15,6 +15,7 @@ class RestaurantManagementState {
     this.statusFilter = RestaurantStatusFilter.active,
     this.sort = RestaurantSort.nameAscending,
     this.hasMore = false,
+    this.hasAppliedCriteria = false,
     this.pageError,
   });
 
@@ -27,6 +28,8 @@ class RestaurantManagementState {
   final RestaurantStatusFilter statusFilter;
   final RestaurantSort sort;
   final bool hasMore;
+  /// Distinguishes an empty database from an empty search/filter result.
+  final bool hasAppliedCriteria;
   final String? pageError;
 
   RestaurantManagementState copyWith({
@@ -36,6 +39,7 @@ class RestaurantManagementState {
     RestaurantStatusFilter? statusFilter,
     RestaurantSort? sort,
     bool? hasMore,
+    bool? hasAppliedCriteria,
     String? pageError,
   }) {
     return RestaurantManagementState(
@@ -45,6 +49,7 @@ class RestaurantManagementState {
       statusFilter: statusFilter ?? this.statusFilter,
       sort: sort ?? this.sort,
       hasMore: hasMore ?? this.hasMore,
+      hasAppliedCriteria: hasAppliedCriteria ?? this.hasAppliedCriteria,
       pageError: pageError,
     );
   }
@@ -77,7 +82,13 @@ class RestaurantManagementController
 
   Future<void> loadFirstPage() async {
     final requestId = ++_requestId;
-    state = state.copyWith(status: RestaurantManagementStatus.loading);
+    // Do not leave stale results on screen if the replacement request fails;
+    // the administrator should see the retrieval failure and its retry action.
+    state = state.copyWith(
+      status: RestaurantManagementStatus.loading,
+      restaurants: const [],
+      hasMore: false,
+    );
     await _fetchPage(0, requestId);
   }
 
@@ -88,12 +99,22 @@ class RestaurantManagementController
   }
 
   void updateSearch(String value) {
-    state = state.copyWith(searchQuery: value);
+    state = state.copyWith(
+      searchQuery: value,
+      hasAppliedCriteria:
+          value.trim().isNotEmpty ||
+          state.statusFilter != RestaurantStatusFilter.active,
+    );
     loadFirstPage();
   }
 
   void selectStatusFilter(RestaurantStatusFilter filter) {
-    state = state.copyWith(statusFilter: filter);
+    state = state.copyWith(
+      statusFilter: filter,
+      hasAppliedCriteria:
+          filter != RestaurantStatusFilter.active ||
+          state.searchQuery.trim().isNotEmpty,
+    );
     loadFirstPage();
   }
 
@@ -124,17 +145,17 @@ class RestaurantManagementController
         restaurants: List.unmodifiable(merged),
         hasMore: page.hasMore,
       );
-    } on Object catch (error) {
+    } on Object {
       if (requestId != _requestId) return;
       if (offset == 0) {
         state = state.copyWith(
           status: RestaurantManagementStatus.error,
-          pageError: error.toString(),
+          pageError: 'Unable to retrieve restaurant information. Please try again.',
         );
       } else {
         state = state.copyWith(
           status: RestaurantManagementStatus.content,
-          pageError: error.toString(),
+          pageError: 'Unable to retrieve restaurant information. Please try again.',
         );
       }
     } finally {
